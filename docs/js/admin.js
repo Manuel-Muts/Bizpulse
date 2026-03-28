@@ -1,4 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import {
   getFirestore,
   collection,
@@ -38,6 +39,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+
+/* 🖼️ COMPANY ASSETS */
+const LOGO_PATH = "images/logo.png"; 
+const PROVIDER_NAME = "MUTSTECH LTD";
 
 // 💾 Enable Firestore Offline Persistence (Data Caching) for Admin
 enableIndexedDbPersistence(db).catch((err) => {
@@ -150,11 +155,14 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
             ${u.suspended ? 'Suspended' : 'Active'}
         </td>
         <td class="actions">
-          <button class="action-btn" onclick="toggleSuspension('${u.id}', ${u.suspended})">
+          <button class="action-btn" style="background: ${u.suspended ? '#16a34a' : '#f59e0b'};" onclick="toggleSuspension('${u.id}', ${u.suspended})">
             ${u.suspended ? 'Reactivate' : 'Suspend'}
           </button>
           <button class="action-btn" style="background: #10b981;" onclick="editUser('${u.id}')">
             Edit
+          </button>
+          <button class="action-btn" style="background: #6366f1;" onclick="downloadContract('${u.id}')">
+            Contract
           </button>
           <button class="action-btn delete" onclick="deleteUser('${u.id}', '${u.email}')">
             Delete
@@ -310,6 +318,90 @@ window.editUser = (id) => {
   regMessage.textContent = "Editing client: " + user.email;
   regMessage.style.color = "#2563eb";
   window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+/* =========================
+   CONTRACT PDF GENERATION
+   ========================= */
+window.downloadContract = async (id) => {
+  const user = users.find(u => u.id === id);
+  if (!user) {
+    alert("Client details not found.");
+    return;
+  }
+
+  const clientName = user.businessName || "Valued Client";
+  const date = new Date().toLocaleDateString();
+
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // 1. Logo and Header
+  try {
+    doc.addImage(LOGO_PATH, 'PNG', 10, 10, 30, 30);
+  } catch (e) {
+    console.warn("Logo not found at images/logo.png, skipping image.");
+  }
+  
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text(PROVIDER_NAME, pageWidth / 2, 25, { align: "center" });
+  
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("Business Management Solutions & Software Development", pageWidth / 2, 32, { align: "center" });
+
+  doc.setLineWidth(0.5);
+  doc.line(20, 45, pageWidth - 20, 45); // Horizontal divider
+
+  // 2. Title and Intro
+  doc.setFontSize(16);
+  doc.setFont("helvetica", "bold");
+  doc.text("SOFTWARE SERVICE AGREEMENT", 20, 60);
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Document Date: ${date}`, 20, 70);
+  doc.text(`This agreement is entered between ${PROVIDER_NAME} (Provider) and ${clientName} (Client).`, 20, 80);
+
+  // 3. Sections
+  const sections = [
+    { title: "1. SCOPE OF SERVICE", body: "The Provider agrees to deploy and maintain the BizPulse Business Management System." },
+    { title: "2. FEES AND PAYMENT TERMS", body: "- Initial Installation Fee: KES 15,000.00 (Due upon deployment)\n- Annual Renewal Fee: KES 10,000.00 (Due annually for cloud & support)" },
+    { title: "3. DATA PRIVACY & OWNERSHIP", body: "The Provider guarantees that all business data remains the exclusive property of the Client." },
+    { title: "4. SERVICE SUSPENSION", body: "The Provider reserves the right to suspend access if renewal fees are not settled within 14 days." }
+  ];
+
+  let cursorY = 95;
+  sections.forEach(s => {
+    doc.setFont("helvetica", "bold");
+    doc.text(s.title, 20, cursorY);
+    doc.setFont("helvetica", "normal");
+    doc.text(s.body, 20, cursorY + 7);
+    cursorY += 25;
+  });
+
+  // 4. Important Notice Box
+  cursorY += 5;
+  doc.setDrawColor(99, 102, 241); // Indigo border
+  doc.setLineWidth(0.5);
+  doc.rect(20, cursorY, pageWidth - 40, 20); 
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text("IMPORTANT NOTICE:", 25, cursorY + 8);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Technical support is available Mon-Fri (8 AM - 5 PM). System maintenance and security", 25, cursorY + 14);
+  doc.text("patches are included in the annual renewal fee to ensure business continuity.", 25, cursorY + 18);
+
+  // 5. Signatures
+  cursorY += 35;
+  doc.text("__________________________", 20, cursorY);
+  doc.text("__________________________", pageWidth - 80, cursorY);
+  doc.text(`${PROVIDER_NAME} (Provider)`, 20, cursorY + 7);
+  doc.text(`${clientName} (Client)`, pageWidth - 80, cursorY + 7);
+
+  doc.save(`Contract_${clientName.replace(/\s+/g, '_')}.pdf`);
 };
 
 /* =========================

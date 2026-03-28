@@ -431,7 +431,7 @@ table tr:hover {
 /* =========================
    ACTION BUTTONS
    ========================= */
-.actions button {
+.action-btn, .actions button {
   margin: 0 4px;
   padding: 6px 10px;
   font-size: 13px;
@@ -439,6 +439,12 @@ table tr:hover {
   border-radius: 6px;
   cursor: pointer;
   transition: opacity 0.3s;
+  color: white; /* Ensure text is visible on dark button backgrounds */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-decoration: none;
 }
 
 .actions button:hover {
@@ -721,8 +727,17 @@ table tr:hover {
 /* =========================
    PAGINATION
    ========================= */
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 25px;
+  padding: 15px;
+}
+
 .pagination-controls button:disabled {
-  background: #d1d5db !important;
+  background: rgb(228, 148, 170) !important;
   cursor: not-allowed;
   opacity: 0.6;
 }
