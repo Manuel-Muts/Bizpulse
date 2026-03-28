@@ -1,0 +1,11 @@
+.status-red {
+    color: #e74c3c;
+    font-weight: bold;
+}
+.status-green {
+    color: #27ae60;
+    font-weight: bold;
+}
+.logout-btn {
+    background-color: #c0392b;
+}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - BizPulse</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body style="background: #f4f6f8; padding: 0;">
+  <!-- NAVIGATION -->
+  <nav class="navbar">
+    <div class="nav-logo">BizPulse</div>
+    <ul class="nav-links">
+      <li><a href="index.html">Back to Home</a></li>
+    </ul>
+  </nav>
+
+  <!-- AUTH SECTION -->
+  <div id="authSection" style="display: block; margin-top: 100px;">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <input type="email" id="email" placeholder="Email" required />
+      <input type="password" id="password" placeholder="Password" required />
+
+      <button type="submit" id="loginBtn">
+        <span class="btn-text">Login</span>
+        <span class="spinner"></span>
+      </button>
+      <div style="margin-top: 15px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+        <a href="#" id="forgotPasswordLink" style="font-size: 16px; color: #2563eb; text-decoration: none;">Forgot Password?</a>
+        <span id="forgotSpinner" class="spinner" style="width: 14px; height: 14px;"></span>
+      </div>
+      <div class="footer-links">
+      <a href="privacy.html">Privacy Policy</a> | <a href="terms.html">Terms of Service</a>
+    </div>
+    </form>
+    <p id="loginMessage" style="margin-top: 20px; font-weight: bold;"></p>
+  </div>
+
+  <!-- MODULE SCRIPT -->
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

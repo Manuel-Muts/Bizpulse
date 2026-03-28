@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizPulse - Business Management</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- NAVIGATION -->
+  <nav class="navbar">
+    <div class="nav-logo">BizPulse</div>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#" data-section="hero">Home</a></li>
+      <li><a href="about.html" target="_self">About</a></li>
+      <li><a href="contact.html" target="_self">Contacts</a></li>
+      <li><a href="login.html" id="navLoginBtn" class="nav-login-btn">Login</a></li>
+    </ul>
+  </nav>
+
+  <!-- LANDING PAGE SECTIONS -->
+  <main id="landingPage">
+    <!-- HERO SECTION -->
+    <section id="hero" class="landing-section">
+      <div class="hero-content">
+        <h1>Streamline Your Business with BizPulse</h1>
+        <p>The ultimate Business Management System for tracking inventory, orders, and profits with precision.</p>
+        <a href="login.html" class="cta-btn">Get Started</a>
+      </div>
+    </section>
+
+  </main>
+  <footer class="main-footer">
+    <div class="container">
+    <p class="footer-text">
+      &copy; <span id="currentYear"></span> <strong>BizPulse</strong>. All rights reserved.
+    </p>
+    <div class="footer-links">
+      <a href="privacy.html">Privacy Policy</a> | <a href="terms.html">Terms of Service</a>
+    </div>
+  </div>
+</footer>
+
+  <!-- COOKIE CONSENT BANNER -->
+  <div id="cookieBanner" class="cookie-banner">
+    <p>
+      BizPulse uses cookies to ensure the best experience and offline functionality. 
+      By continuing to use our site, you agree to our <a href="privacy.html">Privacy Policy</a>.
+    </p>
+    <button id="acceptCookies" class="cookie-btn">Accept</button>
+  </div>
+
+  <!-- LANDING PAGE LOGIC -->
+  <script type="module" src="js/home.js"></script>
+</body>
+</html>

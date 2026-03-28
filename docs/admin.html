@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizPulse - Admin Panel</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body class="admin-body">
+
+  <div id="adminPanel" class="container" style="display:none;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <h1>BizPulse Admin</h1>
+      <button class="logout-btn" id="logoutBtn">Logout</button>
+    </div>
+
+    <!-- NEW CLIENT REGISTRATION -->
+    <div class="section-divider">
+      <h2>Register New Business Client</h2>
+    </div>
+    <form id="registerBusinessForm" style="display: flex; gap: 10px; margin-bottom: 20px;">
+      <input type="text" id="newBusName" placeholder="Business/Client Name" required />
+      <input type="email" id="newBusEmail" placeholder="Business Email" required />
+      <input type="password" id="newBusPassword" placeholder="Initial Password" required />
+      <button type="submit" id="regBtn" class="action-btn">Create Account</button>
+    </form>
+    <p id="regMessage" style="text-align: center; font-weight: bold;"></p>
+    
+    <div class="section-divider">
+      <h2>Business Client Management</h2>
+    </div>
+
+    <div class="controls" style="margin-bottom: 20px;">
+      <input type="text" id="adminSearchInput" placeholder="Search client by email..." />
+    </div>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>Business Name</th>
+          <th>Client Email</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="adminUserTable">
+        <!-- Data populated by admin.js -->
+      </tbody>
+    </table>
+
+    <!-- PAGINATION CONTROLS -->
+    <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 20px;">
+      <button id="adminPrevPageBtn" class="action-btn" style="background: #4b5563;" disabled>Previous</button>
+      <span id="adminPageInfo" style="font-weight: bold; color: #1e3a8a;">Page 1</span>
+      <button id="adminNextPageBtn" class="action-btn" style="background: #4b5563;">Next</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>
