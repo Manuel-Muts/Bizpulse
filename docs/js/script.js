@@ -334,11 +334,6 @@ onAuthStateChanged(auth, async (user) => {
       showLoadingIndicator(false);
     }
   } else {
-    // Only redirect if we are on the dashboard page
-    if (window.location.pathname.includes("clients.html")) {
-        window.location.href = "/login.html";
-    }
-    
     if (bizContainer) bizContainer.style.display = "none";
     if (suspendedSection) suspendedSection.style.display = "none";
     if (passwordChangeModal) passwordChangeModal.style.display = "none";

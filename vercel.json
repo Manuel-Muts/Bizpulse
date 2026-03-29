@@ -2,11 +2,10 @@
   "version": 2,
   "builds": [
     {
-      "src": "docs/**",
+      "src": "docs/**/*",
       "use": "@vercel/static"
     }
   ],
-  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/home",
