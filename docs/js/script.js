@@ -71,6 +71,7 @@ onSnapshotsInSync(db, () => {
 const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
 const usersRef = collection(db, "users");
+const paymentsRef = collection(db, "payments");
 
 /* =========================
    DOM ELEMENTS
@@ -91,6 +92,42 @@ const importCsvBtn = document.getElementById("importCsvBtn");
 const importProgressContainer = document.getElementById("importProgressContainer");
 const importProgressBar = document.getElementById("importProgressBar");
 const syncStatusIndicator = document.getElementById("syncStatusIndicator");
+const dailyRevenueValue = document.getElementById("dailyRevenue");
+const dailyProfitValue = document.getElementById("dailyProfit");
+const dailyCountValue = document.getElementById("dailyCount");
+const monthlyRevenueValue = document.getElementById("monthlyRevenue");
+const monthlyProfitValue = document.getElementById("monthlyProfit");
+const lifetimeProfitValue = document.getElementById("lifetimeProfit");
+const lowStockCountEl = document.getElementById("lowStockCount");
+const lowStockDetails = document.getElementById("lowStockDetails");
+const lowStockTable = document.getElementById("lowStockTable");
+const lowStockPrevBtn = document.getElementById("lowStockPrevBtn");
+const lowStockNextBtn = document.getElementById("lowStockNextBtn");
+const lowStockPageInfo = document.getElementById("lowStockPageInfo");
+const paymentPayerName = document.getElementById("paymentPayerName");
+const paymentMessage = document.getElementById("paymentMessage");
+const paymentMethodSelect = document.getElementById("paymentMethod");
+const paymentFirstBtn = document.getElementById("paymentFirstBtn");
+const paymentAnnualBtn = document.getElementById("paymentAnnualBtn");
+const openPaymentModalBtn = document.getElementById("openPaymentModalBtn");
+const paymentModal = document.getElementById("paymentModal");
+const viewPaymentHistoryBtn = document.getElementById("viewPaymentHistoryBtn");
+const paymentHistoryModal = document.getElementById("paymentHistoryModal");
+const closeHistoryModalBtn = document.getElementById("closeHistoryModalBtn");
+const paymentHistoryTableBody = document.getElementById("paymentHistoryTableBody");
+const paymentPrevBtn = document.getElementById("paymentPrevBtn");
+const paymentNextBtn = document.getElementById("paymentNextBtn");
+const paymentPageInfo = document.getElementById("paymentPageInfo");
+
+const paymentConfirmModal = document.getElementById("paymentConfirmModal");
+const paymentConfirmMessage = document.getElementById("paymentConfirmMessage");
+const confirmPaymentBtn = document.getElementById("confirmPaymentBtn");
+const cancelPaymentBtn = document.getElementById("cancelPaymentBtn");
+
+const closePaymentModalBtn = document.getElementById("closePaymentModalBtn");
+const stockHealthModal = document.getElementById("stockHealthModal");
+const openStockHealthModalBtn = document.getElementById("openStockHealthModalBtn");
+const closeStockHealthModalBtn = document.getElementById("closeStockHealthModalBtn");
 
 // Inventory Pagination Elements
 const prevPageBtn = document.getElementById("prevPageBtn");
@@ -123,6 +160,16 @@ let orders = [];
 let sales = [];
 let editId = null;
 let editOrderId = null;
+let paymentReceipts = [];
+let lastPaymentDoc = null;
+let firstPaymentDoc = null;
+let paymentPage = 1;
+const paymentPageSize = 5;
+
+let pendingPaymentData = null;
+
+let lowStockPage = 1;
+const lowStockPageSize = 5;
 let itemsUnsubscribe = null;
 let ordersUnsubscribe = null;
 
@@ -155,8 +202,67 @@ window.addEventListener('saleRecorded', async (e) => {
   const { uid } = e.detail;
   await loadItems(uid); // Reload items to update stock
   updateSaleDropdown(items); // Update dropdown with new stock levels
+  renderLowStockAlerts();
 });
 
+window.addEventListener('salesSummaryUpdated', (event) => {
+  const summary = event.detail || {};
+  if (dailyRevenueValue) dailyRevenueValue.textContent = Number(summary.dailyRevenue || 0).toFixed(2);
+  if (dailyProfitValue) dailyProfitValue.textContent = Number(summary.dailyProfit || 0).toFixed(2);
+  if (dailyCountValue) dailyCountValue.textContent = summary.dailyCount || 0;
+  if (monthlyRevenueValue) monthlyRevenueValue.textContent = Number(summary.monthlyRevenue || 0).toFixed(2);
+  if (monthlyProfitValue) monthlyProfitValue.textContent = Number(summary.monthlyProfit || 0).toFixed(2);
+  if (lifetimeProfitValue) lifetimeProfitValue.textContent = Number(summary.lifetimeProfit || 0).toFixed(2);
+  renderLowStockAlerts(lowStockPage);
+});
+
+lowStockPrevBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage - 1));
+lowStockNextBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage + 1));
+
+openPaymentModalBtn?.addEventListener('click', () => {
+  if (paymentModal) paymentModal.style.display = 'flex';
+});
+
+closePaymentModalBtn?.addEventListener('click', () => {
+  if (paymentModal) paymentModal.style.display = 'none';
+});
+
+paymentModal?.addEventListener('click', (event) => {
+  if (event.target === paymentModal) {
+    paymentModal.style.display = 'none';
+  }
+});
+
+viewPaymentHistoryBtn?.addEventListener('click', () => {
+  if (paymentHistoryModal) paymentHistoryModal.style.display = 'flex';
+});
+
+closeHistoryModalBtn?.addEventListener('click', () => {
+  if (paymentHistoryModal) paymentHistoryModal.style.display = 'none';
+});
+
+paymentHistoryModal?.addEventListener('click', (event) => {
+  if (event.target === paymentHistoryModal) {
+    paymentHistoryModal.style.display = 'none';
+  }
+});
+
+openStockHealthModalBtn?.addEventListener('click', () => {
+  if (stockHealthModal) {
+    renderLowStockAlerts(1);
+    stockHealthModal.style.display = 'flex';
+  }
+});
+
+closeStockHealthModalBtn?.addEventListener('click', () => {
+  if (stockHealthModal) stockHealthModal.style.display = 'none';
+});
+
+stockHealthModal?.addEventListener('click', (event) => {
+  if (event.target === stockHealthModal) {
+    stockHealthModal.style.display = 'none';
+  }
+});
 
 /* =========================
    AUTH STATE LISTENER
@@ -208,6 +314,7 @@ onAuthStateChanged(auth, async (user) => {
         await loadItems(user.uid);
         await loadOrders(user.uid);
         await loadSales(user.uid);
+        await loadPaymentReceipts(user.uid);
         
         // Setup Contract Download for Client
         renderContractDownloadButton(userData.businessName);
@@ -569,7 +676,198 @@ function renderItems(filter = "") {
   });
 
   if (totalProfitEl) totalProfitEl.textContent = totalProfit.toFixed(2);
+  renderLowStockAlerts();
 }
+
+function renderLowStockAlerts(page = 1) {
+  if (!lowStockCountEl || !lowStockDetails || !lowStockTable || !lowStockPageInfo) return;
+
+  const lowStockItems = items.filter(item => item.quantity <= 3);
+  const totalItems = lowStockItems.length;
+  const totalPages = totalItems === 0 ? 1 : Math.ceil(totalItems / lowStockPageSize);
+  lowStockPage = Math.min(Math.max(page, 1), totalPages);
+
+  lowStockCountEl.textContent = totalItems;
+
+  if (totalItems === 0) {
+    lowStockTable.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#475569;">No low-stock items.</td></tr>`;
+    lowStockPageInfo.textContent = "Page 0";
+    lowStockPrevBtn.disabled = true;
+    lowStockNextBtn.disabled = true;
+    return;
+  }
+
+  const startIndex = (lowStockPage - 1) * lowStockPageSize;
+  const paginatedItems = lowStockItems.slice(startIndex, startIndex + lowStockPageSize);
+
+  lowStockTable.innerHTML = paginatedItems.map(item => `
+    <tr>
+      <td>${item.name}</td>
+      <td>${item.incoming}</td>
+      <td>${item.outgoing}</td>
+      <td>${item.quantity}</td>
+    </tr>
+  `).join("");
+
+  lowStockPageInfo.textContent = `Page ${lowStockPage} of ${totalPages}`;
+  lowStockPrevBtn.disabled = lowStockPage === 1;
+  lowStockNextBtn.disabled = lowStockPage === totalPages;
+}
+
+async function loadPaymentReceipts(uid, direction = 'initial') {
+  if (!uid) return;
+  showLoadingIndicator(true);
+  try {
+    let q;
+    const baseQuery = query(paymentsRef, where("uid", "==", uid), orderBy("timestamp", "desc"));
+
+    if (direction === 'next' && lastPaymentDoc) {
+      q = query(baseQuery, startAfter(lastPaymentDoc), limit(paymentPageSize));
+    } else if (direction === 'prev' && firstPaymentDoc) {
+      q = query(baseQuery, endBefore(firstPaymentDoc), limitToLast(paymentPageSize));
+    } else {
+      q = query(baseQuery, limit(paymentPageSize));
+      paymentPage = 1;
+    }
+
+    const snap = await getDocs(q);
+    
+    if (snap.empty) {
+      paymentReceipts = [];
+      if (direction === 'initial' && paymentFirstBtn) paymentFirstBtn.style.display = "inline-block";
+    } else {
+      firstPaymentDoc = snap.docs[0];
+      lastPaymentDoc = snap.docs[snap.docs.length - 1];
+
+      paymentReceipts = snap.docs.map(d => ({
+        ...d.data(),
+        timestamp: new Date(d.data().timestamp).toLocaleString()
+      }));
+
+      if (direction === 'next') paymentPage++;
+      else if (direction === 'prev') paymentPage--;
+
+      // Lock the "First Payment" button if it has already been made (global check on init)
+      if (direction === 'initial') {
+        const checkQ = query(paymentsRef, where("uid", "==", uid), where("label", "==", "First payment"), limit(1));
+        const checkSnap = await getDocs(checkQ);
+        if (paymentFirstBtn) paymentFirstBtn.style.display = !checkSnap.empty ? "none" : "inline-block";
+      }
+    }
+
+    updatePaymentPaginationUI(snap.size);
+    renderPaymentReceipts();
+  } catch (error) {
+    console.error("Error loading payments:", error);
+  } finally {
+    showLoadingIndicator(false);
+  }
+}
+
+function updatePaymentPaginationUI(currentCount) {
+  if (paymentPageInfo) paymentPageInfo.textContent = `Page ${paymentPage}`;
+  if (paymentPrevBtn) paymentPrevBtn.disabled = (paymentPage === 1);
+  if (paymentNextBtn) paymentNextBtn.disabled = (currentCount < paymentPageSize);
+}
+
+function savePaymentReceipts() {
+  try {
+    sessionStorage.setItem("bizPulsePaymentReceipts", JSON.stringify(paymentReceipts));
+  } catch (error) {
+    console.warn("Unable to save payment receipts:", error);
+  }
+}
+
+function renderPaymentReceipts() {
+  if (!paymentHistoryTableBody) return;
+
+  if (paymentReceipts.length === 0) {
+    paymentHistoryTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#64748b;">No payment records found.</td></tr>`;
+    return;
+  }
+
+  paymentHistoryTableBody.innerHTML = paymentReceipts.map(receipt => `
+    <tr>
+      <td>${receipt.label}</td>
+      <td style="font-weight:bold; color:#059669;">KES ${Number(receipt.amount).toLocaleString()}</td>
+      <td>${receipt.method}</td>
+      <td>${receipt.timestamp}</td>
+    </tr>
+  `).join("");
+}
+
+function showPaymentMessage(text, type = "info") {
+  if (!paymentMessage) return;
+  paymentMessage.textContent = text;
+  paymentMessage.style.color = type === "error" ? "#dc2626" : "#047857";
+}
+
+async function recordPayment(method, amount, label) {
+  const payer = paymentPayerName?.value.trim();
+  if (!payer) {
+    showPaymentMessage("Enter payer name before recording payment.", "error");
+    return;
+  }
+
+  const receipt = {
+    uid: auth.currentUser.uid,
+    businessName: document.getElementById("bizTitle")?.textContent || "Unknown Business",
+    name: payer,
+    method,
+    amount,
+    label,
+    timestamp: new Date().toISOString()
+  };
+
+  try {
+    await addDoc(paymentsRef, receipt);
+    await loadPaymentReceipts(auth.currentUser.uid, 'initial');
+    
+    // Immediately hide the button if this was the first payment
+    if (label === "First payment" && paymentFirstBtn) {
+      paymentFirstBtn.style.display = "none";
+    }
+    showPaymentMessage(`Recorded ${label} for ${payer}.`);
+  } catch (error) {
+    console.error("Payment sync error:", error);
+    showPaymentMessage("Error syncing payment to server.", "error");
+  }
+}
+
+function handlePaymentClick(amount, label) {
+  const payer = paymentPayerName?.value.trim();
+  const method = paymentMethodSelect?.value || "Unknown";
+
+  if (!payer) {
+    showPaymentMessage("Enter payer name before recording payment.", "error");
+    return;
+  }
+
+  pendingPaymentData = { method, amount, label };
+  if (paymentConfirmMessage) {
+    paymentConfirmMessage.textContent = `Are you sure you want to record a ${label} of KES ${amount.toLocaleString()} for ${payer}?`;
+  }
+  if (paymentConfirmModal) paymentConfirmModal.style.display = "flex";
+}
+
+paymentFirstBtn?.addEventListener("click", () => handlePaymentClick(15000, "First payment"));
+paymentAnnualBtn?.addEventListener("click", () => handlePaymentClick(10000, "Annual payment"));
+
+paymentPrevBtn?.addEventListener("click", () => loadPaymentReceipts(auth.currentUser.uid, 'prev'));
+paymentNextBtn?.addEventListener("click", () => loadPaymentReceipts(auth.currentUser.uid, 'next'));
+
+confirmPaymentBtn?.addEventListener("click", async () => {
+  if (pendingPaymentData) {
+    if (paymentConfirmModal) paymentConfirmModal.style.display = "none";
+    await recordPayment(pendingPaymentData.method, pendingPaymentData.amount, pendingPaymentData.label);
+    pendingPaymentData = null;
+  }
+});
+
+cancelPaymentBtn?.addEventListener("click", () => {
+  if (paymentConfirmModal) paymentConfirmModal.style.display = "none";
+  pendingPaymentData = null;
+});
 
 form.addEventListener("submit", async e => {
   showLoadingIndicator(true);
@@ -907,6 +1205,7 @@ function renderOrders(filter = "") {
     `;
     orderTable.appendChild(row);
   });
+  renderLowStockAlerts();
 }
 
 orderForm.addEventListener("submit", async e => {

@@ -67,10 +67,19 @@ const adminSearchInput = document.getElementById("adminSearchInput"); // For cli
 const prevPageBtn = document.getElementById("adminPrevPageBtn"); // Pagination
 const nextPageBtn = document.getElementById("adminNextPageBtn"); // Pagination
 const pageInfo = document.getElementById("adminPageInfo"); // Pagination
+const totalClientsCount = document.getElementById("totalClientsCount");
+const activeClientsCount = document.getElementById("activeClientsCount");
+const suspendedClientsCount = document.getElementById("suspendedClientsCount");
+const newClientsLast30Days = document.getElementById("newClientsLast30Days");
 
 
 let editUserId = null;
 let users = [];
+
+let paymentPage = 1;
+let lastPaymentDoc = null;
+let firstPaymentDoc = null;
+const paymentPageSize = 5;
 
 /* =========================
    AUTH PROTECTOR
@@ -83,7 +92,8 @@ onAuthStateChanged(auth, async (user) => {
 
       if (userData && userData.role === "admin") {
         adminPanel.style.display = "block";
-        loadAdminDashboard();
+        await loadAdminDashboard();
+        await loadAdminStats();
       } else {
         // Not an admin? Send back to main page
         window.location.href = "index.html";
@@ -161,6 +171,9 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
           <button class="action-btn" style="background: #10b981;" onclick="editUser('${u.id}')">
             Edit
           </button>
+          <button class="action-btn" style="background: #8b5cf6;" onclick="viewPayments('${u.id}', '${u.businessName.replace(/'/g, "\\'")}')">
+            Payments
+          </button>
           <button class="action-btn" style="background: #6366f1;" onclick="downloadContract('${u.id}')">
             Contract
           </button>
@@ -180,6 +193,31 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
   } catch (error) {
     console.error("Error loading dashboard:", error);
     adminUserTable.innerHTML = `<tr><td colspan="4" style="text-align:center; color:red; padding:20px;">Error loading clients: ${error.message}</td></tr>`;
+  }
+}
+
+async function loadAdminStats() {
+  try {
+    const statsQuery = query(usersRef, where("role", "==", "user"));
+    const snapshot = await getDocs(statsQuery);
+    const clients = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const total = clients.length;
+    const suspended = clients.filter(c => c.suspended).length;
+    const newClients = clients.filter(c => {
+      const created = c.createdAt ? new Date(c.createdAt) : null;
+      if (!created || Number.isNaN(created.getTime())) return false;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      return created >= cutoff;
+    }).length;
+
+    if (totalClientsCount) totalClientsCount.textContent = total;
+    if (activeClientsCount) activeClientsCount.textContent = total - suspended;
+    if (suspendedClientsCount) suspendedClientsCount.textContent = suspended;
+    if (newClientsLast30Days) newClientsLast30Days.textContent = newClients;
+  } catch (error) {
+    console.error("Error loading admin stats:", error);
   }
 }
 
@@ -205,6 +243,104 @@ adminSearchInput?.addEventListener("input", () => {
 });
 
 /* =========================
+   VIEW CLIENT PAYMENTS
+   ========================= */
+window.viewPayments = async (userId, businessName, direction = 'initial') => {
+  try {
+    let q;
+    const baseQuery = query(collection(db, "payments"), where("uid", "==", userId), orderBy("timestamp", "desc"));
+
+    if (direction === 'next' && lastPaymentDoc) {
+      q = query(baseQuery, startAfter(lastPaymentDoc), limit(paymentPageSize));
+    } else if (direction === 'prev' && firstPaymentDoc) {
+      q = query(baseQuery, endBefore(firstPaymentDoc), limitToLast(paymentPageSize));
+    } else {
+      q = query(baseQuery, limit(paymentPageSize));
+      paymentPage = 1;
+    }
+
+    const snap = await getDocs(q);
+
+    if (!snap.empty) {
+      firstPaymentDoc = snap.docs[0];
+      lastPaymentDoc = snap.docs[snap.docs.length - 1];
+
+      if (direction === 'next') paymentPage++;
+      else if (direction === 'prev') paymentPage--;
+    } else if (direction === 'initial') {
+      paymentPage = 1;
+      firstPaymentDoc = null;
+      lastPaymentDoc = null;
+    }
+
+    let contentHtml = "";
+    if (snap.empty && direction === 'initial') {
+      contentHtml = `<p style="text-align:center; padding:20px; color:#64748b;">No payment records found for this client.</p>`;
+    } else {
+      const rows = snap.docs.map(d => {
+        const data = d.data();
+        return `
+          <tr>
+            <td>${data.label}</td>
+            <td style="font-weight:bold; color:#059669;">KES ${Number(data.amount).toLocaleString()}</td>
+            <td>${data.method || 'N/A'}</td>
+            <td>${new Date(data.timestamp).toLocaleDateString()}</td>
+          </tr>
+        `;
+      }).join("");
+
+      contentHtml = `
+        <div class="modal-table-wrapper">
+          <table class="payment-history-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Method</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 20px;">
+          <button class="action-btn" style="background: #4b5563;" ${paymentPage === 1 ? 'disabled' : ''} 
+            onclick="viewPayments('${userId}', '${businessName.replace(/'/g, "\\'")}', 'prev')">Previous</button>
+          <span style="font-weight: bold; color: #1e3a8a;">Page ${paymentPage}</span>
+          <button class="action-btn" style="background: #4b5563;" ${snap.size < paymentPageSize ? 'disabled' : ''} 
+            onclick="viewPayments('${userId}', '${businessName.replace(/'/g, "\\'")}', 'next')">Next</button>
+        </div>
+      `;
+    }
+
+    // Create or Update the Modal element
+    let modal = document.getElementById("paymentHistoryModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "paymentHistoryModal";
+      modal.className = "modal";
+      document.body.appendChild(modal);
+      
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) modal.style.display = "none";
+      });
+    }
+
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 600px;">
+        <h2 style="margin-bottom:10px;">Payments: ${businessName}</h2>
+        ${contentHtml}
+        <button class="cta-btn" style="margin-top:20px; width:100%;" onclick="document.getElementById('paymentHistoryModal').style.display='none'">Close</button>
+      </div>
+    `;
+    modal.style.display = "flex";
+  } catch (error) {
+    console.error("Payment Fetch Error:", error);
+    alert("Error fetching payments: " + error.message);
+  }
+};
+
+/* =========================
    DELETE USER
    ========================= */
 window.deleteUser = async (userId, userEmail) => {
@@ -228,7 +364,8 @@ window.deleteUser = async (userId, userEmail) => {
       await Promise.all(deletePromises);
 
       alert(`Client ${userEmail} and all associated data have been deleted.`);
-      loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard
+      await loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard
+      await loadAdminStats();
     } catch (error) {
       alert("Error deleting user: " + error.message);
       console.error("Delete user error:", error);
@@ -287,7 +424,8 @@ registerForm.addEventListener("submit", async (e) => {
     }
 
     registerForm.reset();
-    loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard, reset pagination
+    await loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard, reset pagination
+    await loadAdminStats();
   } catch (error) {
     regMessage.style.color = "red";
     regMessage.textContent = "Error: " + error.message;
@@ -414,7 +552,8 @@ window.toggleSuspension = async (userId, currentStatus) => {
       await updateDoc(doc(db, "users", userId), {
         suspended: !currentStatus
       });
-      loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard, reset pagination
+      await loadAdminDashboard('initial', adminSearchInput.value); // Reload dashboard, reset pagination
+      await loadAdminStats();
     } catch (error) {
       alert("Error updating user status: " + error.message);
     }

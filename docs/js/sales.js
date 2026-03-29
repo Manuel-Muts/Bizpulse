@@ -9,7 +9,10 @@ import {
   orderBy,
   startAfter,
   endBefore,
-  limitToLast
+  limitToLast,
+  getDocs,
+  setDoc,
+  increment
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // DOM Elements (Sales & Analytics)
@@ -35,6 +38,9 @@ let salesArray = []; // Local sales array for this module
 let salesRef;
 let itemsRef; // Need itemsRef for batch updates
 let ordersCollectionRef; // Reference to the orders collection
+let salesSummaryRef = null;
+let salesSummaryData = null;
+let analyticsSummaryLoaded = false;
 let clientBusinessName; // The business name of the logged-in client
 let selectedItemId = null;
 let editSaleId = null;
@@ -68,6 +74,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   itemsRef = itemsCollectionRef;
   salesRef = collection(dbInstance, "sales");
   ordersCollectionRef = ordersRef;
+  salesSummaryRef = doc(dbInstance, "salesSummaries", authInstance.currentUser.uid);
   clientBusinessName = businessName;
 
   // Attach event listener for sale form
@@ -208,13 +215,69 @@ function updateSalesPaginationUI(currentCount) {
  * Listens to all sales for real-time global analytics.
  */
 function listenToAnalytics(uid) {
-  const q = query(salesRef, where("uid", "==", uid));
-  analyticsUnsubscribe = onSnapshot(q, (snapshot) => {
-    allSalesForAnalytics = snapshot.docs.map(d => d.data());
-    updateAnalyticsUI();
-  }, (error) => {
+  const summaryDocRef = doc(dbInstance, "salesSummaries", uid);
+  analyticsUnsubscribe = onSnapshot(summaryDocRef, async (snapshot) => {
+    if (snapshot.exists()) {
+      salesSummaryData = snapshot.data();
+      updateAnalyticsUI();
+      analyticsSummaryLoaded = true;
+    } else {
+      await buildSummaryFallback(uid, summaryDocRef);
+    }
+  }, async (error) => {
     console.error("Analytics listener error:", error);
+    await buildSummaryFallback(uid, summaryDocRef);
   });
+}
+
+async function buildSummaryFallback(uid, summaryDocRef) {
+  try {
+    const allSalesSnap = await getDocs(query(salesRef, where("uid", "==", uid)));
+    const existingSales = allSalesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    allSalesForAnalytics = existingSales; // Store for immediate UI use
+    salesSummaryData = buildSummaryFromSales(existingSales);
+    updateAnalyticsUI();
+
+    if (!analyticsSummaryLoaded) {
+      try {
+        await setDoc(summaryDocRef, salesSummaryData, { merge: true });
+        analyticsSummaryLoaded = true;
+      } catch (saveError) {
+        console.warn("Unable to write sales summary doc:", saveError.message);
+      }
+    }
+  } catch (fallbackError) {
+    console.error("Analytics fallback failed:", fallbackError);
+  }
+}
+
+function buildSummaryFromSales(sales) {
+  const summary = {
+    dailyTotals: {},
+    monthlyTotals: {},
+    lifetime: { revenue: 0, profit: 0 }
+  };
+
+  sales.forEach(sale => {
+    const saleDate = new Date(sale.createdAt).toLocaleDateString('en-CA');
+    const saleMonth = saleDate.slice(0, 7);
+    if (!summary.dailyTotals[saleDate]) {
+      summary.dailyTotals[saleDate] = { revenue: 0, profit: 0, count: 0 };
+    }
+    if (!summary.monthlyTotals[saleMonth]) {
+      summary.monthlyTotals[saleMonth] = { revenue: 0, profit: 0 };
+    }
+
+    summary.dailyTotals[saleDate].revenue += sale.revenue;
+    summary.dailyTotals[saleDate].profit += sale.profit;
+    summary.dailyTotals[saleDate].count += sale.quantity;
+    summary.monthlyTotals[saleMonth].revenue += sale.revenue;
+    summary.monthlyTotals[saleMonth].profit += sale.profit;
+    summary.lifetime.revenue += sale.revenue;
+    summary.lifetime.profit += sale.profit;
+  });
+
+  return summary;
 }
 
 /**
@@ -225,32 +288,43 @@ function updateAnalyticsUI() {
   let monthRev = 0, monthProf = 0;
   let lifeProf = 0;
   
-  // Get the date string from the filter (YYYY-MM-DD)
-  const targetDate = saleDateFilter.value; 
-  const targetMonth = new Date(targetDate).getMonth();
-  const targetYear = new Date(targetDate).getFullYear();
+  const targetDate = saleDateFilter.value;
+  const targetMonth = targetDate.slice(0, 7); // YYYY-MM
 
-  allSalesForAnalytics.forEach(sale => {
-    // Convert record timestamp to YYYY-MM-DD for comparison
-    const saleDateObj = new Date(sale.createdAt);
-    const saleDateStr = saleDateObj.toLocaleDateString('en-CA');
+  if (salesSummaryData) {
+    // Helper to get values from either flat keys (legacy/polluted) or nested objects (standard)
+    const getVal = (path, defaultVal = 0) => {
+      if (salesSummaryData[path] !== undefined) return salesSummaryData[path]; // Handle literal flat keys
+      return path.split('.').reduce((acc, part) => (acc && acc[part] !== undefined) ? acc[part] : undefined, salesSummaryData) ?? defaultVal;
+    };
 
-    // Lifetime calculations
-    lifeProf += sale.profit;
+    dayRev = getVal(`dailyTotals.${targetDate}.revenue`);
+    dayProf = getVal(`dailyTotals.${targetDate}.profit`);
+    dayCount = getVal(`dailyTotals.${targetDate}.count`);
+    monthRev = getVal(`monthlyTotals.${targetMonth}.revenue`);
+    monthProf = getVal(`monthlyTotals.${targetMonth}.profit`);
+    lifeProf = getVal(`lifetime.profit`);
+  } else {
+    const targetDateObj = new Date(targetDate);
+    const targetMonthIndex = targetDateObj.getMonth();
+    const targetYear = targetDateObj.getFullYear();
 
-    // Monthly calculations
-    if (saleDateObj.getMonth() === targetMonth && saleDateObj.getFullYear() === targetYear) {
-      monthRev += sale.revenue;
-      monthProf += sale.profit;
-    }
+    allSalesForAnalytics.forEach(sale => {
+      const saleDateObj = new Date(sale.createdAt);
+      const saleDateStr = saleDateObj.toLocaleDateString('en-CA');
 
-    // Daily calculations
-    if (saleDateStr === targetDate) {
-      dayRev += sale.revenue;
-      dayProf += sale.profit;
-      dayCount += sale.quantity;
-    }
-  });
+      lifeProf += sale.profit;
+      if (saleDateObj.getMonth() === targetMonthIndex && saleDateObj.getFullYear() === targetYear) {
+        monthRev += sale.revenue;
+        monthProf += sale.profit;
+      }
+      if (saleDateStr === targetDate) {
+        dayRev += sale.revenue;
+        dayProf += sale.profit;
+        dayCount += sale.quantity;
+      }
+    });
+  }
 
   if (dailyRevenueEl) dailyRevenueEl.textContent = dayRev.toFixed(2);
   if (dailyProfitEl) dailyProfitEl.textContent = dayProf.toFixed(2);
@@ -258,7 +332,18 @@ function updateAnalyticsUI() {
   if (monthlyRevenueEl) monthlyRevenueEl.textContent = monthRev.toFixed(2);
   if (monthlyProfitEl) monthlyProfitEl.textContent = monthProf.toFixed(2);
   if (lifetimeProfitEl) lifetimeProfitEl.textContent = lifeProf.toFixed(2);
-  
+
+  window.dispatchEvent(new CustomEvent('salesSummaryUpdated', {
+    detail: {
+      dailyRevenue: dayRev,
+      dailyProfit: dayProf,
+      dailyCount: dayCount,
+      monthlyRevenue: monthRev,
+      monthlyProfit: monthProf,
+      lifetimeProfit: lifeProf
+    }
+  }));
+
   // Update headings to reflect the selected date
   const dateLabel = targetDate === new Date().toLocaleDateString('en-CA') ? "Today" : targetDate;
   const sectionHeader = document.querySelector("#salesSection h2");
@@ -378,11 +463,47 @@ async function handleSaleFormSubmit(e) {
       }
       
       batch.update(doc(salesRef, editSaleId), saleData);
+
+      const originalDate = new Date(originalSale.createdAt).toLocaleDateString('en-CA');
+      const originalMonth = originalDate.slice(0, 7);
+      const deltaRevenue = revenue - originalSale.revenue;
+      const deltaProfit = profit - originalSale.profit;
+      const deltaCount = qtySold - originalSale.quantity;
+      const summaryUpdate = {
+        [`dailyTotals.${originalDate}.revenue`]: increment(deltaRevenue),
+        [`dailyTotals.${originalDate}.profit`]: increment(deltaProfit),
+        [`dailyTotals.${originalDate}.count`]: increment(deltaCount),
+        [`monthlyTotals.${originalMonth}.revenue`]: increment(deltaRevenue),
+        [`monthlyTotals.${originalMonth}.profit`]: increment(deltaProfit),
+        [`lifetime.revenue`]: increment(deltaRevenue),
+        [`lifetime.profit`]: increment(deltaProfit)
+      };
+      
+      // Use update for surgical nested increments; set ensures doc existence
+      // Correct Pattern: set ensures the doc exists, update ensures dot-notation creates Maps
+      batch.set(salesSummaryRef, {}, { merge: true });
+      batch.update(salesSummaryRef, summaryUpdate);
     } else {
       batch.set(newSaleRef, saleData);
       batch.update(itemRef, {
         quantity: item.quantity - qtySold
       });
+
+      const currentDate = new Date().toLocaleDateString('en-CA');
+      const currentMonth = currentDate.slice(0, 7);
+      const summaryUpdate = {
+        [`dailyTotals.${currentDate}.revenue`]: increment(revenue),
+        [`dailyTotals.${currentDate}.profit`]: increment(profit),
+        [`dailyTotals.${currentDate}.count`]: increment(qtySold),
+        [`monthlyTotals.${currentMonth}.revenue`]: increment(revenue),
+        [`monthlyTotals.${currentMonth}.profit`]: increment(profit),
+        [`lifetime.revenue`]: increment(revenue),
+        [`lifetime.profit`]: increment(profit)
+      };
+
+      // Use update for surgical nested increments; set ensures doc existence
+      batch.set(salesSummaryRef, {}, { merge: true });
+      batch.update(salesSummaryRef, summaryUpdate);
     }
 
     // Check if item quantity went to 0 after this sale
