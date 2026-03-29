@@ -495,6 +495,8 @@ logoutBtn?.addEventListener("click", async () => {
     console.log("Firestore persistence and LocalStorage cleared on logout.");
   } catch (error) {
     console.error("Logout failed:", error);
+  } finally {
+    window.location.href = "login.html";
   }
 });
 

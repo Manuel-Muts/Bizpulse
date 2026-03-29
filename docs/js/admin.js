@@ -565,5 +565,7 @@ logoutBtn.addEventListener("click", async () => {
     console.log("Admin Firestore persistence cleared on logout.");
   } catch (error) {
     console.error("Logout failed:", error);
+  } finally {
+    window.location.href = "login.html";
   }
 });
