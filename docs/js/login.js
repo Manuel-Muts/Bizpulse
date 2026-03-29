@@ -55,10 +55,10 @@ loginForm.addEventListener("submit", async (e) => {
 
     setTimeout(() => {
       if (userData && userData.role === "admin") {
-        window.location.href = "/admin.html";
+        window.location.href = "admin.html";
       } else {
         // Regular clients now go to clients.html
-        window.location.href = "/clients.html";
+        window.location.href = "clients.html";
       }
     }, 1000);
 

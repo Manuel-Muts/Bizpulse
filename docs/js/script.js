@@ -295,7 +295,6 @@ onAuthStateChanged(auth, async (user) => {
         if (bizContainer) bizContainer.style.display = "none";
       } else if (userData.role === "admin") {
         // Redirect Admin to the admin panel
-        window.location.href = "/admin.html";
         return;
       } else {
         if (bizContainer) bizContainer.style.display = "block";
