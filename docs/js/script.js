@@ -295,7 +295,7 @@ onAuthStateChanged(auth, async (user) => {
         if (bizContainer) bizContainer.style.display = "none";
       } else if (userData.role === "admin") {
         // Redirect Admin to the admin panel
-        window.location.href = "admin.html";
+        window.location.href = "/admin.html";
         return;
       } else {
         if (bizContainer) bizContainer.style.display = "block";
@@ -337,7 +337,7 @@ onAuthStateChanged(auth, async (user) => {
   } else {
     // Only redirect if we are on the dashboard page
     if (window.location.pathname.includes("clients.html")) {
-        window.location.href = "login.html";
+        window.location.href = "/login.html";
     }
     
     if (bizContainer) bizContainer.style.display = "none";

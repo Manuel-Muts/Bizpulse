@@ -87,7 +87,7 @@ const paymentPageSize = 5;
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     try {
-      const userDoc = await getDoc(doc(db, "users", user.uid)); // <--- LINE OF INTEREST
+      const userDoc = await getDoc(doc(db, "users", user.uid));
       const userData = userDoc.data();
 
       if (userData && userData.role === "admin") {
@@ -96,14 +96,14 @@ onAuthStateChanged(auth, async (user) => {
         await loadAdminStats();
       } else {
         // Not an admin? Send back to main page
-        window.location.href = "index.html";
+        window.location.href = "/index.html";
       }
     } catch (error) {
       console.error("Admin verification error:", error);
-      window.location.href = "index.html";
+      window.location.href = "/index.html";
     }
   } else {
-    window.location.href = "index.html";
+    window.location.href = "/index.html";
   }
 });
 
