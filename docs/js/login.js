@@ -51,9 +51,15 @@ loginForm.addEventListener("submit", async (e) => {
     const userData = userDoc.data();
 
     loginMessage.style.color = "green";
-    loginMessage.textContent = "Login successful! Please use the navigation links to continue.";
-    loginBtn.disabled = false;
-    loginBtn.classList.remove("loading");
+    loginMessage.textContent = "Login successful! Redirecting...";
+
+    setTimeout(() => {
+      if (userData && userData.role === "admin") {
+        window.location.href = "admin.html";
+      } else {
+        window.location.href = "clients.html";
+      }
+    }, 800);
 
   } catch (err) {
     loginMessage.style.color = "red";
