@@ -502,7 +502,7 @@ window.downloadContract = async (id) => {
   // 3. Sections
   const sections = [
     { title: "1. SCOPE OF SERVICE", body: "The Provider agrees to deploy and maintain the BizPulse Business Management System." },
-    { title: "2. FEES AND PAYMENT TERMS", body: "- Initial Installation Fee: KES 15,000.00 (Due upon deployment)\n- Annual Renewal Fee: KES 10,000.00 (Due annually for cloud & support)" },
+    { title: "2. FEES AND PAYMENT TERMS", body: "- Initial Installation Fee: KES 10,000.00 (Due upon deployment)\n- Annual Renewal Fee: KES 7,000.00 (Due annually for cloud & support)" },
     { title: "3. DATA PRIVACY & OWNERSHIP", body: "The Provider guarantees that all business data remains the exclusive property of the Client." },
     { title: "4. SERVICE SUSPENSION", body: "The Provider reserves the right to suspend access if renewal fees are not settled within 14 days." }
   ];
