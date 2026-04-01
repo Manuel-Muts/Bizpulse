@@ -197,6 +197,15 @@ let orderPage = 1;
 let currentPage = 1;
 const pageSize = 20;
 
+// 🛠️ UTILITY: Debounce function to limit database calls
+function debounce(func, wait) {
+  let timeout;
+  return function(...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(this, args), wait);
+  };
+}
+
 // Event listener for when a sale is recorded/voided in sales.js
 window.addEventListener('saleRecorded', async (e) => {
   const { uid } = e.detail;
@@ -638,9 +647,14 @@ nextPageBtn?.addEventListener("click", () => {
   loadItems(auth.currentUser.uid, 'next', searchInput.value);
 });
 
-searchInput.addEventListener("input", () => {
-  loadItems(auth.currentUser.uid, 'initial', searchInput.value); // Trigger new search on input
-});
+// Optimized: Debounce the search input to save Firestore reads
+const debouncedSearch = debounce(() => {
+  if (auth.currentUser) {
+    loadItems(auth.currentUser.uid, 'initial', searchInput.value);
+  }
+}, 300); // Wait 300ms after last keystroke before querying
+
+searchInput.addEventListener("input", debouncedSearch);
 
 function renderItems(filter = "") {
   table.innerHTML = "";
@@ -892,14 +906,14 @@ form.addEventListener("submit", async e => {
 
   try {
     // 1. Global Case-Insensitive Check
-    // Fetch all existing names for this user to ensure true uniqueness across all pages
-    const allItemsSnap = !navigator.onLine 
-      ? await getDocsFromCache(query(itemsRef, where("uid", "==", user.uid)))
-      : await getDocs(query(itemsRef, where("uid", "==", user.uid)));
+    // Optimized: Only query for the specific item name to save reads
+    const duplicateQuery = query(itemsRef, 
+      where("uid", "==", user.uid), 
+      where("name_lowercase", "==", nameVal.toLowerCase()),
+      limit(1));
+    const duplicateSnap = await getDocs(duplicateQuery);
 
-    const isDuplicate = allItemsSnap.docs.some(d => 
-      d.data().name.toLowerCase() === nameVal.toLowerCase() && d.id !== editId
-    );
+    const isDuplicate = !duplicateSnap.empty && duplicateSnap.docs[0].id !== editId;
 
     if (isDuplicate) {
       alert(`Error: An item named "${nameVal}" already exists in your inventory.`);
