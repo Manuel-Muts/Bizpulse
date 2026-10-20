@@ -14,6 +14,7 @@ import {
   setDoc,
   increment
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { adjustQuantity, escapeQuantity, formatQuantity, parseQuantity } from "./quantity.js";
 
 // DOM Elements (Sales & Analytics)
 const saleForm = document.getElementById("saleForm");
@@ -122,7 +123,8 @@ function handleItemSearch() {
     return;
   }
 
-  const matches = itemsArray.filter(i => i.name.toLowerCase().includes(term) && i.quantity > 0);
+  const matches = itemsArray.filter(i =>
+    i.name.toLowerCase().includes(term) && (parseQuantity(i.quantity)?.amount ?? 0) > 0);
 
   if (matches.length === 0) {
     saleSearchResults.style.display = "none";
@@ -132,7 +134,7 @@ function handleItemSearch() {
   saleSearchResults.innerHTML = matches.map(item => `
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
-      <small>Price: KES ${item.outgoing} | Stock: ${item.quantity}</small>
+      <small>Price: KES ${item.outgoing} | Stock: ${escapeQuantity(item.quantity)}</small>
     </div>
   `).join("");
   saleSearchResults.style.display = "block";
@@ -370,7 +372,7 @@ function renderSalesTable() {
           minute: '2-digit'
         })}</td>
         <td>${sale.itemName}</td>
-        <td>${sale.quantity}</td>
+        <td>${escapeQuantity(formatQuantity(sale.quantity, sale.quantityUnit || ""))}</td>
         <td>${sale.unitPriceSold}</td>
         <td>${sale.revenue}</td>
         <td style="color: green; font-weight: bold;">${sale.profit}</td>
@@ -395,21 +397,34 @@ async function handleSaleFormSubmit(e) {
   window.showLoadingIndicator(true); // Show loading indicator
   e.preventDefault();
   const unitPriceSold = Number(salePriceInput.value);
-  const qtySold = Number(saleQuantityInput.value);
+  const saleQuantity = parseQuantity(saleQuantityInput.value);
   const item = itemsArray.find(i => i.id === selectedItemId);
 
   if (!selectedItemId || !item) {
     alert("Please search and select an item from the list.");
+    window.showLoadingIndicator(false);
     return;
   }
 
-  if (qtySold <= 0) {
-    alert("Quantity sold must be greater than zero.");
+  if (!saleQuantity || saleQuantity.amount <= 0) {
+    alert("Enter a valid quantity greater than zero, such as 2, 2 kg, or 3 cartons.");
+    window.showLoadingIndicator(false);
     return;
   }
+
+  const itemQuantity = parseQuantity(item.quantity);
+  const itemUnit = itemQuantity?.unit || "";
+  if (saleQuantity.unit && itemUnit &&
+      saleQuantity.unit.toLowerCase() !== itemUnit.toLowerCase()) {
+    alert(`Sale unit must match the inventory unit (${itemUnit}).`);
+    window.showLoadingIndicator(false);
+    return;
+  }
+  const qtySold = saleQuantity.amount;
+  const quantityUnit = itemUnit || saleQuantity.unit;
 
   // Stock check logic adjustment for Edit
-  let availableStock = item.quantity;
+  let availableStock = parseQuantity(item.quantity)?.amount ?? 0;
   if (editSaleId) {
     const originalSale = salesArray.find(s => s.id === editSaleId);
     if (originalSale.itemId === selectedItemId) {
@@ -419,6 +434,7 @@ async function handleSaleFormSubmit(e) {
 
   if (qtySold > availableStock) {
     alert("Insufficient stock!");
+    window.showLoadingIndicator(false);
     return;
   }
 
@@ -432,6 +448,7 @@ async function handleSaleFormSubmit(e) {
     itemName: item.name,
     unitPriceSold,
     quantity: qtySold,
+    quantityUnit,
     revenue,
     profit,
     uid: authInstance.currentUser.uid,
@@ -454,12 +471,14 @@ async function handleSaleFormSubmit(e) {
         const originalItem = itemsArray.find(i => i.id === originalSale.itemId);
         if (originalItem) {
           batch.update(doc(dbInstance, "items", originalSale.itemId), {
-            quantity: originalItem.quantity + originalSale.quantity
+            quantity: adjustQuantity(originalItem.quantity, originalSale.quantity)
           });
         }
-        batch.update(itemRef, { quantity: item.quantity - qtySold });
+        batch.update(itemRef, { quantity: adjustQuantity(item.quantity, -qtySold) });
       } else {
-        batch.update(itemRef, { quantity: availableStock - qtySold });
+        batch.update(itemRef, {
+          quantity: adjustQuantity(item.quantity, originalSale.quantity - qtySold)
+        });
       }
       
       batch.update(doc(salesRef, editSaleId), saleData);
@@ -486,7 +505,7 @@ async function handleSaleFormSubmit(e) {
     } else {
       batch.set(newSaleRef, saleData);
       batch.update(itemRef, {
-        quantity: item.quantity - qtySold
+        quantity: adjustQuantity(item.quantity, -qtySold)
       });
 
       const currentDate = new Date().toLocaleDateString('en-CA');
@@ -564,7 +583,9 @@ window.editSale = (id) => {
   // Populate form fields
   if (saleItemSearch) saleItemSearch.value = sale.itemName;
   if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
-  if (saleQuantityInput) saleQuantityInput.value = sale.quantity;
+  if (saleQuantityInput) {
+    saleQuantityInput.value = formatQuantity(sale.quantity, sale.quantityUnit || "");
+  }
 
   // Update button UI
   const btnText = recordSaleBtn.querySelector(".btn-text");

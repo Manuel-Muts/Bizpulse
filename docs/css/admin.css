@@ -9,3 +9,76 @@
 .logout-btn {
     background-color: #c0392b;
 }
+
+.client-registration-form {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.client-registration-form input {
+    min-width: 0;
+}
+
+.phone-input-group {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.phone-prefix {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    border: 1px solid #d1d5db;
+    border-right: 0;
+    border-radius: 6px 0 0 6px;
+    background: #f3f4f6;
+    color: #475569;
+}
+
+.phone-input-group input {
+    border-radius: 0 6px 6px 0;
+}
+
+.admin-client-table-wrapper {
+    overflow-x: auto;
+}
+
+.admin-client-table {
+    width: 100%;
+    table-layout: auto;
+    font-size: 13px;
+}
+
+.admin-client-table th,
+.admin-client-table td {
+    padding: 9px 7px;
+    white-space: nowrap;
+}
+
+.admin-client-table .actions {
+    min-width: 390px;
+}
+
+.admin-client-table .actions button {
+    display: inline-flex;
+    width: auto;
+    margin: 2px;
+    padding: 6px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    .client-registration-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .client-registration-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

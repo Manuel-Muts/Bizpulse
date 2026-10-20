@@ -61,6 +61,7 @@ const logoutBtn = document.getElementById("logoutBtn");
 const registerForm = document.getElementById("registerBusinessForm");
 const newBusName = document.getElementById("newBusName");
 const newBusEmail = document.getElementById("newBusEmail");
+const newBusPhone = document.getElementById("newBusPhone");
 const newBusPassword = document.getElementById("newBusPassword");
 const regMessage = document.getElementById("regMessage"); // For registration/update messages
 const adminSearchInput = document.getElementById("adminSearchInput"); // For client search
@@ -137,7 +138,7 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
 
     if (snapshot.empty) {
       users = []; // Clear users if no results
-      adminUserTable.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px;">No clients found.</td></tr>`;
+      adminUserTable.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px;">No clients found.</td></tr>`;
       updatePaginationUI(0);
       return;
     }
@@ -155,9 +156,11 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
 
     users.forEach(u => {
       const row = document.createElement("tr");
+      const businessName = u.businessName || "N/A";
       row.innerHTML = `
-        <td>${u.businessName || 'N/A'}</td>
-        <td>${u.email}</td>
+        <td>${escapeHtml(businessName)}</td>
+        <td>${escapeHtml(u.email || "N/A")}</td>
+        <td>${escapeHtml(formatPhoneNumber(u.phoneNumber))}</td>
         <td class="${u.suspended ? 'status-red' : 'status-green'}">
             ${u.suspended ? 'Suspended' : 'Active'}
         </td>
@@ -168,7 +171,7 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
           <button class="action-btn" style="background: #10b981;" onclick="editUser('${u.id}')">
             Edit
           </button>
-          <button class="action-btn" style="background: #8b5cf6;" onclick="viewPayments('${u.id}', '${u.businessName.replace(/'/g, "\\'")}')">
+          <button class="action-btn" style="background: #8b5cf6;" onclick="viewPayments('${u.id}', '${businessName.replace(/'/g, "\\'")}')">
             Payments
           </button>
           <button class="action-btn" style="background: #6366f1;" onclick="downloadContract('${u.id}')">
@@ -189,8 +192,34 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
     updatePaginationUI(snapshot.size);
   } catch (error) {
     console.error("Error loading dashboard:", error);
-    adminUserTable.innerHTML = `<tr><td colspan="4" style="text-align:center; color:red; padding:20px;">Error loading clients: ${error.message}</td></tr>`;
+    adminUserTable.innerHTML = `<tr><td colspan="5" style="text-align:center; color:red; padding:20px;">Error loading clients: ${error.message}</td></tr>`;
   }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  })[character]);
+}
+
+function formatPhoneNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.startsWith("254") && digits.length === 12) {
+    return `+254 ${digits.slice(3, 6)} ${digits.slice(6)}`;
+  }
+  if (digits.length === 9 && digits.startsWith("7")) {
+    return `+254 ${digits.slice(0, 3)} ${digits.slice(3)}`;
+  }
+  return value || "N/A";
+}
+
+function getKenyanPhoneDigits(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.startsWith("254") ? digits.slice(3) : digits;
 }
 
 async function loadAdminStats() {
@@ -377,6 +406,8 @@ registerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = newBusName.value.trim();
   const email = newBusEmail.value.trim();
+  const phoneDigits = newBusPhone.value.trim();
+  const phoneNumber = phoneDigits ? `+254${phoneDigits}` : "";
   const password = newBusPassword.value;
   const regBtn = document.getElementById("regBtn");
 
@@ -388,7 +419,8 @@ registerForm.addEventListener("submit", async (e) => {
       regMessage.textContent = "Updating client details...";
       await updateDoc(doc(db, "users", editUserId), {
         businessName: name,
-        email: email.toLowerCase()
+        email: email.toLowerCase(),
+        phoneNumber: phoneNumber || users.find(user => user.id === editUserId)?.phoneNumber || ""
       });
       
       regMessage.style.color = "green";
@@ -397,6 +429,7 @@ registerForm.addEventListener("submit", async (e) => {
       regBtn.textContent = "Create Account";
       newBusPassword.required = true;
       newBusPassword.disabled = false;
+      newBusPhone.required = true;
     } else {
       // CREATE MODE
       regMessage.textContent = "Creating account...";
@@ -408,6 +441,7 @@ registerForm.addEventListener("submit", async (e) => {
    await setDoc(doc(db, "users", newUser.uid), {
   businessName: name,
   email: email.toLowerCase(),
+  phoneNumber,
   role: "user",
   suspended: false,
   firstLogin: true,
@@ -441,6 +475,8 @@ window.editUser = (id) => {
   editUserId = id;
   newBusName.value = user.businessName || "";
   newBusEmail.value = user.email;
+  newBusPhone.value = getKenyanPhoneDigits(user.phoneNumber || "");
+  newBusPhone.required = false;
   
   // When editing, we don't handle password changes through this form 
   // for security/technical limitations of the client SDK.

@@ -28,6 +28,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import { initSalesModule, loadSales, updateSaleDropdown } from "./sales.js";
+import { escapeQuantity, parseQuantity, formatQuantity } from "./quantity.js";
 
 import {
   getAuth,
@@ -152,8 +153,17 @@ const newPasswordInput = document.getElementById("newPassword");
 const confirmNewPasswordInput = document.getElementById("confirmNewPassword");
 const changePasswordBtn = document.getElementById("changePasswordBtn");
 const passwordChangeMessage = document.getElementById("passwordChangeMessage");
+const clientProfileModal = document.getElementById("clientProfileModal");
+const clientProfileToggle = document.getElementById("clientProfileToggle");
+const clientProfileMenu = document.getElementById("clientProfileMenu");
+const viewClientProfileBtn = document.getElementById("viewClientProfileBtn");
+const closeClientProfileBtn = document.getElementById("closeClientProfileBtn");
+const clientProfileName = document.getElementById("clientProfileName");
+const clientProfileEmail = document.getElementById("clientProfileEmail");
+const clientProfilePhone = document.getElementById("clientProfilePhone");
 
 const logoutBtn = document.getElementById("logoutBtn"); // Moved here as it's part of the dashboard
+let currentClientProfile = null;
 
 let items = [];
 let orders = [];
@@ -273,6 +283,46 @@ stockHealthModal?.addEventListener('click', (event) => {
   }
 });
 
+clientProfileToggle?.addEventListener("click", () => {
+  const isOpen = clientProfileMenu && !clientProfileMenu.hidden;
+  if (!clientProfileMenu) return;
+
+  clientProfileMenu.hidden = isOpen;
+  clientProfileToggle.setAttribute("aria-expanded", String(!isOpen));
+  clientProfileToggle.setAttribute("aria-label", isOpen ? "Open profile menu" : "Close profile menu");
+});
+
+viewClientProfileBtn?.addEventListener("click", () => {
+  if (!currentClientProfile || !clientProfileModal) return;
+
+  clientProfileName.textContent = currentClientProfile.businessName || "N/A";
+  clientProfileEmail.textContent = currentClientProfile.email || auth.currentUser?.email || "N/A";
+  clientProfilePhone.textContent = currentClientProfile.phoneNumber || "N/A";
+  clientProfileMenu.hidden = true;
+  clientProfileToggle.setAttribute("aria-expanded", "false");
+  clientProfileModal.style.display = "flex";
+  closeClientProfileBtn?.focus();
+});
+
+function closeClientProfile() {
+  if (clientProfileModal) clientProfileModal.style.display = "none";
+  clientProfileToggle?.focus();
+}
+
+closeClientProfileBtn?.addEventListener("click", closeClientProfile);
+clientProfileModal?.addEventListener("click", event => {
+  if (event.target === clientProfileModal) closeClientProfile();
+});
+
+document.addEventListener("click", event => {
+  if (clientProfileMenu && !clientProfileMenu.hidden &&
+      !event.target.closest(".client-profile-menu")) {
+    clientProfileMenu.hidden = true;
+    clientProfileToggle?.setAttribute("aria-expanded", "false");
+    clientProfileToggle?.setAttribute("aria-label", "Open profile menu");
+  }
+});
+
 /* =========================
    AUTH STATE LISTENER
    ========================= */
@@ -294,6 +344,11 @@ onAuthStateChanged(auth, async (user) => {
       }
 
       const userData = userSnap.data();
+      currentClientProfile = {
+        businessName: userData.businessName,
+        email: userData.email || user.email,
+        phoneNumber: userData.phoneNumber
+      };
 
       if (userData.firstLogin) {
         if (passwordChangeModal) passwordChangeModal.style.display = "flex";
@@ -475,14 +530,65 @@ function switchTab(tabId) {
   const activeSection = document.getElementById(`${tabId}Section`);
   if (activeSection) activeSection.style.display = 'block';
 
+  const sectionLabel = document.getElementById("currentDashboardSection");
+  if (sectionLabel && activeBtn) sectionLabel.textContent = activeBtn.textContent.trim();
+
   // Cache the selection in LocalStorage
   localStorage.setItem('bizPulse_activeTab', tabId);
+  closeDashboardNavigation();
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     switchTab(btn.getAttribute('data-tab'));
   });
+});
+
+const dashboardMenuToggle = document.getElementById("dashboardMenuToggle");
+const dashboardNavigation = document.getElementById("dashboardNavigation");
+const dashboardMenuBackdrop = document.getElementById("dashboardMenuBackdrop");
+const dashboardMenuClose = document.getElementById("dashboardMenuClose");
+
+function closeDashboardNavigation() {
+  if (!dashboardNavigation || !dashboardMenuToggle || !dashboardMenuBackdrop) return;
+  dashboardNavigation.classList.remove("open");
+  dashboardNavigation.setAttribute("aria-hidden", "true");
+  dashboardMenuToggle.setAttribute("aria-expanded", "false");
+  dashboardMenuToggle.setAttribute("aria-label", "Open navigation menu");
+  dashboardMenuBackdrop.hidden = true;
+  document.body.classList.remove("dashboard-menu-open");
+}
+
+function openDashboardNavigation() {
+  if (!dashboardNavigation || !dashboardMenuToggle || !dashboardMenuBackdrop) return;
+  dashboardNavigation.classList.add("open");
+  dashboardNavigation.setAttribute("aria-hidden", "false");
+  dashboardMenuToggle.setAttribute("aria-expanded", "true");
+  dashboardMenuToggle.setAttribute("aria-label", "Close navigation menu");
+  dashboardMenuBackdrop.hidden = false;
+  document.body.classList.add("dashboard-menu-open");
+  dashboardMenuClose?.focus();
+}
+
+dashboardMenuToggle?.addEventListener("click", () => {
+  if (dashboardNavigation?.classList.contains("open")) closeDashboardNavigation();
+  else openDashboardNavigation();
+});
+
+dashboardMenuClose?.addEventListener("click", closeDashboardNavigation);
+dashboardMenuBackdrop?.addEventListener("click", closeDashboardNavigation);
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+
+  closeDashboardNavigation();
+  if (clientProfileModal?.style.display === "flex") {
+    closeClientProfile();
+  } else if (clientProfileMenu && !clientProfileMenu.hidden) {
+    clientProfileMenu.hidden = true;
+    clientProfileToggle?.setAttribute("aria-expanded", "false");
+    clientProfileToggle?.setAttribute("aria-label", "Open profile menu");
+    clientProfileToggle?.focus();
+  }
 });
 
 // Initialize/Restore tab
@@ -567,7 +673,7 @@ function calculateSingleItemProfit(item) {
 }
 
 function calculateProfit(item) {
-  return calculateSingleItemProfit(item) * item.quantity;
+  return calculateSingleItemProfit(item) * (parseQuantity(item.quantity)?.amount || 0);
 }
 
 async function loadItems(uid, direction = 'initial', search = '') {
@@ -664,17 +770,18 @@ function renderItems(filter = "") {
     i.name.toLowerCase().includes(filter.toLowerCase())); // Keep client-side filter for current page
 
   filtered.forEach(item => {
+    const quantity = parseQuantity(item.quantity)?.amount ?? 0;
     const singleItemProfit = calculateSingleItemProfit(item);
     const profit = calculateProfit(item);
     totalProfit += profit;
 
     const row = document.createElement("tr");
-    if (item.quantity < 3) row.classList.add("low-stock-row");
+    if (quantity < 3) row.classList.add("low-stock-row");
     row.innerHTML = `
       <td>${item.name}</td>
       <td>${item.incoming}</td>
       <td>${item.outgoing}</td>
-      <td>${item.quantity}</td>
+      <td>${escapeQuantity(item.quantity)}</td>
       <td>${singleItemProfit}</td>
       <td>${profit}</td>
       <td>
@@ -692,7 +799,7 @@ function renderItems(filter = "") {
 function renderLowStockAlerts(page = 1) {
   if (!lowStockCountEl || !lowStockDetails || !lowStockTable || !lowStockPageInfo) return;
 
-  const lowStockItems = items.filter(item => item.quantity <= 3);
+  const lowStockItems = items.filter(item => (parseQuantity(item.quantity)?.amount ?? 0) <= 3);
   const totalItems = lowStockItems.length;
   const totalPages = totalItems === 0 ? 1 : Math.ceil(totalItems / lowStockPageSize);
   lowStockPage = Math.min(Math.max(page, 1), totalPages);
@@ -715,7 +822,7 @@ function renderLowStockAlerts(page = 1) {
       <td>${item.name}</td>
       <td>${item.incoming}</td>
       <td>${item.outgoing}</td>
-      <td>${item.quantity}</td>
+      <td>${escapeQuantity(item.quantity)}</td>
     </tr>
   `).join("");
 
@@ -889,14 +996,20 @@ form.addEventListener("submit", async e => {
     return;
   }
 
-    const nameVal = itemName.value.trim();
+  const nameVal = itemName.value.trim();
+  const quantity = parseQuantity(quantityInput.value);
+  if (!quantity) {
+    alert("Enter a valid quantity, such as 5, 3 kg, or 5 cartons.");
+    showLoadingIndicator(false);
+    return;
+  }
 
   const data = {
-      name: nameVal,
+    name: nameVal,
     name_lowercase: nameVal.toLowerCase(),
     incoming: Number(incomingPrice.value),
     outgoing: Number(outgoingPrice.value),
-    quantity: Number(quantityInput.value),
+    quantity: formatQuantity(quantity.amount, quantity.unit),
     uid: user.uid, // ✅ REQUIRED
     createdAt: new Date().toISOString()
   };
@@ -950,7 +1063,9 @@ window.editItem = id => {
   itemName.value = item.name;
   incomingPrice.value = item.incoming;
   outgoingPrice.value = item.outgoing;
-  quantityInput.value = item.quantity;
+  quantityInput.value = typeof item.quantity === "string"
+    ? item.quantity
+    : String(item.quantity);
   editId = id;
 };
 
@@ -1053,12 +1168,18 @@ importCsvInput.addEventListener("change", (event) => {
       // Helper to clean numeric strings (removes commas, currency symbols, etc.)
       const cleanNum = (val) => Number(String(val).replace(/[^0-9.-]+/g, ""));
 
+      const quantity = parseQuantity(itemData["quantity"]);
+      if (!quantity) {
+        skippedCount++;
+        continue;
+      }
+
       newItems.push({
         name: itemNameFromCsv,
         name_lowercase: itemNameFromCsv.toLowerCase(),
         incoming: cleanNum(itemData["buying price"]) || 0,
         outgoing: cleanNum(itemData["selling price"]) || 0,
-        quantity: cleanNum(itemData["quantity"]) || 0,
+        quantity: formatQuantity(quantity.amount, quantity.unit),
         uid: user.uid,
         createdAt: new Date().toISOString()
       });

@@ -136,6 +136,20 @@
     </div>
   </div>
 
+  <div id="clientProfileModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="clientProfileTitle">
+    <div class="modal-content client-profile-modal">
+      <div class="client-profile-modal-header">
+        <h2 id="clientProfileTitle">Client Profile</h2>
+        <button type="button" id="closeClientProfileBtn" class="client-profile-close" aria-label="Close profile">&times;</button>
+      </div>
+      <dl class="client-profile-details">
+        <div><dt>Business / Client Name</dt><dd id="clientProfileName">—</dd></div>
+        <div><dt>Email</dt><dd id="clientProfileEmail">—</dd></div>
+        <div><dt>Phone Number</dt><dd id="clientProfilePhone">—</dd></div>
+      </dl>
+    </div>
+  </div>
+
   <!-- SUSPENDED SECTION -->
   <div id="suspendedSection" style="display:none; text-align:center; padding: 50px;">
     <h1 style="color: red;">Account Suspended</h1>
@@ -147,7 +161,18 @@
   <div class="container" style="display:none;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h1 id="bizTitle">Business Management</h1>
-      <button id="logoutBtn">Logout</button>
+      <div class="client-profile-menu">
+        <button type="button" id="clientProfileToggle" class="client-profile-toggle" aria-label="Open profile menu" aria-controls="clientProfileMenu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="8" r="3.5"></circle>
+            <path d="M5.5 20c.5-3.5 2.8-5.5 6.5-5.5s6 2 6.5 5.5"></path>
+          </svg>
+        </button>
+        <div id="clientProfileMenu" class="client-profile-dropdown" hidden>
+          <button type="button" id="viewClientProfileBtn">View profile</button>
+          <button type="button" id="logoutBtn" class="client-profile-logout">Log out</button>
+        </div>
+      </div>
       <span id="syncStatusIndicator" style="display: none; margin-left: 15px; font-weight: bold; color: #2563eb;"></span>
     </div>
 
@@ -162,12 +187,29 @@
       <button id="openPaymentModalBtn" class="action-btn">Open Payment Details</button>
     </div>
 
-    <!-- DASHBOARD TABS -->
-    <div class="tab-navigation">
-      <button class="tab-btn active" data-tab="inventory">Inventory</button>
-      <button class="tab-btn" data-tab="orders">Customer Orders</button>
-      <button class="tab-btn" data-tab="sales">Sales & Analytics</button>
+    <div class="dashboard-menu">
+      <button
+        type="button"
+        id="dashboardMenuToggle"
+        class="dashboard-menu-toggle"
+        aria-label="Open navigation menu"
+        aria-controls="dashboardNavigation"
+        aria-expanded="false"
+      >
+        <span></span><span></span><span></span>
+      </button>
+      <span id="currentDashboardSection" class="current-dashboard-section">Inventory</span>
     </div>
+    <button type="button" id="dashboardMenuBackdrop" class="dashboard-menu-backdrop" aria-label="Close navigation menu" hidden></button>
+    <nav id="dashboardNavigation" class="dashboard-navigation" aria-label="Dashboard navigation" aria-hidden="true">
+      <div class="dashboard-navigation-header">
+        <h2>Navigation</h2>
+        <button type="button" id="dashboardMenuClose" class="dashboard-menu-close" aria-label="Close navigation menu">&times;</button>
+      </div>
+      <button type="button" class="tab-btn active" data-tab="inventory">Inventory</button>
+      <button type="button" class="tab-btn" data-tab="orders">Customer Orders</button>
+      <button type="button" class="tab-btn" data-tab="sales">Sales &amp; Analytics</button>
+    </nav>
 
     <!-- SALES & ANALYTICS SECTION -->
     <div id="salesSection" class="tab-content" style="display: none;">
@@ -177,7 +219,7 @@
           <input type="date" id="saleDateFilter" class="action-btn" style="background: white; color: #333; border: 1px solid #d1d5db; padding: 5px 10px;" />
         </div>
       </div>
-      <div class="analytics-grid">
+      <div class="analytics-grid sales-analytics-grid">
         <div class="stat-card"><h3>Today's Revenue</h3><p>KES <span id="dailyRevenue">0</span></p></div>
         <div class="stat-card"><h3>Today's Profit</h3><p>KES <span id="dailyProfit">0</span></p></div>
         <div class="stat-card"><h3>Items Sold Today</h3><p id="dailyCount">0</p></div>
@@ -191,7 +233,7 @@
           <div id="saleSearchResults" class="search-results-dropdown" style="display: none;"></div>
         </div>
         <input type="number" id="salePrice" placeholder="Price Sold" required />
-        <input type="number" id="saleQuantity" placeholder="Qty" required />
+        <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
         <button type="submit" id="recordSaleBtn" style="background: #10b981;">
           <span class="btn-text">Record Sale</span>
           <span class="spinner"></span>
@@ -253,16 +295,16 @@
         <input type="text" id="itemName" placeholder="Item Name" required />
         <input type="number" id="incomingPrice" placeholder="Buying Price" required />
         <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
-        <input type="number" id="quantity" placeholder="Quantity" required />
+        <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
         <button type="submit" id="saveItemBtn">
           <span class="btn-text">Save Item</span>
           <span class="spinner"></span>
         </button>
       </form>
-      <div class="controls">
+      <div class="controls inventory-controls">
         <input type="text" id="searchInput" placeholder="Search item..." />
         <button id="exportBtn">Export to Excel</button>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div class="inventory-import-control" style="display: flex; align-items: center; gap: 10px;">
           <input type="file" id="importCsvInput" accept=".csv" style="display: none;" />
           <button type="button" id="importCsvBtn" class="action-btn" style="background: #0ea5e9;">Import from CSV</button>
         </div>

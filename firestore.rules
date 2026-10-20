@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspended != true;
+    }
+
+    function hasSchoolId() {
+      return request.resource.data.schoolId is string && request.resource.data.schoolId.size() > 0;
+    }
+
+    function matchesSchoolPath(schoolId, resourceData) {
+      return resourceData != null && resourceData.schoolId == schoolId;
+    }
+
+    function canReadSchoolData(schoolId) {
+      return true;
+    }
+
+    function isActiveClient() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user' &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.suspended != true;
+    }
+
+    function ownsDocument(resourceData) {
+      return isActiveClient() && resourceData.uid == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isSignedIn() &&
+          request.auth.uid == userId &&
+          request.resource.data.firstLogin == false &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstLogin']));
+    }
+
+    match /items/{itemId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin() || ownsDocument(resource.data);
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin() || ownsDocument(resource.data);
+    }
+
+    match /sales/{saleId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /salesSummaries/{userId} {
+      allow read, create, update: if isAdmin() ||
+        (isActiveClient() && request.auth.uid == userId);
+      allow delete: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
+    match /schools/{schoolId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /news-posts/{postId} {
+        allow read: if canReadSchoolData(schoolId);
+        allow create: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow update: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow delete: if isAdmin() && resource.data.schoolId == schoolId;
+      }
+
+      match /alumni-registrations/{registrationId} {
+        allow read: if canReadSchoolData(schoolId);
+        allow create: if request.resource.data.schoolId == schoolId;
+        allow update: if isAdmin() && request.resource.data.schoolId == schoolId;
+        allow delete: if isAdmin() && resource.data.schoolId == schoolId;
+      }
+
+      match /vacancies/{vacancyId} {
+        allow read: if canReadSchoolData(schoolId);
+        allow create: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow update: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow delete: if isAdmin() && resource.data.schoolId == schoolId;
+      }
+
+      match /documents/{documentId} {
+        allow read: if canReadSchoolData(schoolId);
+        allow create: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow update: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow delete: if isAdmin() && resource.data.schoolId == schoolId;
+      }
+
+      match /site-settings/{settingsId} {
+        allow read: if canReadSchoolData(schoolId);
+        allow create: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow update: if isAdmin() && hasSchoolId() && request.resource.data.schoolId == schoolId;
+        allow delete: if isAdmin() && resource.data.schoolId == schoolId;
+      }
+    }
+  }
+}
