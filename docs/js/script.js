@@ -197,7 +197,7 @@ crateTypeSelect.addEventListener("change", () => {
   const crateTypes = {
     "soda-300ml": { name: "SODA 300ML CRATE", piecesPerCrate: 24 },
     "soda-500ml": { name: "SODA 500ML CRATE", piecesPerCrate: 24 },
-    predator: { name: "PREDATOR CRATE", piecesPerCrate: 12 },
+    "predator-400ml": { name: "PREDATOR 400ML CRATE", piecesPerCrate: 12 },
     "afia-500ml": { name: "AFIA 500ML CRATE", piecesPerCrate: 12 },
     "steam-300ml": { name: "STEAM 300ML CRATE", piecesPerCrate: 12 },
     "brava-300ml": { name: "BRAVA 300ML CRATE", piecesPerCrate: 12 },
@@ -379,6 +379,7 @@ stockTopUpForm?.addEventListener("submit", async event => {
   }
 
   saveStockTopUpBtn.disabled = true;
+  saveStockTopUpBtn.classList.add("loading");
   try {
     const itemRef = doc(db, "items", item.id);
     const additionRef = doc(stockAdditionsRef);
@@ -434,6 +435,7 @@ stockTopUpForm?.addEventListener("submit", async event => {
     alert(`Unable to add stock: ${error.message}`);
   } finally {
     saveStockTopUpBtn.disabled = false;
+    saveStockTopUpBtn.classList.remove("loading");
   }
 });
 
