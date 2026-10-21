@@ -159,6 +159,7 @@
 
   <!-- BUSINESS SYSTEM CONTAINER -->
   <div class="container" style="display:none;">
+    <div id="dataLoadingBar" class="data-loading-bar" role="progressbar" aria-label="Loading data" aria-valuetext="Loading" hidden></div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
       <h1 id="bizTitle">Business Management</h1>
       <div class="client-profile-menu">
@@ -208,24 +209,18 @@
       </div>
       <button type="button" class="tab-btn active" data-tab="inventory">Inventory</button>
       <button type="button" class="tab-btn" data-tab="orders">Customer Orders</button>
-      <button type="button" class="tab-btn" data-tab="sales">Sales &amp; Analytics</button>
+      <button type="button" class="tab-btn" data-tab="sales">Sales</button>
+      <button type="button" class="tab-btn" data-tab="analytics">Analytics</button>
     </nav>
 
-    <!-- SALES & ANALYTICS SECTION -->
+    <!-- SALES SECTION -->
     <div id="salesSection" class="tab-content" style="display: none;">
       <div class="section-divider">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-          <h2>Sales & Performance</h2>
-          <input type="date" id="saleDateFilter" class="action-btn" style="background: white; color: #333; border: 1px solid #d1d5db; padding: 5px 10px;" />
+        <div class="sales-section-heading">
+          <h2>Sales</h2>
+          <label for="salesDateFilter">Sales date</label>
+          <input type="date" id="salesDateFilter" required />
         </div>
-      </div>
-      <div class="analytics-grid sales-analytics-grid">
-        <div class="stat-card"><h3>Today's Revenue</h3><p>KES <span id="dailyRevenue">0</span></p></div>
-        <div class="stat-card"><h3>Today's Profit</h3><p>KES <span id="dailyProfit">0</span></p></div>
-        <div class="stat-card"><h3>Items Sold Today</h3><p id="dailyCount">0</p></div>
-        <div class="stat-card" style="border-left-color: #059669;"><h3>Monthly Revenue</h3><p>KES <span id="monthlyRevenue">0</span></p></div>
-        <div class="stat-card" style="border-left-color: #059669;"><h3>Monthly Profit</h3><p>KES <span id="monthlyProfit">0</span></p></div>
-        <div class="stat-card" style="border-left-color: #059669;"><h3>Lifetime Profit</h3><p>KES <span id="lifetimeProfit">0</span></p></div>
       </div>
       <form id="saleForm">
         <div style="position: relative; flex: 1;">
@@ -234,6 +229,17 @@
         </div>
         <input type="number" id="salePrice" placeholder="Price Sold" required />
         <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
+        <fieldset id="petrolDipFields" class="petrol-dip-fields" hidden>
+          <legend>Petrol Dip Record (Liters)</legend>
+          <p class="petrol-dip-formula">Total Available = Opening Dip + Fuel Received. Expected Closing = Total Available - Pump Sales. Variance = Actual Closing - Expected Closing.</p>
+          <label>Opening Dip (L)<input type="text" id="petrolOpeningDip" inputmode="decimal" /></label>
+          <label>Fuel Received (L)<input type="text" id="petrolFuelReceived" inputmode="decimal" /></label>
+          <label>Pump Sales (L)<input type="number" id="petrolPumpSales" readonly /></label>
+          <label>Total Available (L)<input type="number" id="petrolTotalAvailable" readonly /></label>
+          <label>Expected Closing Dip (L)<input type="number" id="petrolExpectedClosingDip" readonly /></label>
+          <label>Actual Closing Dip (L)<input type="text" id="petrolActualClosingDip" inputmode="decimal" /></label>
+          <label>Variance (L)<input type="number" id="petrolVariance" readonly /></label>
+        </fieldset>
         <button type="submit" id="recordSaleBtn" style="background: #10b981;">
           <span class="btn-text">Record Sale</span>
           <span class="spinner"></span>
@@ -241,7 +247,7 @@
       </form>
       <table>
         <thead>
-          <tr><th>Time</th><th>Item</th><th>Qty</th><th>Sold At</th><th>Revenue</th><th>Profit</th><th>Actions</th></tr>
+          <tr><th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Sold At</th><th>Revenue</th><th>Profit</th><th>Actions</th></tr>
         </thead>
         <tbody id="salesTable"></tbody>
       </table>
@@ -253,13 +259,63 @@
       </div>
     </div>
 
+    <!-- ANALYTICS SECTION -->
+    <div id="analyticsSection" class="tab-content" style="display: none;">
+      <div class="section-divider">
+        <div class="analytics-section-heading">
+          <h2>Business Analytics</h2>
+          <div class="analytics-filters">
+            <label for="analyticsItemFilter">Item</label>
+            <select id="analyticsItemFilter">
+              <option value="">All items</option>
+            </select>
+            <label for="analyticsPeriodFilter">Breakdown</label>
+            <select id="analyticsPeriodFilter">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+            <label id="analyticsDateLabel" for="analyticsDateFilter">Week of</label>
+            <input type="date" id="analyticsDateFilter" />
+          </div>
+        </div>
+      </div>
+      <div class="analytics-grid sales-analytics-grid">
+        <div class="stat-card"><h3>Sales Revenue</h3><p>KES <span id="analyticsSalesTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Total Profit</h3><p>KES <span id="analyticsProfitTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Items Sold</h3><p id="analyticsQuantityTotal">0</p></div>
+      </div>
+      <div id="petrolAnalyticsPreview" class="analytics-breakdown-table petrol-analytics-preview" hidden>
+        <h3>Petrol Dip Breakdown</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Opening Dip (L)</th><th>Fuel Received (L)</th>
+              <th>Pump Sales (L)</th><th>Total Available (L)</th>
+              <th>Expected Closing (L)</th><th>Actual Closing (L)</th><th>Variance (L)</th>
+            </tr>
+          </thead>
+          <tbody id="petrolAnalyticsTable"></tbody>
+        </table>
+      </div>
+      <div class="analytics-breakdown-table">
+        <table>
+          <thead>
+            <tr><th>Period</th><th>Sales</th><th>Profit</th><th>Items Sold</th></tr>
+          </thead>
+          <tbody id="analyticsBreakdownTable"></tbody>
+        </table>
+      </div>
+      <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">Export Analytics PDF</button>
+    </div>
+
     <!-- ORDERS SECTION -->
     <div id="ordersSection" class="tab-content" style="display: none;">
       <div class="section-divider"><h2>Customer Orders</h2></div>
       <form id="orderForm">
         <input type="text" id="customerName" placeholder="Customer Name" required />
         <input type="text" id="orderedItem" placeholder="Item Name" required />
-        <input type="number" id="orderedQuantity" placeholder="Quantity" required />
+        <input type="text" id="orderedQuantity" inputmode="decimal" placeholder="Quantity" required />
         <input type="text" id="orderNotes" placeholder="Notes" />
         <button type="submit" id="registerOrderBtn">
           <span class="btn-text">Register Order</span>
@@ -296,6 +352,10 @@
         <input type="number" id="incomingPrice" placeholder="Buying Price" required />
         <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
         <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
+        <label class="analytics-inclusion-option">
+          <input type="checkbox" id="includeInAllAnalytics" checked />
+          Include in All Items analytics (petrol is excluded by default)
+        </label>
         <button type="submit" id="saveItemBtn">
           <span class="btn-text">Save Item</span>
           <span class="spinner"></span>

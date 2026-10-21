@@ -11,10 +11,22 @@ import {
   endBefore,
   limitToLast,
   getDocs,
-  setDoc,
   increment
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import { adjustQuantity, escapeQuantity, formatQuantity, parseQuantity } from "./quantity.js";
+import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
+import {
+  adjustQuantity,
+  appendQuantityUnit,
+  calculatePetrolDip,
+  escapeQuantity,
+  formatDisplayQuantity,
+  formatNumber,
+  formatQuantity,
+  isLiterUnit,
+  isPetrolName,
+  parseQuantity,
+  uppercaseInput
+} from "./quantity.js";
 
 // DOM Elements (Sales & Analytics)
 const saleForm = document.getElementById("saleForm");
@@ -24,13 +36,26 @@ const salePriceInput = document.getElementById("salePrice");
 const saleQuantityInput = document.getElementById("saleQuantity");
 const recordSaleBtn = document.getElementById("recordSaleBtn");
 const salesTableBody = document.getElementById("salesTable"); // Renamed to avoid conflict with global sales array
-const dailyRevenueEl = document.getElementById("dailyRevenue");
-const dailyProfitEl = document.getElementById("dailyProfit");
-const dailyCountEl = document.getElementById("dailyCount");
-const monthlyRevenueEl = document.getElementById("monthlyRevenue");
-const monthlyProfitEl = document.getElementById("monthlyProfit");
-const lifetimeProfitEl = document.getElementById("lifetimeProfit");
-const saleDateFilter = document.getElementById("saleDateFilter");
+const salesDateFilter = document.getElementById("salesDateFilter");
+const petrolDipFields = document.getElementById("petrolDipFields");
+const petrolOpeningDipInput = document.getElementById("petrolOpeningDip");
+const petrolFuelReceivedInput = document.getElementById("petrolFuelReceived");
+const petrolPumpSalesInput = document.getElementById("petrolPumpSales");
+const petrolTotalAvailableInput = document.getElementById("petrolTotalAvailable");
+const petrolExpectedClosingInput = document.getElementById("petrolExpectedClosingDip");
+const petrolActualClosingInput = document.getElementById("petrolActualClosingDip");
+const petrolVarianceInput = document.getElementById("petrolVariance");
+const analyticsItemFilter = document.getElementById("analyticsItemFilter");
+const analyticsPeriodFilter = document.getElementById("analyticsPeriodFilter");
+const analyticsDateFilter = document.getElementById("analyticsDateFilter");
+const analyticsDateLabel = document.getElementById("analyticsDateLabel");
+const analyticsSalesTotalEl = document.getElementById("analyticsSalesTotal");
+const analyticsProfitTotalEl = document.getElementById("analyticsProfitTotal");
+const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
+const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable");
+const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview");
+const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
+const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
 
 let dbInstance;
 let authInstance;
@@ -40,14 +65,22 @@ let salesRef;
 let itemsRef; // Need itemsRef for batch updates
 let ordersCollectionRef; // Reference to the orders collection
 let salesSummaryRef = null;
-let salesSummaryData = null;
-let analyticsSummaryLoaded = false;
 let clientBusinessName; // The business name of the logged-in client
 let selectedItemId = null;
 let editSaleId = null;
 let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
 let analyticsUnsubscribe = null;
+let analyticsItemsUnsubscribe = null;
+let analyticsItemsById = new Map();
+let analyticsAllSalesError = null;
+let analyticsItemsError = null;
+let analyticsItemSalesUnsubscribe = null;
+let analyticsItemSales = null;
+let analyticsItemSalesError = null;
+let currentAnalyticsRows = [];
+let petrolDipInputRevision = 0;
+let petrolDipPrefillRequest = 0;
 
 // Pagination State
 let lastSalesDoc = null;
@@ -83,16 +116,43 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
 
   // Attach search listener
   saleItemSearch.addEventListener("input", handleItemSearch);
+  saleQuantityInput.addEventListener("input", () => {
+    appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(itemsArray.find(item => item.id === selectedItemId)));
+    uppercaseInput(saleQuantityInput);
+    updatePetrolSalePreview();
+  });
+  [petrolOpeningDipInput, petrolFuelReceivedInput, petrolActualClosingInput].forEach(input => {
+    input.addEventListener("input", () => {
+      appendQuantityUnit(input, "L", true);
+      uppercaseInput(input);
+      petrolDipInputRevision++;
+      updatePetrolSalePreview();
+    });
+  });
+  exportAnalyticsPdfBtn.addEventListener("click", exportAnalyticsPdf);
 
-  // Initialize/Restore Date Filter
-  const savedDate = localStorage.getItem('bizPulse_salesDate');
-  const today = new Date().toLocaleDateString('en-CA');
-  saleDateFilter.value = savedDate || today;
-  
-  saleDateFilter.addEventListener("change", () => {
-    localStorage.setItem('bizPulse_salesDate', saleDateFilter.value);
-    renderSalesTable();
+  const today = dateKey(new Date());
+  salesDateFilter.value = today;
+  salesDateFilter.addEventListener("change", () => {
+    if (!salesDateFilter.value) return;
+    firstSalesDoc = null;
+    lastSalesDoc = null;
+    loadSales(authInstance.currentUser.uid);
+  });
+  analyticsDateFilter.value = today;
+  analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
+  analyticsDateFilter.addEventListener("change", updateAnalyticsUI);
+  analyticsPeriodFilter.addEventListener("change", () => {
+    updateAnalyticsDateLabel();
     updateAnalyticsUI();
+  });
+  updateAnalyticsDateLabel();
+  listenToAnalyticsItems(authInstance.currentUser.uid);
+  salesPrevPageBtn.addEventListener("click", () => {
+    if (authInstance.currentUser) loadSales(authInstance.currentUser.uid, "prev");
+  });
+  salesNextPageBtn.addEventListener("click", () => {
+    if (authInstance.currentUser) loadSales(authInstance.currentUser.uid, "next");
   });
 
   // Close search results when clicking outside
@@ -109,6 +169,77 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
  */
 export function updateSaleDropdown(currentItems) {
   itemsArray = currentItems; // Update local reference
+  addAnalyticsItemOptions(currentItems);
+}
+
+function listenToAnalyticsItems(uid) {
+  const userItemsQuery = query(itemsRef, where("uid", "==", uid));
+  analyticsItemsUnsubscribe = onSnapshot(userItemsQuery, snapshot => {
+    const analyticsItems = snapshot.docs.map(itemDoc => ({
+      id: itemDoc.id,
+      ...itemDoc.data()
+    }));
+    analyticsItemsById = new Map(analyticsItems.map(item => [item.id, item]));
+    analyticsItemsError = null;
+    addAnalyticsItemOptions(analyticsItems);
+    updateAnalyticsUI();
+  }, error => {
+    console.error("Unable to load analytics item settings:", error);
+    analyticsItemsError = "Unable to load item analytics settings. Please try again.";
+    updateAnalyticsUI();
+  });
+}
+
+function addAnalyticsItemOptions(items) {
+  const existingOptions = new Map(
+    [...analyticsItemFilter.options].map(option => [option.value, option])
+  );
+
+  items
+    .filter(item => item.name)
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(item => {
+      let option = existingOptions.get(item.id);
+      if (!option) {
+        option = document.createElement("option");
+        option.value = item.id;
+        analyticsItemFilter.appendChild(option);
+      }
+      option.textContent = item.name;
+    });
+}
+
+function handleAnalyticsItemChange() {
+  if (analyticsItemSalesUnsubscribe) {
+    analyticsItemSalesUnsubscribe();
+    analyticsItemSalesUnsubscribe = null;
+  }
+  analyticsItemSalesError = null;
+
+  const itemId = analyticsItemFilter.value;
+  if (!itemId) {
+    analyticsItemSales = null;
+    updateAnalyticsUI();
+    return;
+  }
+
+  analyticsItemSales = [];
+  updateAnalyticsUI();
+  const itemSalesQuery = query(
+    salesRef,
+    where("uid", "==", authInstance.currentUser.uid),
+    where("itemId", "==", itemId)
+  );
+
+  analyticsItemSalesUnsubscribe = onSnapshot(itemSalesQuery, snapshot => {
+    analyticsItemSales = snapshot.docs.map(saleDoc => saleDoc.data());
+    analyticsItemSalesError = null;
+    updateAnalyticsUI();
+  }, error => {
+    console.error("Unable to load item sales analytics:", error);
+    analyticsItemSalesError = "Unable to load sales for this item. Please try again.";
+    updateAnalyticsUI();
+  });
 }
 
 /**
@@ -117,6 +248,7 @@ export function updateSaleDropdown(currentItems) {
 function handleItemSearch() {
   const term = saleItemSearch.value.toLowerCase().trim();
   selectedItemId = null;
+  setPetrolDipFieldsVisible(false);
 
   if (!term) {
     saleSearchResults.style.display = "none";
@@ -134,7 +266,7 @@ function handleItemSearch() {
   saleSearchResults.innerHTML = matches.map(item => `
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
-      <small>Price: KES ${item.outgoing} | Stock: ${escapeQuantity(item.quantity)}</small>
+      <small>Price: KES ${formatNumber(item.outgoing)} | Stock: ${escapeQuantity(formatDisplayQuantity(item.quantity))}</small>
     </div>
   `).join("");
   saleSearchResults.style.display = "block";
@@ -147,11 +279,369 @@ window.selectSaleItem = (id, name) => {
   selectedItemId = id;
   saleItemSearch.value = name;
   saleSearchResults.style.display = "none";
+  const selectedItem = itemsArray.find(item => item.id === id);
+  setPetrolDipFieldsVisible(isPetrolItem(selectedItem));
+  if (isPetrolItem(selectedItem)) {
+    prefillPetrolDipFromPreviousDay(selectedItem);
+  }
 
   // Auto-fill price if preferred
-  const item = itemsArray.find(i => i.id === id);
-  if (item) salePriceInput.value = item.outgoing;
+  if (selectedItem) salePriceInput.value = selectedItem.outgoing;
   saleQuantityInput.focus();
+}
+
+async function prefillPetrolDipFromPreviousDay(item) {
+  const requestId = ++petrolDipPrefillRequest;
+  const inputRevision = petrolDipInputRevision;
+  const itemId = item.id;
+  const currentDateKey = dateKey(new Date());
+
+  petrolOpeningDipInput.value = "";
+  petrolFuelReceivedInput.value = "0 L";
+  petrolActualClosingInput.value = "";
+  updatePetrolSalePreview();
+
+  try {
+    const previousSalesQuery = query(
+      salesRef,
+      where("uid", "==", authInstance.currentUser.uid),
+      where("itemId", "==", itemId)
+    );
+    const snapshot = await getDocs(previousSalesQuery);
+    if (requestId !== petrolDipPrefillRequest ||
+        selectedItemId !== itemId ||
+        petrolDipInputRevision !== inputRevision) {
+      return;
+    }
+
+    const priorDipSales = snapshot.docs
+      .map(saleDoc => saleDoc.data())
+      .filter(sale => {
+        const closingDip = sale.petrolDip?.actualClosingDipLiters;
+        if (closingDip === null || closingDip === undefined) return false;
+        const saleTimestamp = new Date(sale.createdAt);
+        return Number.isFinite(saleTimestamp.getTime()) && dateKey(saleTimestamp) < currentDateKey;
+      })
+      .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+    const previousClosingDip = priorDipSales[0]?.petrolDip.actualClosingDipLiters;
+    if (previousClosingDip !== null && previousClosingDip !== undefined &&
+        Number.isFinite(Number(previousClosingDip))) {
+      petrolOpeningDipInput.value = `${previousClosingDip} L`;
+    }
+    updatePetrolSalePreview();
+  } catch (error) {
+    console.error("Unable to load previous day's petrol closing dip:", error);
+    if (requestId === petrolDipPrefillRequest && selectedItemId === itemId) {
+      showToast("Could not load the previous day's closing dip. Enter the opening dip manually.", "error");
+    }
+  }
+}
+
+function isPetrolItem(item) {
+  return isPetrolName(item?.name);
+}
+
+function setPetrolDipFieldsVisible(visible) {
+  petrolDipFields.hidden = !visible;
+  appendQuantityUnit(saleQuantityInput, "L", visible);
+  [petrolOpeningDipInput, petrolFuelReceivedInput, petrolActualClosingInput].forEach(input => {
+    input.required = visible;
+  });
+  if (!visible) {
+    petrolOpeningDipInput.value = "";
+    petrolFuelReceivedInput.value = "";
+    petrolActualClosingInput.value = "";
+    updatePetrolSalePreview();
+  } else {
+    updatePetrolSalePreview();
+  }
+}
+
+function updatePetrolSalePreview() {
+  const saleQuantity = parseQuantity(saleQuantityInput.value);
+  const pumpSales = saleQuantity?.amount;
+  petrolPumpSalesInput.value = Number.isFinite(pumpSales) ? formatNumber(pumpSales).replace(/,/g, "") : "";
+
+  const openingDip = parseLiterInput(petrolOpeningDipInput);
+  const fuelReceived = parseLiterInput(petrolFuelReceivedInput);
+  const actualClosingDip = parseLiterInput(petrolActualClosingInput);
+  if (openingDip === null || fuelReceived === null ||
+      actualClosingDip === null || !Number.isFinite(pumpSales)) {
+    petrolTotalAvailableInput.value = "";
+    petrolExpectedClosingInput.value = "";
+    petrolVarianceInput.value = "";
+    return null;
+  }
+
+  const dip = calculatePetrolDip(openingDip, fuelReceived, pumpSales, actualClosingDip);
+  if (!dip) {
+    petrolTotalAvailableInput.value = "";
+    petrolExpectedClosingInput.value = "";
+    petrolVarianceInput.value = "";
+    return null;
+  }
+  petrolTotalAvailableInput.value = formatNumber(dip.totalAvailableLiters).replace(/,/g, "");
+  petrolExpectedClosingInput.value = formatNumber(dip.expectedClosingDipLiters).replace(/,/g, "");
+  petrolVarianceInput.value = formatNumber(dip.varianceLiters).replace(/,/g, "");
+  return dip;
+}
+
+function parseLiterInput(input) {
+  const quantity = parseQuantity(input.value);
+  if (!quantity || (quantity.unit && !isLiterUnit(quantity.unit))) return null;
+  return quantity.amount;
+}
+
+function getAnalyticsDateRange(period, selectedDate) {
+  if (period === "daily") {
+    const start = new Date(`${selectedDate}T00:00:00`);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+    return { start, end };
+  }
+
+  if (period === "weekly") {
+    const start = new Date(`${selectedDate}T00:00:00`);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+
+  const [year, month] = selectedDate.split("-").map(Number);
+  return {
+    start: new Date(year, month - 1, 1),
+    end: new Date(year, month, 1)
+  };
+}
+
+function renderPetrolAnalytics() {
+  const selectedItemId = analyticsItemFilter.value;
+  const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+  const showPetrol = Boolean(selectedItemId && isPetrolItem(selectedItem));
+  petrolAnalyticsPreview.hidden = !showPetrol;
+  if (!showPetrol) return;
+
+  if (analyticsItemSalesError) {
+    petrolAnalyticsTable.innerHTML = `<tr><td colspan="8">${escapeQuantity(analyticsItemSalesError)}</td></tr>`;
+    return;
+  }
+
+  const { start, end } = getAnalyticsDateRange(analyticsPeriodFilter.value, analyticsDateFilter.value);
+  const salesInPeriod = (analyticsItemSales || [])
+    .filter(sale => {
+      const saleDate = new Date(sale.createdAt);
+      return sale.petrolDip && saleDate >= start && saleDate < end;
+    })
+    .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt));
+
+  petrolAnalyticsTable.innerHTML = salesInPeriod.length
+    ? salesInPeriod.map(sale => {
+      const dip = sale.petrolDip;
+      return `<tr>
+        <td>${escapeQuantity(new Date(sale.createdAt).toLocaleString())}</td>
+        <td>${formatNumber(dip.openingDipLiters)}</td>
+        <td>${formatNumber(dip.fuelReceivedLiters)}</td>
+        <td>${formatNumber(dip.pumpSalesLiters)}</td>
+        <td>${formatNumber(dip.totalAvailableLiters)}</td>
+        <td>${formatNumber(dip.expectedClosingDipLiters)}</td>
+        <td>${formatNumber(dip.actualClosingDipLiters)}</td>
+        <td>${formatNumber(dip.varianceLiters)}</td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="8" style="text-align:center;">No petrol dip records for this period.</td></tr>`;
+}
+
+function exportAnalyticsPdf() {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const itemName = analyticsItemFilter.value
+    ? analyticsItemFilter.selectedOptions[0]?.textContent || "Selected item"
+    : "All items";
+  const period = analyticsPeriodFilter.value;
+  const selectedDate = analyticsDateFilter.value;
+  const rows = currentAnalyticsRows;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 10;
+  const footerY = pageHeight - 8;
+  let y = 16;
+
+  const drawSectionTitle = title => {
+    if (y + 10 > footerY - 8) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 58, 138);
+    doc.text(title, margin, y);
+    y += 6;
+  };
+
+  const drawTable = (headers, dataRows, columnWidths) => {
+    const rowPadding = 2.5;
+    const lineHeight = 4.5;
+    const drawHeader = () => {
+      let x = margin;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      headers.forEach((header, index) => {
+        doc.setFillColor(226, 232, 240);
+        doc.setDrawColor(203, 213, 225);
+        doc.rect(x, y, columnWidths[index], 8, "FD");
+        doc.setTextColor(30, 41, 59);
+        doc.text(doc.splitTextToSize(String(header), columnWidths[index] - 4), x + 2, y + 5.2);
+        x += columnWidths[index];
+      });
+      y += 8;
+    };
+
+    drawHeader();
+    dataRows.forEach((row, rowIndex) => {
+      const cellLines = row.map((cell, index) =>
+        doc.splitTextToSize(String(cell), columnWidths[index] - 4)
+      );
+      const lineCount = Math.max(...cellLines.map(lines => lines.length), 1);
+      const rowHeight = lineCount * lineHeight + rowPadding * 2;
+
+      if (y + rowHeight > footerY - 4) {
+        doc.addPage();
+        y = 16;
+        drawHeader();
+      }
+
+      let x = margin;
+      cellLines.forEach((lines, index) => {
+        doc.setDrawColor(203, 213, 225);
+        const alternateRow = rowIndex % 2 === 1;
+        doc.setFillColor(alternateRow ? 248 : 255, alternateRow ? 250 : 255, alternateRow ? 252 : 255);
+        doc.rect(x, y, columnWidths[index], rowHeight, "FD");
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(lines, x + 2, y + rowPadding + 3.2);
+        x += columnWidths[index];
+      });
+      y += rowHeight;
+    });
+
+    y += 7;
+  };
+
+  const shopName = String(clientBusinessName || "Client Shop").trim();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(15, 23, 42);
+  const shopNameLines = doc.splitTextToSize(shopName, pageWidth - margin * 2);
+  doc.text(shopNameLines, margin, y);
+  y += shopNameLines.length * 7.5 + 2;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(71, 85, 105);
+  doc.text("Sales Analytics", margin, y);
+  y += 7;
+
+  const selectedPeriod = period === "daily" ? "Date" : period === "weekly" ? "Week of" : "Month";
+  drawSectionTitle("Report filters");
+  drawTable(
+    ["Report filter", "Selection"],
+    [
+      ["Item", itemName],
+      [selectedPeriod, selectedDate]
+    ],
+    [40, pageWidth - margin * 2 - 40]
+  );
+
+  drawSectionTitle("Summary");
+  drawTable(
+    ["Metric", "Value"],
+    [
+      ["Sales revenue", `KES ${analyticsSalesTotalEl.textContent}`],
+      ["Total profit", `KES ${analyticsProfitTotalEl.textContent}`],
+      ["Quantity sold", formatNumber(analyticsQuantityTotalEl.textContent)]
+    ],
+    [pageWidth - margin * 2 - 55, 55]
+  );
+
+  drawSectionTitle("Sales breakdown");
+  const selectedAnalyticsSales = analyticsItemSales !== null
+    ? analyticsItemSales
+    : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
+  drawTable(
+    ["Period", "Sales (KES)", "Profit (KES)", "Quantity sold", "Products and quantities"],
+    rows.map(row => {
+      const salesByItem = new Map();
+      selectedAnalyticsSales.forEach(sale => {
+        if (!row.dateKeys.includes(dateKey(new Date(sale.createdAt)))) return;
+
+        const unit = sale.quantityUnit || "";
+        const itemKey = `${sale.itemId || sale.itemName}|${unit.toLowerCase()}`;
+        const existing = salesByItem.get(itemKey) || {
+          name: sale.itemName || "Item",
+          quantity: 0,
+          unit
+        };
+        existing.quantity += Number(sale.quantity) || 0;
+        salesByItem.set(itemKey, existing);
+      });
+      const productsAndQuantities = [...salesByItem.values()]
+        .map(item => `${item.name}: ${formatDisplayQuantity(formatQuantity(item.quantity, item.unit))}`)
+        .join("\n") || "—";
+
+      return [
+        row.label,
+        formatNumber(row.revenue),
+        formatNumber(row.profit),
+        formatNumber(row.quantity),
+        productsAndQuantities
+      ];
+    }),
+    [50, 37, 37, 35, pageWidth - margin * 2 - 159]
+  );
+
+  if (!petrolAnalyticsPreview.hidden) {
+    const { start, end } = getAnalyticsDateRange(period, selectedDate);
+    const petrolRows = (analyticsItemSales || [])
+      .filter(sale => {
+        const saleDate = new Date(sale.createdAt);
+        return sale.petrolDip && saleDate >= start && saleDate < end;
+      })
+      .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))
+      .map(sale => {
+        const dip = sale.petrolDip;
+        return [
+          new Date(sale.createdAt).toLocaleDateString(),
+          `${formatNumber(dip.openingDipLiters)} L`,
+          `${formatNumber(dip.fuelReceivedLiters)} L`,
+          `${formatNumber(dip.pumpSalesLiters)} L`,
+          `${formatNumber(dip.totalAvailableLiters)} L`,
+          `${formatNumber(dip.expectedClosingDipLiters)} L`,
+          `${formatNumber(dip.actualClosingDipLiters)} L`,
+          `${formatNumber(dip.varianceLiters)} L`
+        ];
+      });
+
+    drawSectionTitle("Petrol dip readings (L)");
+    drawTable(
+      ["Date", "Opening (L)", "Received (L)", "Pump sales (L)", "Available (L)", "Expected close (L)", "Actual close (L)", "Variance (L)"],
+      petrolRows.length ? petrolRows : [["No petrol dip records", "", "", "", "", "", "", ""]],
+      [32, 31, 31, 31, 34, 39, 34, 45]
+    );
+  }
+
+  for (let page = 1; page <= doc.getNumberOfPages(); page++) {
+    doc.setPage(page);
+    doc.setDrawColor(203, 213, 225);
+    doc.line(margin, footerY - 4, pageWidth - margin, footerY - 4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text("BizPulse Analytics | business.competencehub.co.ke", margin, footerY);
+    doc.text(`Page ${page} of ${doc.getNumberOfPages()}`, pageWidth - margin, footerY, { align: "right" });
+  }
+
+  const fileShopName = shopName.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || "Client_Shop";
+  doc.save(`${fileShopName}_Analytics_${selectedDate}.pdf`);
 }
 
 /**
@@ -168,7 +658,17 @@ export function loadSales(uid, direction = 'initial') {
   window.showLoadingIndicator(true); // Show loading indicator
   
   let q;
-  const baseQuery = query(salesRef, where("uid", "==", uid), orderBy("createdAt", "desc"));
+  const selectedDate = salesDateFilter.value;
+  if (!selectedDate) return Promise.resolve();
+  const nextDay = new Date(`${selectedDate}T00:00:00`);
+  nextDay.setDate(nextDay.getDate() + 1);
+  const baseQuery = query(
+    salesRef,
+    where("uid", "==", uid),
+    where("createdAt", ">=", `${selectedDate}T00:00:00.000`),
+    where("createdAt", "<", `${dateKey(nextDay)}T00:00:00.000`),
+    orderBy("createdAt", "desc")
+  );
 
   if (direction === 'next' && lastSalesDoc) {
     q = query(baseQuery, startAfter(lastSalesDoc), limit(salesPageSize));
@@ -187,16 +687,19 @@ export function loadSales(uid, direction = 'initial') {
       if (!snapshot.empty) {
         firstSalesDoc = snapshot.docs[0];
         lastSalesDoc = snapshot.docs[snapshot.docs.length - 1];
+      } else if (direction === "initial") {
+        firstSalesDoc = null;
+        lastSalesDoc = null;
       }
 
       salesArray = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      if (direction === 'next') salesPage++;
-      else if (direction === 'prev') salesPage--;
-      else salesPage = 1;
+      if (direction === 'next' && !snapshot.empty) salesPage++;
+      else if (direction === 'prev' && !snapshot.empty) salesPage--;
+      else if (direction === 'initial') salesPage = 1;
 
       renderSalesTable();
-      updateSalesPaginationUI(snapshot.size);
+      updateSalesPaginationUI(snapshot.size, snapshot.empty);
       window.showLoadingIndicator(false);
       if (isFirstLoad) { isFirstLoad = false; resolve(); }
     }, (error) => {
@@ -207,149 +710,191 @@ export function loadSales(uid, direction = 'initial') {
   });
 }
 
-function updateSalesPaginationUI(currentCount) {
+function updateSalesPaginationUI(currentCount, isEmpty = false) {
   if (salesPageInfo) salesPageInfo.textContent = `Page ${salesPage}`;
   if (salesPrevPageBtn) salesPrevPageBtn.disabled = (salesPage === 1);
-  if (salesNextPageBtn) salesNextPageBtn.disabled = (currentCount < salesPageSize);
+  if (salesNextPageBtn) salesNextPageBtn.disabled = isEmpty || currentCount < salesPageSize;
 }
 
 /**
  * Listens to all sales for real-time global analytics.
  */
 function listenToAnalytics(uid) {
-  const summaryDocRef = doc(dbInstance, "salesSummaries", uid);
-  analyticsUnsubscribe = onSnapshot(summaryDocRef, async (snapshot) => {
-    if (snapshot.exists()) {
-      salesSummaryData = snapshot.data();
-      updateAnalyticsUI();
-      analyticsSummaryLoaded = true;
-    } else {
-      await buildSummaryFallback(uid, summaryDocRef);
-    }
-  }, async (error) => {
-    console.error("Analytics listener error:", error);
-    await buildSummaryFallback(uid, summaryDocRef);
-  });
-}
-
-async function buildSummaryFallback(uid, summaryDocRef) {
-  try {
-    const allSalesSnap = await getDocs(query(salesRef, where("uid", "==", uid)));
-    const existingSales = allSalesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    allSalesForAnalytics = existingSales; // Store for immediate UI use
-    salesSummaryData = buildSummaryFromSales(existingSales);
+  const userSalesQuery = query(salesRef, where("uid", "==", uid));
+  analyticsUnsubscribe = onSnapshot(userSalesQuery, snapshot => {
+    allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
+    analyticsAllSalesError = null;
     updateAnalyticsUI();
-
-    if (!analyticsSummaryLoaded) {
-      try {
-        await setDoc(summaryDocRef, salesSummaryData, { merge: true });
-        analyticsSummaryLoaded = true;
-      } catch (saveError) {
-        console.warn("Unable to write sales summary doc:", saveError.message);
-      }
-    }
-  } catch (fallbackError) {
-    console.error("Analytics fallback failed:", fallbackError);
-  }
-}
-
-function buildSummaryFromSales(sales) {
-  const summary = {
-    dailyTotals: {},
-    monthlyTotals: {},
-    lifetime: { revenue: 0, profit: 0 }
-  };
-
-  sales.forEach(sale => {
-    const saleDate = new Date(sale.createdAt).toLocaleDateString('en-CA');
-    const saleMonth = saleDate.slice(0, 7);
-    if (!summary.dailyTotals[saleDate]) {
-      summary.dailyTotals[saleDate] = { revenue: 0, profit: 0, count: 0 };
-    }
-    if (!summary.monthlyTotals[saleMonth]) {
-      summary.monthlyTotals[saleMonth] = { revenue: 0, profit: 0 };
-    }
-
-    summary.dailyTotals[saleDate].revenue += sale.revenue;
-    summary.dailyTotals[saleDate].profit += sale.profit;
-    summary.dailyTotals[saleDate].count += sale.quantity;
-    summary.monthlyTotals[saleMonth].revenue += sale.revenue;
-    summary.monthlyTotals[saleMonth].profit += sale.profit;
-    summary.lifetime.revenue += sale.revenue;
-    summary.lifetime.profit += sale.profit;
+  }, error => {
+    console.error("Analytics listener error:", error);
+    analyticsAllSalesError = "Unable to load sales analytics. Please try again.";
+    updateAnalyticsUI();
   });
-
-  return summary;
 }
 
 /**
  * Updates the analytics cards using the full sales dataset.
  */
 function updateAnalyticsUI() {
-  let dayRev = 0, dayProf = 0, dayCount = 0;
-  let monthRev = 0, monthProf = 0;
-  let lifeProf = 0;
-  
-  const targetDate = saleDateFilter.value;
-  const targetMonth = targetDate.slice(0, 7); // YYYY-MM
+  const period = analyticsPeriodFilter.value;
+  const selectedDate = analyticsDateFilter.value;
+  if (!selectedDate) return;
 
-  if (salesSummaryData) {
-    // Helper to get values from either flat keys (legacy/polluted) or nested objects (standard)
-    const getVal = (path, defaultVal = 0) => {
-      if (salesSummaryData[path] !== undefined) return salesSummaryData[path]; // Handle literal flat keys
-      return path.split('.').reduce((acc, part) => (acc && acc[part] !== undefined) ? acc[part] : undefined, salesSummaryData) ?? defaultVal;
-    };
-
-    dayRev = getVal(`dailyTotals.${targetDate}.revenue`);
-    dayProf = getVal(`dailyTotals.${targetDate}.profit`);
-    dayCount = getVal(`dailyTotals.${targetDate}.count`);
-    monthRev = getVal(`monthlyTotals.${targetMonth}.revenue`);
-    monthProf = getVal(`monthlyTotals.${targetMonth}.profit`);
-    lifeProf = getVal(`lifetime.profit`);
-  } else {
-    const targetDateObj = new Date(targetDate);
-    const targetMonthIndex = targetDateObj.getMonth();
-    const targetYear = targetDateObj.getFullYear();
-
-    allSalesForAnalytics.forEach(sale => {
-      const saleDateObj = new Date(sale.createdAt);
-      const saleDateStr = saleDateObj.toLocaleDateString('en-CA');
-
-      lifeProf += sale.profit;
-      if (saleDateObj.getMonth() === targetMonthIndex && saleDateObj.getFullYear() === targetYear) {
-        monthRev += sale.revenue;
-        monthProf += sale.profit;
-      }
-      if (saleDateStr === targetDate) {
-        dayRev += sale.revenue;
-        dayProf += sale.profit;
-        dayCount += sale.quantity;
-      }
-    });
+  const analyticsError = analyticsItemFilter.value
+    ? analyticsItemSalesError
+    : analyticsAllSalesError || analyticsItemsError;
+  if (analyticsError) {
+    analyticsSalesTotalEl.textContent = "—";
+    analyticsProfitTotalEl.textContent = "—";
+    analyticsQuantityTotalEl.textContent = "—";
+    currentAnalyticsRows = [];
+    analyticsBreakdownTable.innerHTML = `<tr><td colspan="4">${escapeQuantity(analyticsError)}</td></tr>`;
+    renderPetrolAnalytics();
+    return;
   }
 
-  if (dailyRevenueEl) dailyRevenueEl.textContent = dayRev.toFixed(2);
-  if (dailyProfitEl) dailyProfitEl.textContent = dayProf.toFixed(2);
-  if (dailyCountEl) dailyCountEl.textContent = dayCount;
-  if (monthlyRevenueEl) monthlyRevenueEl.textContent = monthRev.toFixed(2);
-  if (monthlyProfitEl) monthlyProfitEl.textContent = monthProf.toFixed(2);
-  if (lifetimeProfitEl) lifetimeProfitEl.textContent = lifeProf.toFixed(2);
+  const dailyTotals = getDailyAnalyticsTotals();
+  const rows = period === "daily"
+    ? getDailyBreakdown(selectedDate, dailyTotals)
+    : period === "weekly"
+      ? getWeeklyBreakdown(selectedDate, dailyTotals)
+      : getMonthlyBreakdown(selectedDate, dailyTotals);
+  const totals = rows.reduce((result, row) => ({
+    revenue: result.revenue + row.revenue,
+    profit: result.profit + row.profit,
+    quantity: result.quantity + row.quantity
+  }), { revenue: 0, profit: 0, quantity: 0 });
 
-  window.dispatchEvent(new CustomEvent('salesSummaryUpdated', {
-    detail: {
-      dailyRevenue: dayRev,
-      dailyProfit: dayProf,
-      dailyCount: dayCount,
-      monthlyRevenue: monthRev,
-      monthlyProfit: monthProf,
-      lifetimeProfit: lifeProf
-    }
-  }));
+  analyticsSalesTotalEl.textContent = formatNumber(totals.revenue);
+  analyticsProfitTotalEl.textContent = formatNumber(totals.profit);
+  analyticsQuantityTotalEl.textContent = formatNumber(totals.quantity);
+  analyticsBreakdownTable.innerHTML = rows.map(row => `
+    <tr>
+      <td>${row.label}</td>
+      <td>${formatNumber(row.revenue)}</td>
+      <td>${formatNumber(row.profit)}</td>
+      <td>${formatNumber(row.quantity)}</td>
+    </tr>
+  `).join("");
+  currentAnalyticsRows = rows;
+  renderPetrolAnalytics();
 
-  // Update headings to reflect the selected date
-  const dateLabel = targetDate === new Date().toLocaleDateString('en-CA') ? "Today" : targetDate;
-  const sectionHeader = document.querySelector("#salesSection h2");
-  if (sectionHeader) sectionHeader.textContent = `Sales Performance: ${dateLabel}`;
+  updateAnalyticsDateLabel();
+
+}
+
+function getDailyAnalyticsTotals() {
+  const totals = {};
+  const sales = analyticsItemSales !== null
+    ? analyticsItemSales
+    : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
+
+  sales.forEach(sale => {
+    const date = dateKey(new Date(sale.createdAt));
+    if (!totals[date]) totals[date] = { revenue: 0, profit: 0, quantity: 0 };
+    totals[date].revenue += Number(sale.revenue) || 0;
+    totals[date].profit += Number(sale.profit) || 0;
+    totals[date].quantity += Number(sale.quantity) || 0;
+  });
+  return totals;
+}
+
+function isIncludedInAllAnalytics(sale) {
+  const item = analyticsItemsById.get(sale.itemId);
+  if (typeof item?.includeInAllAnalytics === "boolean") {
+    return item.includeInAllAnalytics;
+  }
+  return !isPetrolName(item?.name || sale.itemName);
+}
+
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function emptyDailyTotal() {
+  return { revenue: 0, profit: 0, quantity: 0 };
+}
+
+function getDailyBreakdown(selectedDate, dailyTotals) {
+  const total = dailyTotals[selectedDate] || emptyDailyTotal();
+  return [{
+    label: new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    }),
+    dateKeys: [selectedDate],
+    ...total
+  }];
+}
+
+function getWeeklyBreakdown(selectedDate, dailyTotals) {
+  const selected = new Date(`${selectedDate}T00:00:00`);
+  const mondayOffset = (selected.getDay() + 6) % 7;
+  const start = new Date(selected);
+  start.setDate(selected.getDate() - mondayOffset);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const key = dateKey(date);
+    const total = dailyTotals[key] || emptyDailyTotal();
+    return {
+      label: date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+      dateKeys: [key],
+      ...total
+    };
+  });
+}
+
+function getMonthlyBreakdown(selectedDate, dailyTotals) {
+  const [year, month] = selectedDate.split("-").map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month - 1, daysInMonth);
+  const weeks = new Map();
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month - 1, day);
+    const mondayOffset = (date.getDay() + 6) % 7;
+    const weekStart = new Date(date);
+    weekStart.setDate(date.getDate() - mondayOffset);
+    const key = dateKey(weekStart);
+    const total = dailyTotals[dateKey(date)] || emptyDailyTotal();
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const labelStart = weekStart < monthStart ? monthStart : weekStart;
+    const labelEnd = weekEnd > monthEnd ? monthEnd : weekEnd;
+    const week = weeks.get(key) || {
+      label: `${labelStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${labelEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
+      dateKeys: [],
+      revenue: 0,
+      profit: 0,
+      quantity: 0
+    };
+    week.revenue += total.revenue;
+    week.profit += total.profit;
+    week.quantity += total.quantity;
+    week.dateKeys.push(dateKey(date));
+    weeks.set(key, week);
+  }
+
+  return [...weeks.values()];
+}
+
+function updateAnalyticsDateLabel() {
+  const selectedDate = analyticsDateFilter.value;
+  const period = analyticsPeriodFilter.value;
+  if (period === "monthly") {
+    analyticsDateFilter.type = "month";
+    if (selectedDate.length === 10) analyticsDateFilter.value = selectedDate.slice(0, 7);
+    analyticsDateLabel.textContent = "Month";
+  } else {
+    analyticsDateFilter.type = "date";
+    if (selectedDate.length === 7) analyticsDateFilter.value = `${selectedDate}-01`;
+    analyticsDateLabel.textContent = period === "daily" ? "Date" : "Week of";
+  }
 }
 
 /**
@@ -357,34 +902,29 @@ function updateAnalyticsUI() {
  */
 function renderSalesTable() {
   salesTableBody.innerHTML = "";
-  const targetDate = saleDateFilter.value;
 
   // Pagination returns a limited slice of data
   salesArray.forEach(sale => {
-    const saleDate = new Date(sale.createdAt).toLocaleDateString('en-CA');
-
-    // Note: This check only works if the 10 items in 'salesArray' include the targetDate.
-    if (saleDate === targetDate) {
-      const row = document.createElement("tr");
-      row.innerHTML = `
+    const row = document.createElement("tr");
+    row.innerHTML = `
+        <td>${new Date(sale.createdAt).toLocaleDateString()}</td>
         <td>${new Date(sale.createdAt).toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit'
         })}</td>
         <td>${sale.itemName}</td>
-        <td>${escapeQuantity(formatQuantity(sale.quantity, sale.quantityUnit || ""))}</td>
-        <td>${sale.unitPriceSold}</td>
-        <td>${sale.revenue}</td>
-        <td style="color: green; font-weight: bold;">${sale.profit}</td>
+        <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
+        <td>${formatNumber(sale.unitPriceSold)}</td>
+        <td>${formatNumber(sale.revenue)}</td>
+        <td style="color: green; font-weight: bold;">${formatNumber(sale.profit)}</td>
         <td><button onclick="window.editSale('${sale.id}')">Edit</button></td>
       `;
-      salesTableBody.appendChild(row);
-    }
+    salesTableBody.appendChild(row);
   });
 
   if (salesTableBody.innerHTML === "") {
-    salesTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #6b7280; padding: 20px;">
-      No sales visible for this date on this page.
+    salesTableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color: #6b7280; padding: 20px;">
+      No sales recorded yet.
     </td></tr>`;
   }
 }
@@ -414,14 +954,31 @@ async function handleSaleFormSubmit(e) {
 
   const itemQuantity = parseQuantity(item.quantity);
   const itemUnit = itemQuantity?.unit || "";
+  const petrolItem = isPetrolItem(item);
   if (saleQuantity.unit && itemUnit &&
-      saleQuantity.unit.toLowerCase() !== itemUnit.toLowerCase()) {
+      saleQuantity.unit.toLowerCase() !== itemUnit.toLowerCase() &&
+      !(petrolItem && isLiterUnit(saleQuantity.unit) && isLiterUnit(itemUnit))) {
     alert(`Sale unit must match the inventory unit (${itemUnit}).`);
     window.showLoadingIndicator(false);
     return;
   }
   const qtySold = saleQuantity.amount;
-  const quantityUnit = itemUnit || saleQuantity.unit;
+  const quantityUnit = petrolItem ? "L" : (itemUnit || saleQuantity.unit);
+  let petrolDip = null;
+  if (petrolItem) {
+    const saleUnit = saleQuantity.unit || itemUnit;
+    if (saleUnit && !isLiterUnit(saleUnit)) {
+      alert("Petrol quantities must be recorded in liters (L).");
+      window.showLoadingIndicator(false);
+      return;
+    }
+    petrolDip = updatePetrolSalePreview();
+    if (!petrolDip) {
+      alert("Enter valid opening dip, fuel received, and actual closing dip values.");
+      window.showLoadingIndicator(false);
+      return;
+    }
+  }
 
   // Stock check logic adjustment for Edit
   let availableStock = parseQuantity(item.quantity)?.amount ?? 0;
@@ -433,7 +990,9 @@ async function handleSaleFormSubmit(e) {
   }
 
   if (qtySold > availableStock) {
-    alert("Insufficient stock!");
+    const availableUnit = petrolItem ? "L" : itemUnit;
+    const availableQuantity = formatDisplayQuantity(formatQuantity(availableStock, availableUnit));
+    alert(`Insufficient stock! | ${availableQuantity}`);
     window.showLoadingIndicator(false);
     return;
   }
@@ -449,6 +1008,7 @@ async function handleSaleFormSubmit(e) {
     unitPriceSold,
     quantity: qtySold,
     quantityUnit,
+    ...(petrolDip ? { petrolDip } : {}),
     revenue,
     profit,
     uid: authInstance.currentUser.uid,
@@ -530,7 +1090,7 @@ async function handleSaleFormSubmit(e) {
       const reorderData = {
         customerName: clientBusinessName, // Use the client's business name
         itemName: item.name,
-        quantity: 5, // Default reorder quantity
+        quantity: isPetrolItem(item) ? "5 L" : 5,
         notes: "Item quantity reached 0. <br>Quantity to be adjusted.",
         date: new Date().toISOString(),
         uid: authInstance.currentUser.uid,
@@ -585,6 +1145,14 @@ window.editSale = (id) => {
   if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
   if (saleQuantityInput) {
     saleQuantityInput.value = formatQuantity(sale.quantity, sale.quantityUnit || "");
+  }
+  const item = itemsArray.find(candidate => candidate.id === sale.itemId);
+  setPetrolDipFieldsVisible(isPetrolItem(item));
+  if (sale.petrolDip) {
+    petrolOpeningDipInput.value = `${sale.petrolDip.openingDipLiters} L`;
+    petrolFuelReceivedInput.value = `${sale.petrolDip.fuelReceivedLiters} L`;
+    petrolActualClosingInput.value = `${sale.petrolDip.actualClosingDipLiters} L`;
+    updatePetrolSalePreview();
   }
 
   // Update button UI

@@ -28,7 +28,17 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import { initSalesModule, loadSales, updateSaleDropdown } from "./sales.js";
-import { escapeQuantity, parseQuantity, formatQuantity } from "./quantity.js";
+import {
+  escapeQuantity,
+  appendQuantityUnit,
+  formatDisplayQuantity,
+  formatNumber,
+  isLiterUnit,
+  isPetrolName,
+  parseQuantity,
+  formatQuantity,
+  uppercaseInput
+} from "./quantity.js";
 
 import {
   getAuth,
@@ -82,6 +92,7 @@ const itemName = document.getElementById("itemName");
 const incomingPrice = document.getElementById("incomingPrice");
 const outgoingPrice = document.getElementById("outgoingPrice");
 const quantityInput = document.getElementById("quantity");
+const includeInAllAnalyticsInput = document.getElementById("includeInAllAnalytics");
 const saveItemBtn = document.getElementById("saveItemBtn");
 const table = document.getElementById("itemTable");
 const searchInput = document.getElementById("searchInput");
@@ -93,12 +104,7 @@ const importCsvBtn = document.getElementById("importCsvBtn");
 const importProgressContainer = document.getElementById("importProgressContainer");
 const importProgressBar = document.getElementById("importProgressBar");
 const syncStatusIndicator = document.getElementById("syncStatusIndicator");
-const dailyRevenueValue = document.getElementById("dailyRevenue");
-const dailyProfitValue = document.getElementById("dailyProfit");
-const dailyCountValue = document.getElementById("dailyCount");
-const monthlyRevenueValue = document.getElementById("monthlyRevenue");
-const monthlyProfitValue = document.getElementById("monthlyProfit");
-const lifetimeProfitValue = document.getElementById("lifetimeProfit");
+const dataLoadingBar = document.getElementById("dataLoadingBar");
 const lowStockCountEl = document.getElementById("lowStockCount");
 const lowStockDetails = document.getElementById("lowStockDetails");
 const lowStockTable = document.getElementById("lowStockTable");
@@ -146,6 +152,32 @@ const orderTable = document.getElementById("orderTable");
 const orderSearchInput = document.getElementById("orderSearchInput");
 const orderExportBtn = document.getElementById("orderExportBtn");
 const orderSearchMessage = document.getElementById("orderSearchMessage");
+
+let analyticsInclusionManuallySet = false;
+includeInAllAnalyticsInput.addEventListener("change", () => {
+  analyticsInclusionManuallySet = true;
+});
+itemName.addEventListener("input", () => {
+  uppercaseInput(itemName);
+  if (!editId && !analyticsInclusionManuallySet) {
+    includeInAllAnalyticsInput.checked = !isPetrolName(itemName.value);
+  }
+  appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
+});
+quantityInput.addEventListener("input", () => {
+  appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
+  uppercaseInput(quantityInput);
+});
+orderedItem.addEventListener("input", () => {
+  uppercaseInput(orderedItem);
+  appendQuantityUnit(orderedQuantity, "L", isPetrolName(orderedItem.value));
+});
+orderedQuantity.addEventListener("input", () => {
+  appendQuantityUnit(orderedQuantity, "L", isPetrolName(orderedItem.value));
+  uppercaseInput(orderedQuantity);
+});
+customerName.addEventListener("input", () => uppercaseInput(customerName));
+orderNotes.addEventListener("input", () => uppercaseInput(orderNotes));
 
 // Password Change Modal Elements
 const passwordChangeModal = document.getElementById("passwordChangeModal");
@@ -222,17 +254,6 @@ window.addEventListener('saleRecorded', async (e) => {
   await loadItems(uid); // Reload items to update stock
   updateSaleDropdown(items); // Update dropdown with new stock levels
   renderLowStockAlerts();
-});
-
-window.addEventListener('salesSummaryUpdated', (event) => {
-  const summary = event.detail || {};
-  if (dailyRevenueValue) dailyRevenueValue.textContent = Number(summary.dailyRevenue || 0).toFixed(2);
-  if (dailyProfitValue) dailyProfitValue.textContent = Number(summary.dailyProfit || 0).toFixed(2);
-  if (dailyCountValue) dailyCountValue.textContent = summary.dailyCount || 0;
-  if (monthlyRevenueValue) monthlyRevenueValue.textContent = Number(summary.monthlyRevenue || 0).toFixed(2);
-  if (monthlyProfitValue) monthlyProfitValue.textContent = Number(summary.monthlyProfit || 0).toFixed(2);
-  if (lifetimeProfitValue) lifetimeProfitValue.textContent = Number(summary.lifetimeProfit || 0).toFixed(2);
-  renderLowStockAlerts(lowStockPage);
 });
 
 lowStockPrevBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage - 1));
@@ -331,6 +352,7 @@ onAuthStateChanged(auth, async (user) => {
   const suspendedSection = document.getElementById("suspendedSection");
 
   if (user) {
+    showLoadingIndicator(true);
     try {
       // Fetch user profile/status
       const userDocRef = doc(db, "users", user.uid);
@@ -499,6 +521,7 @@ function renderContractDownloadButton(businessName) {
    LOADING INDICATOR HELPER
    ========================= */
 function showLoadingIndicator(show) {
+  if (dataLoadingBar) dataLoadingBar.hidden = !show;
   if (syncStatusIndicator) {
     if (show) {
       syncStatusIndicator.textContent = "Loading...";
@@ -779,11 +802,11 @@ function renderItems(filter = "") {
     if (quantity < 3) row.classList.add("low-stock-row");
     row.innerHTML = `
       <td>${item.name}</td>
-      <td>${item.incoming}</td>
-      <td>${item.outgoing}</td>
-      <td>${escapeQuantity(item.quantity)}</td>
-      <td>${singleItemProfit}</td>
-      <td>${profit}</td>
+      <td>${formatNumber(item.incoming)}</td>
+      <td>${formatNumber(item.outgoing)}</td>
+      <td>${escapeQuantity(formatDisplayQuantity(item.quantity))}</td>
+      <td>${formatNumber(singleItemProfit)}</td>
+      <td>${formatNumber(profit)}</td>
       <td>
         <button onclick="editItem('${item.id}')">Edit</button>
         <button onclick="deleteItem('${item.id}')">Delete</button>
@@ -792,7 +815,7 @@ function renderItems(filter = "") {
     table.appendChild(row);
   });
 
-  if (totalProfitEl) totalProfitEl.textContent = totalProfit.toFixed(2);
+  if (totalProfitEl) totalProfitEl.textContent = formatNumber(totalProfit);
   renderLowStockAlerts();
 }
 
@@ -820,9 +843,9 @@ function renderLowStockAlerts(page = 1) {
   lowStockTable.innerHTML = paginatedItems.map(item => `
     <tr>
       <td>${item.name}</td>
-      <td>${item.incoming}</td>
-      <td>${item.outgoing}</td>
-      <td>${escapeQuantity(item.quantity)}</td>
+      <td>${formatNumber(item.incoming)}</td>
+      <td>${formatNumber(item.outgoing)}</td>
+      <td>${escapeQuantity(formatDisplayQuantity(item.quantity))}</td>
     </tr>
   `).join("");
 
@@ -906,7 +929,7 @@ function renderPaymentReceipts() {
   paymentHistoryTableBody.innerHTML = paymentReceipts.map(receipt => `
     <tr>
       <td>${receipt.label}</td>
-      <td style="font-weight:bold; color:#059669;">KES ${Number(receipt.amount).toLocaleString()}</td>
+      <td style="font-weight:bold; color:#059669;">KES ${formatNumber(receipt.amount)}</td>
       <td>${receipt.method}</td>
       <td>${receipt.timestamp}</td>
     </tr>
@@ -962,7 +985,7 @@ function handlePaymentClick(amount, label) {
 
   pendingPaymentData = { method, amount, label };
   if (paymentConfirmMessage) {
-    paymentConfirmMessage.textContent = `Are you sure you want to record a ${label} of KES ${amount.toLocaleString()} for ${payer}?`;
+    paymentConfirmMessage.textContent = `Are you sure you want to record a ${label} of KES ${formatNumber(amount)} for ${payer}?`;
   }
   if (paymentConfirmModal) paymentConfirmModal.style.display = "flex";
 }
@@ -1003,13 +1026,20 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
+  if (isPetrolName(nameVal) && quantity.unit && !isLiterUnit(quantity.unit)) {
+    alert("Petrol inventory quantities must be recorded in liters (L).");
+    showLoadingIndicator(false);
+    return;
+  }
+  const quantityUnit = isPetrolName(nameVal) ? "L" : quantity.unit;
 
   const data = {
     name: nameVal,
     name_lowercase: nameVal.toLowerCase(),
     incoming: Number(incomingPrice.value),
     outgoing: Number(outgoingPrice.value),
-    quantity: formatQuantity(quantity.amount, quantity.unit),
+    quantity: formatQuantity(quantity.amount, quantityUnit),
+    includeInAllAnalytics: includeInAllAnalyticsInput.checked,
     uid: user.uid, // ✅ REQUIRED
     createdAt: new Date().toISOString()
   };
@@ -1043,6 +1073,7 @@ form.addEventListener("submit", async e => {
     }
 
     form.reset();
+    analyticsInclusionManuallySet = false;
     loadItems(user.uid);
   } catch (err) {
     alert("Error saving item: " + err.message);
@@ -1061,11 +1092,16 @@ window.editItem = id => {
   if (!item) return;
 
   itemName.value = item.name;
+  includeInAllAnalyticsInput.checked = typeof item.includeInAllAnalytics === "boolean"
+    ? item.includeInAllAnalytics
+    : !isPetrolName(item.name);
+  analyticsInclusionManuallySet = false;
   incomingPrice.value = item.incoming;
   outgoingPrice.value = item.outgoing;
   quantityInput.value = typeof item.quantity === "string"
     ? item.quantity
     : String(item.quantity);
+  appendQuantityUnit(quantityInput, "L", isPetrolName(item.name));
   editId = id;
 };
 
@@ -1094,7 +1130,7 @@ window.deleteItem = async (id) => {
 exportBtn.addEventListener("click", () => {
   let csv = "Item,Buying Price,Selling Price,Quantity,Single Item Profit,Profit\n";
   items.forEach(item => {
-    csv += `${item.name},${item.incoming},${item.outgoing},${item.quantity},${calculateSingleItemProfit(item)},${calculateProfit(item)}\n`;
+    csv += `${item.name},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${formatDisplayQuantity(item.quantity)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -1180,6 +1216,7 @@ importCsvInput.addEventListener("change", (event) => {
         incoming: cleanNum(itemData["buying price"]) || 0,
         outgoing: cleanNum(itemData["selling price"]) || 0,
         quantity: formatQuantity(quantity.amount, quantity.unit),
+        includeInAllAnalytics: !isPetrolName(itemNameFromCsv),
         uid: user.uid,
         createdAt: new Date().toISOString()
       });
@@ -1326,7 +1363,7 @@ function renderOrders(filter = "") {
     row.innerHTML = `
       <td>${order.customerName}</td>
       <td>${order.itemName}</td>
-      <td>${order.quantity}</td>
+      <td>${escapeQuantity(formatDisplayQuantity(order.quantity))}</td>
       <td>${order.notes || "-"}</td>
       <td>${orderDate}</td>
       <td>
@@ -1349,10 +1386,23 @@ orderForm.addEventListener("submit", async e => {
     return;
   }
 
+  const orderQuantity = parseQuantity(orderedQuantity.value);
+  if (!orderQuantity || orderQuantity.amount <= 0) {
+    alert("Enter a valid order quantity greater than zero.");
+    showLoadingIndicator(false);
+    return;
+  }
+  if (isPetrolName(orderedItem.value) && orderQuantity.unit && !isLiterUnit(orderQuantity.unit)) {
+    alert("Petrol order quantities must be recorded in liters (L).");
+    showLoadingIndicator(false);
+    return;
+  }
+  const orderQuantityUnit = isPetrolName(orderedItem.value) ? "L" : orderQuantity.unit;
+
   const data = {
     customerName: customerName.value,
     itemName: orderedItem.value,
-    quantity: Number(orderedQuantity.value),
+    quantity: formatQuantity(orderQuantity.amount, orderQuantityUnit),
     notes: orderNotes.value,
     date: new Date().toISOString(),
     uid: user.uid, // ✅ REQUIRED
@@ -1387,7 +1437,8 @@ window.editOrder = id => {
 
   customerName.value = order.customerName;
   orderedItem.value = order.itemName;
-  orderedQuantity.value = order.quantity;
+  orderedQuantity.value = formatDisplayQuantity(order.quantity);
+  appendQuantityUnit(orderedQuantity, "L", isPetrolName(order.itemName));
   orderNotes.value = order.notes || "";
   editOrderId = id;
 };
@@ -1439,7 +1490,7 @@ orderExportBtn.addEventListener("click", () => {
 
   orders.forEach((order, index) => {
     const orderDate = order.date ? new Date(order.date).toLocaleDateString() : "N/A";
-    content += `(${index + 1}. ${order.customerName} - ${order.itemName} x${order.quantity} - ${orderDate}) Tj\nT*\n`;
+    content += `(${index + 1}. ${order.customerName} - ${order.itemName} x${formatDisplayQuantity(order.quantity)} - ${orderDate}) Tj\nT*\n`;
     yPos -= lineHeight;
   });
 

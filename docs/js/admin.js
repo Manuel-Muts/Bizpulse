@@ -25,6 +25,7 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { formatNumber } from "./quantity.js";
 
 /* 🔐 FIREBASE CONFIG */
 const firebaseConfig = {
@@ -72,7 +73,13 @@ const totalClientsCount = document.getElementById("totalClientsCount");
 const activeClientsCount = document.getElementById("activeClientsCount");
 const suspendedClientsCount = document.getElementById("suspendedClientsCount");
 const newClientsLast30Days = document.getElementById("newClientsLast30Days");
+const dataLoadingBar = document.getElementById("dataLoadingBar");
 
+let activeAdminLoads = 0;
+function setAdminLoading(active) {
+  activeAdminLoads = Math.max(0, activeAdminLoads + (active ? 1 : -1));
+  if (dataLoadingBar) dataLoadingBar.hidden = activeAdminLoads === 0;
+}
 
 let editUserId = null;
 let users = [];
@@ -87,6 +94,7 @@ const paymentPageSize = 5;
    ========================= */
 onAuthStateChanged(auth, async (user) => {
   if (user) {
+    setAdminLoading(true);
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
       const userData = userDoc.data();
@@ -100,6 +108,8 @@ onAuthStateChanged(auth, async (user) => {
       }
     } catch (error) {
       console.error("Admin verification error:", error);
+    } finally {
+      setAdminLoading(false);
     }
   } else {
   }
@@ -114,6 +124,7 @@ let currentPage = 1;
 const pageSize = 20; // 20 clients per page
 
 async function loadAdminDashboard(direction = 'initial', search = '') {
+  setAdminLoading(true);
   try {
     let q;
     let baseQuery = query(usersRef, orderBy("email")); // Always order by email for consistent pagination
@@ -193,6 +204,8 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
   } catch (error) {
     console.error("Error loading dashboard:", error);
     adminUserTable.innerHTML = `<tr><td colspan="5" style="text-align:center; color:red; padding:20px;">Error loading clients: ${error.message}</td></tr>`;
+  } finally {
+    setAdminLoading(false);
   }
 }
 
@@ -223,6 +236,7 @@ function getKenyanPhoneDigits(value) {
 }
 
 async function loadAdminStats() {
+  setAdminLoading(true);
   try {
     const statsQuery = query(usersRef, where("role", "==", "user"));
     const snapshot = await getDocs(statsQuery);
@@ -238,12 +252,14 @@ async function loadAdminStats() {
       return created >= cutoff;
     }).length;
 
-    if (totalClientsCount) totalClientsCount.textContent = total;
-    if (activeClientsCount) activeClientsCount.textContent = total - suspended;
+    if (totalClientsCount) totalClientsCount.textContent = formatNumber(total);
+    if (activeClientsCount) activeClientsCount.textContent = formatNumber(total - suspended);
     if (suspendedClientsCount) suspendedClientsCount.textContent = suspended;
     if (newClientsLast30Days) newClientsLast30Days.textContent = newClients;
   } catch (error) {
     console.error("Error loading admin stats:", error);
+  } finally {
+    setAdminLoading(false);
   }
 }
 
@@ -308,7 +324,7 @@ window.viewPayments = async (userId, businessName, direction = 'initial') => {
         return `
           <tr>
             <td>${data.label}</td>
-            <td style="font-weight:bold; color:#059669;">KES ${Number(data.amount).toLocaleString()}</td>
+            <td style="font-weight:bold; color:#059669;">KES ${formatNumber(data.amount)}</td>
             <td>${data.method || 'N/A'}</td>
             <td>${new Date(data.timestamp).toLocaleDateString()}</td>
           </tr>
