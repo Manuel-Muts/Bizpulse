@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start BizPulse Local Dev Server",
+      "type": "shell",
+      "command": "node",
+      "args": ["dev-server.js"],
+      "options": {
+        "cwd": "${workspaceFolder}\\docs"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -949,7 +949,7 @@ logoutBtn?.addEventListener("click", async () => {
   } catch (error) {
     console.error("Logout failed:", error);
   } finally {
-    window.location.href = "login.html";
+    window.location.href = "/login";
   }
 });
 

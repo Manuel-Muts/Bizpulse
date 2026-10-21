@@ -24,8 +24,17 @@ const emailInput = document.getElementById("email");
 const passwordInput = document.getElementById("password");
 const loginMessage = document.getElementById("loginMessage");
 const loginBtn = document.getElementById("loginBtn");
+const togglePasswordBtn = document.getElementById("togglePasswordBtn");
 const forgotPasswordLink = document.getElementById("forgotPasswordLink");
 const forgotSpinner = document.getElementById("forgotSpinner");
+
+togglePasswordBtn.addEventListener("click", () => {
+  const isPasswordVisible = passwordInput.type === "text";
+  passwordInput.type = isPasswordVisible ? "password" : "text";
+  togglePasswordBtn.textContent = isPasswordVisible ? "Show" : "Hide";
+  togglePasswordBtn.setAttribute("aria-label", isPasswordVisible ? "Show password" : "Hide password");
+  togglePasswordBtn.setAttribute("aria-pressed", String(!isPasswordVisible));
+});
 
 /* =========================
    LOGIN LOGIC
@@ -55,9 +64,9 @@ loginForm.addEventListener("submit", async (e) => {
 
     setTimeout(() => {
       if (userData && userData.role === "admin") {
-        window.location.href = "admin.html";
+        window.location.href = "/admin";
       } else {
-        window.location.href = "clients.html";
+        window.location.href = "/client";
       }
     }, 800);
 

@@ -1,0 +1,13 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/client",
+      "destination": "/clients.html"
+    },
+    {
+      "source": "/contacts",
+      "destination": "/contact.html"
+    }
+  ]
+}

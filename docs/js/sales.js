@@ -886,7 +886,7 @@ function exportAnalyticsPdf() {
       ["Gross sales profit", `KES ${analyticsGrossProfitTotalEl.textContent}`],
       ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
       ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
-      ["Quantity sold", formatNumber(analyticsQuantityTotalEl.textContent)]
+      ["Quantity sold", analyticsQuantityTotalEl.textContent]
     ],
     [pageWidth - margin * 2 - 55, 55]
   );
@@ -925,7 +925,7 @@ function exportAnalyticsPdf() {
         formatNumber(row.profit),
         `KES ${formatNumber(rowExpenses)}`,
         netRevenue === null ? "—" : formatNumber(netRevenue),
-        formatNumber(row.quantity),
+        getAnalyticsQuantityDisplay(row.dateKeys) || formatNumber(row.quantity),
         productsAndQuantities
       ];
     }),
@@ -1168,7 +1168,8 @@ function updateAnalyticsUI() {
     ? formatNumber(totals.revenue - expenseTotal)
     : "—";
   analyticsExpenseTotalEl.textContent = formatNumber(expenseTotal);
-  analyticsQuantityTotalEl.textContent = formatNumber(totals.quantity);
+  analyticsQuantityTotalEl.textContent =
+    getAnalyticsQuantityDisplay(rows.flatMap(row => row.dateKeys)) || formatNumber(totals.quantity);
   analyticsBreakdownTable.innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
@@ -1180,7 +1181,7 @@ function updateAnalyticsUI() {
         ? formatNumber(row.revenue - getExpensesForDateKeys(row.dateKeys)
           .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))
         : "—"}</td>
-      <td>${formatNumber(row.quantity)}</td>
+      <td>${getAnalyticsQuantityDisplay(row.dateKeys) || formatNumber(row.quantity)}</td>
     </tr>
   `).join("");
   currentAnalyticsRows = rows;
@@ -1543,6 +1544,29 @@ function isIncludedInAllAnalytics(sale) {
 
 function dateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getAnalyticsQuantityDisplay(dateKeys) {
+  const selectedItemId = analyticsItemFilter.value;
+  const selectedItem = analyticsItemsById.get(selectedItemId) ||
+    itemsArray.find(item => item.id === selectedItemId);
+  if (!selectedItemId || !isCrateItem(selectedItem?.name)) return null;
+
+  const selectedDates = new Set(dateKeys);
+  const quantities = { crates: 0, pieces: 0 };
+  (analyticsItemSales || []).forEach(sale => {
+    if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
+
+    const quantity = Number(sale.quantity) || 0;
+    const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
+    if (unit.startsWith("piece")) {
+      quantities.pieces += quantity;
+    } else {
+      quantities.crates += quantity;
+    }
+  });
+
+  return `Crates: ${formatNumber(quantities.crates)}, Pieces: ${formatNumber(quantities.pieces)}`;
 }
 
 function emptyDailyTotal() {
