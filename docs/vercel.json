@@ -1,13 +1,15 @@
 {
   "cleanUrls": true,
-  "rewrites": [
+  "redirects": [
     {
       "source": "/client",
-      "destination": "/clients.html"
+      "destination": "/clients",
+      "permanent": false
     },
     {
       "source": "/contacts",
-      "destination": "/contact.html"
+      "destination": "/contact",
+      "permanent": false
     }
   ]
 }

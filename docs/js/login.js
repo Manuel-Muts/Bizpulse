@@ -66,7 +66,7 @@ loginForm.addEventListener("submit", async (e) => {
       if (userData && userData.role === "admin") {
         window.location.href = "/admin";
       } else {
-        window.location.href = "/client";
+        window.location.href = "/clients";
       }
     }, 800);
 
