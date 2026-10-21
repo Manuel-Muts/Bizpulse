@@ -12,7 +12,8 @@ import {
   endBefore,
   limitToLast,
   getDocs,
-  increment
+  increment,
+  updateDoc
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import {
@@ -33,6 +34,8 @@ import {
   parseQuantity,
   uppercaseInput
 } from "./quantity.js";
+
+const EXPENSE_COST_CATEGORIES = new Set(["general", "petrol", "gas-cylinder"]);
 
 // DOM Elements (Sales & Analytics)
 const saleForm = document.getElementById("saleForm");
@@ -74,7 +77,6 @@ const overviewRevenueEl = document.getElementById("overviewRevenue");
 const overviewGrossProfitEl = document.getElementById("overviewGrossProfit");
 const overviewNetRevenueEl = document.getElementById("overviewNetRevenue");
 const overviewExpenseTotalEl = document.getElementById("overviewExpenseTotal");
-const overviewQuantityEl = document.getElementById("overviewQuantity");
 const overviewLowStockEl = document.getElementById("overviewLowStock");
 const overviewRangeLabel = document.getElementById("overviewRangeLabel");
 const overviewSalesChart = document.getElementById("overviewSalesChart");
@@ -88,6 +90,7 @@ const overviewExpenses = document.getElementById("overviewExpenses");
 const expenseForm = document.getElementById("expenseForm");
 const expenseDateInput = document.getElementById("expenseDate");
 const expenseTypeInput = document.getElementById("expenseType");
+const expenseCostCategoryInput = document.getElementById("expenseCostCategory");
 const expenseDescriptionInput = document.getElementById("expenseDescription");
 const expensePaidToSupplierInput = document.getElementById("expensePaidToSupplier");
 const expenseVendorInput = document.getElementById("expenseVendor");
@@ -120,6 +123,8 @@ let expensesError = null;
 let analyticsUnsubscribe = null;
 let stockAdditionsUnsubscribe = null;
 let expensesUnsubscribe = null;
+let fuelEnergyCategoriesUnsubscribe = null;
+let customFuelEnergyCategories = [];
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
 let analyticsAllSalesError = null;
@@ -158,6 +163,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   salesRef = collection(dbInstance, "sales");
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
   expensesRef = collection(dbInstance, "expenses");
+  const fuelEnergyCategoriesRef = collection(dbInstance, "fuelEnergyCategories");
   ordersCollectionRef = ordersRef;
   salesSummaryRef = doc(dbInstance, "salesSummaries", authInstance.currentUser.uid);
   clientBusinessName = businessName;
@@ -201,6 +207,8 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   expenseDateInput.value = dateKey(new Date());
   expenseDateInput.max = dateKey(new Date());
   expenseForm.addEventListener("submit", handleExpenseFormSubmit);
+  expensesTable.addEventListener("click", handleExpenseCategorySave);
+  listenToFuelEnergyCategories(fuelEnergyCategoriesRef, authInstance.currentUser.uid);
 
   const today = dateKey(new Date());
   salesDateFilter.value = today;
@@ -316,6 +324,43 @@ function listenToExpenses(uid) {
   });
 }
 
+function listenToFuelEnergyCategories(categoriesRef, uid) {
+  if (fuelEnergyCategoriesUnsubscribe) fuelEnergyCategoriesUnsubscribe();
+  const userCategoriesQuery = query(categoriesRef, where("uid", "==", uid));
+  fuelEnergyCategoriesUnsubscribe = onSnapshot(userCategoriesQuery, snapshot => {
+    customFuelEnergyCategories = snapshot.docs.map(categoryDoc => ({
+      id: categoryDoc.id,
+      ...categoryDoc.data()
+    }));
+    renderExpenseCostCategoryOptions();
+    renderExpensesTable();
+  }, error => {
+    console.error("Unable to load custom Fuel & Energy expense categories:", error);
+    expenseFormMessage.textContent =
+      `Unable to load custom Fuel & Energy categories: ${error.message}`;
+  });
+}
+
+function renderExpenseCostCategoryOptions() {
+  const fuelOptions = document.getElementById("fuelEnergyExpenseOptions");
+  fuelOptions.querySelectorAll("option[data-custom-fuel-category]").forEach(option => option.remove());
+  customFuelEnergyCategories
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(category => {
+      const option = document.createElement("option");
+      option.value = `fuel:${category.id}`;
+      option.dataset.customFuelCategory = "true";
+      option.textContent = category.name;
+      fuelOptions.appendChild(option);
+    });
+}
+
+function isValidExpenseCostCategory(category) {
+  return EXPENSE_COST_CATEGORIES.has(category) ||
+    customFuelEnergyCategories.some(fuelCategory => `fuel:${fuelCategory.id}` === category);
+}
+
 async function handleExpenseFormSubmit(event) {
   event.preventDefault();
   const user = authInstance.currentUser;
@@ -348,6 +393,7 @@ async function handleExpenseFormSubmit(event) {
       uid: user.uid,
       date,
       type: expenseTypeInput.value,
+      costCategory: expenseCostCategoryInput.value,
       description: expenseDescriptionInput.value.trim(),
       paidToSupplier: expensePaidToSupplierInput.value,
       vendor: expenseVendorInput.value.trim(),
@@ -369,7 +415,7 @@ async function handleExpenseFormSubmit(event) {
 
 function renderExpensesTable() {
   if (expensesError) {
-    expensesTable.innerHTML = `<tr><td colspan="7">${escapeQuantity(expensesError)}</td></tr>`;
+    expensesTable.innerHTML = `<tr><td colspan="9">${escapeQuantity(expensesError)}</td></tr>`;
     return;
   }
   const sortedExpenses = [...expensesForAnalytics].sort((left, right) =>
@@ -378,17 +424,57 @@ function renderExpensesTable() {
   expensesTable.innerHTML = sortedExpenses.length
     ? sortedExpenses.map(expense => {
       const date = expense.date || dateKey(new Date(expense.createdAt));
+      const selectedCategory = isValidExpenseCostCategory(expense.costCategory)
+        ? expense.costCategory
+        : "";
       return `<tr>
         <td>${escapeQuantity(date)}</td>
         <td>${escapeQuantity(expense.type || "Expense")}</td>
         <td>${escapeQuantity(expense.description || "")}</td>
+        <td>
+          <select data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}">
+            <option value=""${selectedCategory ? "" : " selected"}>Unclassified</option>
+            <option value="general"${selectedCategory === "general" ? " selected" : ""}>General</option>
+            <option value="petrol"${selectedCategory === "petrol" ? " selected" : ""}>Fuel & Energy: Petrol</option>
+            <option value="gas-cylinder"${selectedCategory === "gas-cylinder" ? " selected" : ""}>Fuel & Energy: Gas cylinder</option>
+            ${customFuelEnergyCategories.map(category =>
+              `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>Fuel & Energy: ${escapeQuantity(category.name)}</option>`
+            ).join("")}
+          </select>
+        </td>
         <td>${escapeQuantity(expense.paidToSupplier || "—")}</td>
         <td>${escapeQuantity(expense.vendor || "—")}</td>
         <td>${formatNumber(expense.amount)}</td>
         <td>${escapeQuantity(expense.notes || "—")}</td>
+        <td><button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save category</button></td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="7" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
+    : `<tr><td colspan="9" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
+}
+
+async function handleExpenseCategorySave(event) {
+  const saveButton = event.target.closest("[data-save-expense-category]");
+  if (!saveButton) return;
+
+  const expenseId = saveButton.dataset.saveExpenseCategory;
+  const categoryInput = [...expensesTable.querySelectorAll("select[data-expense-category]")]
+    .find(select => select.dataset.expenseCategory === expenseId);
+  const category = categoryInput?.value;
+  if (!category || !isValidExpenseCostCategory(category)) {
+    expenseFormMessage.textContent = "Choose a cost category before saving.";
+    return;
+  }
+
+  saveButton.disabled = true;
+  expenseFormMessage.textContent = "";
+  try {
+    await updateDoc(doc(expensesRef, expenseId), { costCategory: category });
+    expenseFormMessage.textContent = "Cost category updated.";
+  } catch (error) {
+    console.error("Unable to update expense category:", error);
+    expenseFormMessage.textContent = `Unable to update category: ${error.message}`;
+    saveButton.disabled = false;
+  }
 }
 
 function addAnalyticsItemOptions(items) {
@@ -915,7 +1001,7 @@ function exportAnalyticsPdf() {
       const productsAndQuantities = [...salesByItem.values()]
         .map(item => `${item.name}: ${formatDisplayQuantity(formatQuantity(item.quantity, item.unit))}`)
         .join("\n") || "—";
-      const rowExpenses = getExpensesForDateKeys(row.dateKeys)
+      const rowExpenses = getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0);
       const netRevenue = analyticsItemFilter.value ? null : row.revenue - rowExpenses;
 
@@ -1157,7 +1243,7 @@ function updateAnalyticsUI() {
     profit: result.profit + row.profit,
     quantity: result.quantity + row.quantity
   }), { revenue: 0, profit: 0, quantity: 0 });
-  const periodExpenses = getExpensesForDateKeys(rows.flatMap(row => row.dateKeys));
+  const periodExpenses = getExpensesForCurrentAnalytics(rows.flatMap(row => row.dateKeys));
   const expenseTotal = periodExpenses.reduce((total, expense) =>
     total + (Number(expense.amount) || 0), 0);
   const hasBusinessWideView = !analyticsItemFilter.value;
@@ -1175,10 +1261,10 @@ function updateAnalyticsUI() {
       <td>${row.label}</td>
       <td>${formatNumber(row.revenue)}</td>
       <td>${formatNumber(row.profit)}</td>
-      <td>${formatNumber(getExpensesForDateKeys(row.dateKeys)
+      <td>${formatNumber(getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))}</td>
       <td>${hasBusinessWideView
-        ? formatNumber(row.revenue - getExpensesForDateKeys(row.dateKeys)
+        ? formatNumber(row.revenue - getExpensesForCurrentAnalytics(row.dateKeys)
           .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))
         : "—"}</td>
       <td>${getAnalyticsQuantityDisplay(row.dateKeys) || formatNumber(row.quantity)}</td>
@@ -1213,7 +1299,6 @@ function renderOverview() {
     overviewGrossProfitEl.textContent = "—";
     overviewNetRevenueEl.textContent = "—";
     overviewExpenseTotalEl.textContent = "—";
-    overviewQuantityEl.textContent = "—";
     overviewSalesChart.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewTopItems.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewRecentSales.innerHTML = `<tr><td colspan="4">${errorMessage}</td></tr>`;
@@ -1250,7 +1335,6 @@ function renderOverview() {
   overviewGrossProfitEl.textContent = `KES ${formatNumber(totals.profit)}`;
   overviewNetRevenueEl.textContent = `KES ${formatNumber(totals.revenue - expenseTotal)}`;
   overviewExpenseTotalEl.textContent = `KES ${formatNumber(expenseTotal)}`;
-  overviewQuantityEl.textContent = formatOverviewQuantities(includedSales);
   overviewLowStockEl.textContent = String(countLowStockItems());
   renderOverviewSalesChart(start, days, includedSales);
   renderOverviewTopItems(includedSales);
@@ -1290,6 +1374,14 @@ function expenseDateKey(expense) {
 function getExpensesForDateKeys(dateKeys) {
   const dateSet = new Set(dateKeys);
   return expensesForAnalytics.filter(expense => dateSet.has(expenseDateKey(expense)));
+}
+
+function getExpensesForCurrentAnalytics(dateKeys) {
+  const expenses = getExpensesForDateKeys(dateKeys);
+  const selectedItem = itemsArray.find(item => item.id === analyticsItemFilter.value);
+  return isPetrolItem(selectedItem)
+    ? expenses.filter(expense => expense.costCategory === "petrol")
+    : expenses;
 }
 
 function getExpensesForDateRange(start, end) {
@@ -1378,19 +1470,6 @@ function renderOverviewStockAdditions(start, end) {
       </tr>`;
     }).join("")
     : `<tr><td colspan="3" class="overview-empty-state">No stock additions in this period.</td></tr>`;
-}
-
-function formatOverviewQuantities(sales) {
-  const quantitiesByUnit = new Map();
-  sales.forEach(sale => {
-    const unit = String(sale.quantityUnit || "").trim().toUpperCase();
-    quantitiesByUnit.set(unit, (quantitiesByUnit.get(unit) || 0) + (Number(sale.quantity) || 0));
-  });
-  return quantitiesByUnit.size
-    ? [...quantitiesByUnit.entries()]
-      .map(([unit, amount]) => `${formatNumber(amount)}${unit ? ` ${unit}` : ""}`)
-      .join(" · ")
-    : "0";
 }
 
 function renderOverviewSalesChart(start, days, sales) {

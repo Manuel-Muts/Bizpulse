@@ -35,6 +35,11 @@ service cloud.firestore {
       return isActiveClient() && resourceData.uid == request.auth.uid;
     }
 
+    function isValidFuelCostCategory(category) {
+      return category in ['general', 'petrol', 'gas-cylinder'] ||
+        (category is string && category.matches('^fuel:[A-Za-z0-9_-]{20}$'));
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
       allow write: if false;
@@ -90,7 +95,24 @@ service cloud.firestore {
 
     match /expenses/{expenseId} {
       allow read: if isAdmin() || ownsDocument(resource.data);
-      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow create: if isAdmin() ||
+        (ownsDocument(request.resource.data) &&
+          isValidFuelCostCategory(request.resource.data.costCategory));
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['costCategory']) &&
+          isValidFuelCostCategory(request.resource.data.costCategory));
+      allow delete: if isAdmin();
+    }
+
+    match /fuelEnergyCategories/{categoryId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() ||
+        (ownsDocument(request.resource.data) &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.name.size() <= 60);
       allow update, delete: if isAdmin();
     }
 

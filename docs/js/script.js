@@ -91,6 +91,7 @@ const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
 const customCrateTypesRef = collection(db, "customCrateTypes");
+const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
 const usersRef = collection(db, "users");
 const paymentsRef = collection(db, "payments");
 
@@ -111,6 +112,13 @@ const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
 const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
 const pieceSellingPriceInput = document.getElementById("pieceSellingPrice");
 const crateTypeSelect = document.getElementById("crateTypeSelect");
+const fuelEnergyItemSelect = document.getElementById("fuelEnergyItemSelect");
+const openAddFuelEnergyItemBtn = document.getElementById("openAddFuelEnergyItemBtn");
+const addFuelEnergyItemModal = document.getElementById("addFuelEnergyItemModal");
+const addFuelEnergyItemForm = document.getElementById("addFuelEnergyItemForm");
+const fuelEnergyItemNameInput = document.getElementById("fuelEnergyItemName");
+const saveFuelEnergyItemBtn = document.getElementById("saveFuelEnergyItemBtn");
+const cancelFuelEnergyItemBtn = document.getElementById("cancelFuelEnergyItemBtn");
 const openAddCrateTypeBtn = document.getElementById("openAddCrateTypeBtn");
 const addCrateTypeModal = document.getElementById("addCrateTypeModal");
 const addCrateTypeForm = document.getElementById("addCrateTypeForm");
@@ -192,6 +200,8 @@ let analyticsInclusionManuallySet = false;
 includeInAllAnalyticsInput.addEventListener("change", () => {
   analyticsInclusionManuallySet = true;
 });
+crateTypeNameInput.addEventListener("input", () => uppercaseInput(crateTypeNameInput));
+fuelEnergyItemNameInput.addEventListener("input", () => uppercaseInput(fuelEnergyItemNameInput));
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
   if (!editId && !analyticsInclusionManuallySet) {
@@ -212,6 +222,106 @@ crateTypeSelect.addEventListener("change", () => {
   piecesPerCrateInput.value = String(crateType.piecesPerCrate);
   updateCrateInventoryFields();
   crateLoosePiecesInput.max = String(crateType.piecesPerCrate - 1);
+});
+
+fuelEnergyItemSelect.addEventListener("change", () => {
+  const selectedFuelItem = getFuelEnergyItem(fuelEnergyItemSelect.value);
+  if (!selectedFuelItem) return;
+
+  itemName.value = selectedFuelItem.name;
+  itemName.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+function getFuelEnergyItem(categoryId) {
+  if (categoryId === "petrol") return { name: "PETROL" };
+  if (categoryId === "gas-cylinder") return { name: "GAS CYLINDER" };
+  return customFuelEnergyItems.find(category => `fuel:${category.id}` === categoryId) || null;
+}
+
+function renderFuelEnergyItemOptions() {
+  fuelEnergyItemSelect.querySelectorAll("option[data-custom-fuel-item]").forEach(option => option.remove());
+  customFuelEnergyItems
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(category => {
+      const option = document.createElement("option");
+      option.value = `fuel:${category.id}`;
+      option.dataset.customFuelItem = "true";
+      option.textContent = category.name;
+      fuelEnergyItemSelect.appendChild(option);
+    });
+}
+
+function listenToFuelEnergyItems(uid) {
+  if (fuelEnergyItemsUnsubscribe) fuelEnergyItemsUnsubscribe();
+  const userFuelItemsQuery = query(fuelEnergyCategoriesRef, where("uid", "==", uid));
+  fuelEnergyItemsUnsubscribe = onSnapshot(userFuelItemsQuery, snapshot => {
+    customFuelEnergyItems = snapshot.docs.map(categoryDoc => ({
+      id: categoryDoc.id,
+      ...categoryDoc.data()
+    }));
+    renderFuelEnergyItemOptions();
+  }, error => {
+    console.error("Unable to load Fuel & Energy items:", error);
+    alert(`Unable to load Fuel & Energy items: ${error.message}`);
+  });
+}
+
+openAddFuelEnergyItemBtn.addEventListener("click", () => {
+  addFuelEnergyItemForm.reset();
+  addFuelEnergyItemModal.style.display = "flex";
+  fuelEnergyItemNameInput.focus();
+});
+cancelFuelEnergyItemBtn.addEventListener("click", () => {
+  addFuelEnergyItemModal.style.display = "none";
+});
+addFuelEnergyItemModal.addEventListener("click", event => {
+  if (event.target === addFuelEnergyItemModal) addFuelEnergyItemModal.style.display = "none";
+});
+addFuelEnergyItemForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const name = fuelEnergyItemNameInput.value.trim().replace(/\s+/g, " ").toUpperCase();
+  if (!user || !name) {
+    alert("Enter a Fuel & Energy item name.");
+    return;
+  }
+
+  const duplicateNames = [
+    "PETROL",
+    "GAS CYLINDER",
+    ...customFuelEnergyItems.map(category => category.name)
+  ];
+  if (duplicateNames.some(existingName => existingName.trim().toLowerCase() === name.toLowerCase())) {
+    alert("That Fuel & Energy item already exists.");
+    return;
+  }
+
+  saveFuelEnergyItemBtn.disabled = true;
+  saveFuelEnergyItemBtn.classList.add("loading");
+  try {
+    const categoryRef = await addDoc(fuelEnergyCategoriesRef, {
+      uid: user.uid,
+      name,
+      createdAt: new Date().toISOString()
+    });
+    const category = { id: categoryRef.id, uid: user.uid, name };
+    customFuelEnergyItems = [
+      ...customFuelEnergyItems.filter(existing => existing.id !== category.id),
+      category
+    ];
+    renderFuelEnergyItemOptions();
+    fuelEnergyItemSelect.value = `fuel:${category.id}`;
+    fuelEnergyItemSelect.dispatchEvent(new Event("change"));
+    addFuelEnergyItemModal.style.display = "none";
+    addFuelEnergyItemForm.reset();
+  } catch (error) {
+    console.error("Unable to save Fuel & Energy item:", error);
+    alert(`Unable to save Fuel & Energy item: ${error.message}`);
+  } finally {
+    saveFuelEnergyItemBtn.disabled = false;
+    saveFuelEnergyItemBtn.classList.remove("loading");
+  }
 });
 
 function getCrateType(crateTypeId) {
@@ -378,6 +488,8 @@ let ordersUnsubscribe = null;
 let stockTopUpItemId = null;
 let customCrateTypes = [];
 let customCrateTypesUnsubscribe = null;
+let customFuelEnergyItems = [];
+let fuelEnergyItemsUnsubscribe = null;
 
 const builtInCrateTypes = {
   "soda-300ml": { name: "SODA 300ML CRATE", label: "Soda 300ml", piecesPerCrate: 24 },
@@ -686,6 +798,7 @@ onAuthStateChanged(auth, async (user) => {
       } else {
         if (bizContainer) bizContainer.style.display = "block";
         listenToCustomCrateTypes(user.uid);
+        listenToFuelEnergyItems(user.uid);
         
         // Display Business Name in the title
         const bizTitle = document.getElementById("bizTitle");
@@ -734,6 +847,12 @@ onAuthStateChanged(auth, async (user) => {
     }
     customCrateTypes = [];
     renderCrateTypeOptions();
+    if (fuelEnergyItemsUnsubscribe) {
+      fuelEnergyItemsUnsubscribe();
+      fuelEnergyItemsUnsubscribe = null;
+    }
+    customFuelEnergyItems = [];
+    renderFuelEnergyItemOptions();
     if (bizContainer) bizContainer.style.display = "none";
     if (suspendedSection) suspendedSection.style.display = "none";
     if (passwordChangeModal) passwordChangeModal.style.display = "none";
