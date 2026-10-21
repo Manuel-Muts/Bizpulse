@@ -62,6 +62,7 @@ const analyticsSalesTotalEl = document.getElementById("analyticsSalesTotal");
 const analyticsProfitTotalEl = document.getElementById("analyticsProfitTotal");
 const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
 const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable");
+const analyticsStockAdditionsTable = document.getElementById("analyticsStockAdditionsTable");
 const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview");
 const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
 const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
@@ -77,12 +78,14 @@ const overviewPetrolQuantity = document.getElementById("overviewPetrolQuantity")
 const overviewPetrolRevenue = document.getElementById("overviewPetrolRevenue");
 const overviewPetrolClosingDip = document.getElementById("overviewPetrolClosingDip");
 const overviewRecentSales = document.getElementById("overviewRecentSales");
+const overviewStockAdditions = document.getElementById("overviewStockAdditions");
 
 let dbInstance;
 let authInstance;
 let itemsArray = []; // Reference to the items array from script.js
 let salesArray = []; // Local sales array for this module
 let salesRef;
+let stockAdditionsRef;
 let itemsRef; // Need itemsRef for batch updates
 let ordersCollectionRef; // Reference to the orders collection
 let salesSummaryRef = null;
@@ -92,7 +95,10 @@ let editSaleId = null;
 let editingOriginalSale = null;
 let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
+let stockAdditionsForAnalytics = [];
+let stockAdditionsError = null;
 let analyticsUnsubscribe = null;
+let stockAdditionsUnsubscribe = null;
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
 let analyticsAllSalesError = null;
@@ -129,6 +135,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   itemsArray = items;
   itemsRef = itemsCollectionRef;
   salesRef = collection(dbInstance, "sales");
+  stockAdditionsRef = collection(dbInstance, "stockAdditions");
   ordersCollectionRef = ordersRef;
   salesSummaryRef = doc(dbInstance, "salesSummaries", authInstance.currentUser.uid);
   clientBusinessName = businessName;
@@ -198,6 +205,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   });
   updateAnalyticsDateLabel();
   listenToAnalyticsItems(authInstance.currentUser.uid);
+  listenToStockAdditions(authInstance.currentUser.uid);
   salesPrevPageBtn.addEventListener("click", () => {
     if (authInstance.currentUser) loadSales(authInstance.currentUser.uid, "prev");
   });
@@ -239,6 +247,24 @@ function listenToAnalyticsItems(uid) {
     console.error("Unable to load analytics item settings:", error);
     analyticsItemsError = "Unable to load item analytics settings. Please try again.";
     updateAnalyticsUI();
+    renderOverview();
+  });
+}
+
+function listenToStockAdditions(uid) {
+  const userStockAdditionsQuery = query(stockAdditionsRef, where("uid", "==", uid));
+  stockAdditionsUnsubscribe = onSnapshot(userStockAdditionsQuery, snapshot => {
+    stockAdditionsForAnalytics = snapshot.docs.map(additionDoc => ({
+      id: additionDoc.id,
+      ...additionDoc.data()
+    }));
+    stockAdditionsError = null;
+    renderAnalyticsStockAdditions();
+    renderOverview();
+  }, error => {
+    console.error("Unable to load stock addition history:", error);
+    stockAdditionsError = "Unable to load stock additions. Please try again.";
+    renderAnalyticsStockAdditions();
     renderOverview();
   });
 }
@@ -627,6 +653,10 @@ function renderPetrolAnalytics() {
 }
 
 function exportAnalyticsPdf() {
+  if (stockAdditionsError) {
+    alert("Stock addition history could not be loaded, so the report was not exported.");
+    return;
+  }
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const itemName = analyticsItemFilter.value
     ? analyticsItemFilter.selectedOptions[0]?.textContent || "Selected item"
@@ -771,6 +801,36 @@ function exportAnalyticsPdf() {
       ];
     }),
     [50, 37, 37, 35, pageWidth - margin * 2 - 159]
+  );
+
+  const { start: stockStart, end: stockEnd } = getAnalyticsDateRange(period, selectedDate);
+  const selectedItemId = analyticsItemFilter.value;
+  const stockAdditionRows = stockAdditionsForAnalytics
+    .filter(addition => {
+      const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
+      const date = new Date(`${additionDate}T00:00:00`);
+      return date >= stockStart && date < stockEnd &&
+        (!selectedItemId || addition.itemId === selectedItemId);
+    })
+    .sort((left, right) =>
+      (left.stockDate || dateKey(new Date(left.createdAt)))
+        .localeCompare(right.stockDate || dateKey(new Date(right.createdAt))))
+    .map(addition => {
+      const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
+      return [
+        additionDate,
+        new Date(`${additionDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long" }),
+        addition.itemName || "Item",
+        formatStockAdditionQuantity(addition)
+      ];
+    });
+  drawSectionTitle("Stock additions");
+  drawTable(
+    ["Date", "Day", "Item", "Quantity added"],
+    stockAdditionRows.length
+      ? stockAdditionRows
+      : [["No stock additions for this period", "", "", ""]],
+    [30, 35, 75, pageWidth - margin * 2 - 140]
   );
 
   if (!petrolAnalyticsPreview.hidden) {
@@ -926,6 +986,7 @@ function updateAnalyticsUI() {
     analyticsQuantityTotalEl.textContent = "—";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML = `<tr><td colspan="4">${escapeQuantity(analyticsError)}</td></tr>`;
+    renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
   }
@@ -954,6 +1015,7 @@ function updateAnalyticsUI() {
     </tr>
   `).join("");
   currentAnalyticsRows = rows;
+  renderAnalyticsStockAdditions();
   renderPetrolAnalytics();
 
   updateAnalyticsDateLabel();
@@ -986,6 +1048,7 @@ function renderOverview() {
     overviewPetrolRevenue.textContent = "—";
     overviewPetrolClosingDip.textContent = "—";
     overviewLowStockEl.textContent = String(countLowStockItems());
+    renderOverviewStockAdditions(start, end);
     return;
   }
 
@@ -1013,11 +1076,92 @@ function renderOverview() {
   renderOverviewSalesChart(start, days, includedSales);
   renderOverviewTopItems(includedSales);
   renderOverviewRecentSales(includedSales);
+  renderOverviewStockAdditions(start, end);
   renderOverviewPetrol(petrolSales);
 }
 
 function countLowStockItems() {
-  return itemsArray.filter(item => (parseQuantity(item.quantity)?.amount ?? 0) <= 3).length;
+  const inventoryItems = analyticsItemsById.size
+    ? [...analyticsItemsById.values()]
+    : itemsArray;
+  return inventoryItems.filter(item => (
+    isCrateItem(item.name)
+      ? getCrateStockPieces(item)
+      : parseQuantity(item.quantity)?.amount ?? 0
+  ) <= 3).length;
+}
+
+function formatStockAdditionQuantity(addition) {
+  const quantity = Number(addition.quantity) || 0;
+  const unit = String(addition.quantityUnit || "").trim().toUpperCase();
+  if (unit === "CRATES") {
+    const crateLabel = quantity === 1 ? "CRATE" : "CRATES";
+    const piecesAdded = Number(addition.piecesAdded) ||
+      quantity * (Number(addition.piecesPerCrate) || 0);
+    return `${formatNumber(quantity)} ${crateLabel} (${formatNumber(piecesAdded)} PIECES)`;
+  }
+  return formatDisplayQuantity(formatQuantity(quantity, unit));
+}
+
+function renderAnalyticsStockAdditions() {
+  if (!analyticsStockAdditionsTable) return;
+  if (stockAdditionsError) {
+    analyticsStockAdditionsTable.innerHTML =
+      `<tr><td colspan="4">${escapeQuantity(stockAdditionsError)}</td></tr>`;
+    return;
+  }
+
+  const dateKeys = new Set(currentAnalyticsRows.flatMap(row => row.dateKeys));
+  const selectedItemId = analyticsItemFilter.value;
+  const additions = stockAdditionsForAnalytics
+    .filter(addition => {
+      const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
+      return dateKeys.has(additionDate) &&
+        (!selectedItemId || addition.itemId === selectedItemId);
+    })
+    .sort((left, right) =>
+      (right.stockDate || dateKey(new Date(right.createdAt)))
+        .localeCompare(left.stockDate || dateKey(new Date(left.createdAt))));
+
+  analyticsStockAdditionsTable.innerHTML = additions.length
+    ? additions.map(addition => {
+      const date = addition.stockDate || dateKey(new Date(addition.createdAt));
+      return `<tr>
+        <td>${escapeQuantity(date)}</td>
+        <td>${escapeQuantity(new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { weekday: "long" }))}</td>
+        <td>${escapeQuantity(addition.itemName || "Item")}</td>
+        <td>${escapeQuantity(formatStockAdditionQuantity(addition))}</td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="4" style="text-align:center;">No stock additions for this period.</td></tr>`;
+}
+
+function renderOverviewStockAdditions(start, end) {
+  if (!overviewStockAdditions) return;
+  if (stockAdditionsError) {
+    overviewStockAdditions.innerHTML =
+      `<tr><td colspan="3" class="overview-empty-state">${escapeQuantity(stockAdditionsError)}</td></tr>`;
+    return;
+  }
+
+  const additions = stockAdditionsForAnalytics
+    .filter(addition => {
+      const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
+      const date = new Date(`${additionDate}T00:00:00`);
+      return date >= start && date < end;
+    })
+    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+    .slice(0, 5);
+  overviewStockAdditions.innerHTML = additions.length
+    ? additions.map(addition => {
+      const date = addition.stockDate || dateKey(new Date(addition.createdAt));
+      return `<tr>
+        <td>${escapeQuantity(new Date(`${date}T00:00:00`).toLocaleDateString())}</td>
+        <td>${escapeQuantity(addition.itemName || "Item")}</td>
+        <td>${escapeQuantity(formatStockAdditionQuantity(addition))}</td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="3" class="overview-empty-state">No stock additions in this period.</td></tr>`;
 }
 
 function formatOverviewQuantities(sales) {

@@ -24,7 +24,8 @@ import {
   endBefore,
   orderBy,
   limitToLast,
-  onSnapshotsInSync
+  onSnapshotsInSync,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import { initSalesModule, loadSales, updateSaleDropdown } from "./sales.js";
@@ -36,11 +37,14 @@ import {
   isLiterUnit,
   isCrateItem,
   formatCrateStock,
+  getCrateStockPieces,
   getPiecesPerCrate,
   PIECES_PER_CRATE,
   isPetrolName,
   parseQuantity,
   formatQuantity,
+  adjustQuantity,
+  adjustCrateStock,
   uppercaseInput
 } from "./quantity.js";
 
@@ -85,6 +89,7 @@ onSnapshotsInSync(db, () => {
 
 const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
+const stockAdditionsRef = collection(db, "stockAdditions");
 const usersRef = collection(db, "users");
 const paymentsRef = collection(db, "payments");
 
@@ -147,6 +152,16 @@ const closePaymentModalBtn = document.getElementById("closePaymentModalBtn");
 const stockHealthModal = document.getElementById("stockHealthModal");
 const openStockHealthModalBtn = document.getElementById("openStockHealthModalBtn");
 const closeStockHealthModalBtn = document.getElementById("closeStockHealthModalBtn");
+const stockTopUpModal = document.getElementById("stockTopUpModal");
+const stockTopUpForm = document.getElementById("stockTopUpForm");
+const stockTopUpItemName = document.getElementById("stockTopUpItemName");
+const stockTopUpDate = document.getElementById("stockTopUpDate");
+const stockTopUpQuantity = document.getElementById("stockTopUpQuantity");
+const stockTopUpUnitField = document.getElementById("stockTopUpUnitField");
+const stockTopUpUnit = document.getElementById("stockTopUpUnit");
+const stockTopUpUnitDescription = document.getElementById("stockTopUpUnitDescription");
+const saveStockTopUpBtn = document.getElementById("saveStockTopUpBtn");
+const cancelStockTopUpBtn = document.getElementById("cancelStockTopUpBtn");
 
 // Inventory Pagination Elements
 const prevPageBtn = document.getElementById("prevPageBtn");
@@ -183,10 +198,10 @@ crateTypeSelect.addEventListener("change", () => {
     "soda-300ml": { name: "SODA 300ML CRATE", piecesPerCrate: 24 },
     "soda-500ml": { name: "SODA 500ML CRATE", piecesPerCrate: 24 },
     predator: { name: "PREDATOR CRATE", piecesPerCrate: 12 },
-    afia: { name: "AFIA CRATE", piecesPerCrate: 12 },
-    steam: { name: "STEAM CRATE", piecesPerCrate: 12 },
-    brava: { name: "BRAVA CRATE", piecesPerCrate: 12 },
-    "minute-maid": { name: "MINUTE MAID CRATE", piecesPerCrate: 12 },
+    "afia-500ml": { name: "AFIA 500ML CRATE", piecesPerCrate: 12 },
+    "steam-300ml": { name: "STEAM 300ML CRATE", piecesPerCrate: 12 },
+    "brava-300ml": { name: "BRAVA 300ML CRATE", piecesPerCrate: 12 },
+    "minute-maid-400ml": { name: "MINUTE MAID 400ML CRATE", piecesPerCrate: 12 },
     "soda-1l": { name: "SODA 1L CRATE", piecesPerCrate: 12 },
     "soda-2l": { name: "SODA 2L CRATE", piecesPerCrate: 6 },
     "yoghurt-500ml": { name: "YOGHURT 500ML CRATE", piecesPerCrate: 10 },
@@ -256,6 +271,7 @@ let lowStockPage = 1;
 const lowStockPageSize = 5;
 let itemsUnsubscribe = null;
 let ordersUnsubscribe = null;
+let stockTopUpItemId = null;
 
 let isFirestoreOnline = navigator.onLine;
 window.addEventListener('online', () => {
@@ -300,6 +316,126 @@ window.addEventListener('saleRecorded', async (e) => {
 
 lowStockPrevBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage - 1));
 lowStockNextBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage + 1));
+
+window.openStockTopUp = itemId => {
+  const item = items.find(candidate => candidate.id === itemId);
+  if (!item || !stockTopUpModal) return;
+
+  stockTopUpItemId = item.id;
+  stockTopUpItemName.textContent = item.name;
+  const today = localDateKey(new Date());
+  stockTopUpDate.value = today;
+  stockTopUpDate.max = today;
+  stockTopUpQuantity.value = "";
+  const crateItem = isCrateItem(item.name);
+  stockTopUpUnitField.hidden = !crateItem;
+  stockTopUpUnit.hidden = !crateItem;
+  stockTopUpUnitDescription.textContent = crateItem
+    ? `${formatNumber(getPiecesPerCrate(item))} pieces per crate`
+    : `Quantity will be added in ${parseQuantity(item.quantity)?.unit || "the item's current unit"}.`;
+  stockTopUpModal.style.display = "flex";
+  stockTopUpQuantity.focus();
+};
+
+cancelStockTopUpBtn?.addEventListener("click", () => {
+  stockTopUpModal.style.display = "none";
+  stockTopUpItemId = null;
+});
+
+stockTopUpModal?.addEventListener("click", event => {
+  if (event.target === stockTopUpModal) {
+    stockTopUpModal.style.display = "none";
+    stockTopUpItemId = null;
+  }
+});
+
+stockTopUpForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const item = items.find(candidate => candidate.id === stockTopUpItemId);
+  const amount = Number(stockTopUpQuantity.value);
+  const selectedDate = stockTopUpDate.value;
+  const today = localDateKey(new Date());
+  if (!user || !item) {
+    alert("Select an inventory item before adding stock.");
+    return;
+  }
+  if (!selectedDate || selectedDate > today ||
+      !Number.isFinite(new Date(`${selectedDate}T00:00:00`).getTime())) {
+    alert("Choose today or an earlier date for the stock addition.");
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert("Enter a stock quantity greater than zero.");
+    return;
+  }
+
+  const crateItem = isCrateItem(item.name);
+  const unit = crateItem ? stockTopUpUnit.value : parseQuantity(item.quantity)?.unit || "";
+  if (crateItem && (!Number.isInteger(amount) ||
+      (unit !== "crate" && unit !== "piece"))) {
+    alert("Crate and piece stock additions must be whole numbers.");
+    return;
+  }
+
+  saveStockTopUpBtn.disabled = true;
+  try {
+    const itemRef = doc(db, "items", item.id);
+    const additionRef = doc(stockAdditionsRef);
+    const createdAt = new Date().toISOString();
+    await runTransaction(db, async transaction => {
+      const latestItemSnapshot = await transaction.get(itemRef);
+      if (!latestItemSnapshot.exists()) {
+        throw new Error("This inventory item no longer exists.");
+      }
+      const latestItem = { id: latestItemSnapshot.id, ...latestItemSnapshot.data() };
+      if (latestItem.uid !== user.uid) {
+        throw new Error("You do not have permission to update this inventory item.");
+      }
+
+      const latestCrateItem = isCrateItem(latestItem.name);
+      if (latestCrateItem !== crateItem) {
+        throw new Error("The item's stock type changed. Close this form and try again.");
+      }
+      const latestPiecesPerCrate = latestCrateItem ? getPiecesPerCrate(latestItem) : null;
+      const latestUnit = latestCrateItem
+        ? unit
+        : parseQuantity(latestItem.quantity)?.unit || "";
+      const piecesAdded = latestCrateItem
+        ? amount * (unit === "crate" ? latestPiecesPerCrate : 1)
+        : null;
+      const quantityUpdate = latestCrateItem
+        ? adjustCrateStock(latestItem, piecesAdded)
+        : { quantity: adjustQuantity(latestItem.quantity, amount) };
+      const stockAddition = {
+        uid: user.uid,
+        itemId: latestItem.id,
+        itemName: latestItem.name,
+        quantity: amount,
+        quantityUnit: latestCrateItem
+          ? unit === "crate" ? "CRATES" : "PIECES"
+          : latestUnit,
+        stockDate: selectedDate,
+        piecesPerCrate: latestPiecesPerCrate,
+        piecesAdded,
+        buyingPricePerUnit: Number(latestItem.incoming) || 0,
+        createdAt
+      };
+      transaction.update(itemRef, quantityUpdate);
+      transaction.set(additionRef, stockAddition);
+    });
+
+    stockTopUpModal.style.display = "none";
+    stockTopUpForm.reset();
+    stockTopUpItemId = null;
+    alert(`Added stock to ${item.name}.`);
+  } catch (error) {
+    console.error("Unable to add inventory stock:", error);
+    alert(`Unable to add stock: ${error.message}`);
+  } finally {
+    saveStockTopUpBtn.disabled = false;
+  }
+});
 
 openPaymentModalBtn?.addEventListener('click', () => {
   if (paymentModal) paymentModal.style.display = 'flex';
@@ -801,6 +937,16 @@ function formatInventoryStock(item) {
     : formatDisplayQuantity(item.quantity);
 }
 
+function getInventoryStockAmount(item) {
+  return isCrateItem(item.name)
+    ? getCrateStockPieces(item)
+    : parseQuantity(item.quantity)?.amount ?? 0;
+}
+
+function localDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function formatCratePiecePrice(item) {
   return item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
       item.pieceSellingPrice === ""
@@ -902,13 +1048,13 @@ function renderItems(filter = "") {
     i.name.toLowerCase().includes(filter.toLowerCase())); // Keep client-side filter for current page
 
   filtered.forEach(item => {
-    const quantity = parseQuantity(item.quantity)?.amount ?? 0;
+    const quantity = getInventoryStockAmount(item);
     const singleItemProfit = calculateSingleItemProfit(item);
     const profit = calculateProfit(item);
     totalProfit += profit;
 
     const row = document.createElement("tr");
-    if (quantity < 3) row.classList.add("low-stock-row");
+    if (quantity <= 3) row.classList.add("low-stock-row");
     row.innerHTML = `
       <td>${item.name}</td>
       <td>${isCrateItem(item.name)
@@ -921,6 +1067,7 @@ function renderItems(filter = "") {
       <td>${formatNumber(singleItemProfit)}</td>
       <td>${formatNumber(profit)}</td>
       <td>
+        <button onclick="openStockTopUp('${item.id}')">Add stock</button>
         <button onclick="editItem('${item.id}')">Edit</button>
         <button onclick="deleteItem('${item.id}')">Delete</button>
       </td>
@@ -935,7 +1082,7 @@ function renderItems(filter = "") {
 function renderLowStockAlerts(page = 1) {
   if (!lowStockDetails || !lowStockTable || !lowStockPageInfo) return;
 
-  const lowStockItems = items.filter(item => (parseQuantity(item.quantity)?.amount ?? 0) <= 3);
+  const lowStockItems = items.filter(item => getInventoryStockAmount(item) <= 3);
   const totalItems = lowStockItems.length;
   const totalPages = totalItems === 0 ? 1 : Math.ceil(totalItems / lowStockPageSize);
   lowStockPage = Math.min(Math.max(page, 1), totalPages);

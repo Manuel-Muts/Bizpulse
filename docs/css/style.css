@@ -751,6 +751,50 @@ button.loading .btn-text {
   margin-top: 0;
 }
 
+.stock-top-up-modal {
+  max-width: 480px;
+  text-align: left;
+}
+
+.stock-top-up-modal p {
+  margin-bottom: 14px;
+}
+
+.stock-top-up-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.stock-top-up-form label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stock-top-up-form input,
+.stock-top-up-form select {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.stock-top-up-unit-description {
+  margin: 0;
+  color: #64748b;
+}
+
+.stock-top-up-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .overview-empty-state {
   padding: 16px;
   color: #64748b;

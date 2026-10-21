@@ -74,6 +74,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /stockAdditions/{additionId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
     match /salesSummaries/{userId} {
       allow read, create, update: if isAdmin() ||
         (isActiveClient() && request.auth.uid == userId);

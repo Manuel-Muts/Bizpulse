@@ -125,6 +125,29 @@
     </div>
   </div>
 
+  <div id="stockTopUpModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="stockTopUpTitle">
+    <div class="modal-content stock-top-up-modal">
+      <h2 id="stockTopUpTitle">Add Stock</h2>
+      <p id="stockTopUpItemName"></p>
+      <form id="stockTopUpForm" class="stock-top-up-form">
+        <label for="stockTopUpDate">Date stock was received</label>
+        <input type="date" id="stockTopUpDate" required />
+        <label for="stockTopUpQuantity">Quantity to add</label>
+        <input type="number" id="stockTopUpQuantity" min="0.01" step="any" required />
+        <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Unit</label>
+        <select id="stockTopUpUnit" hidden>
+          <option value="crate">Crates</option>
+          <option value="piece">Pieces</option>
+        </select>
+        <p id="stockTopUpUnitDescription" class="stock-top-up-unit-description"></p>
+        <div class="stock-top-up-actions">
+          <button type="submit" id="saveStockTopUpBtn" class="action-btn" style="background:#059669;">Add Stock</button>
+          <button type="button" id="cancelStockTopUpBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- PAYMENT CONFIRMATION MODAL -->
   <div id="paymentConfirmModal" class="modal" style="display:none;">
     <div class="modal-content" style="max-width: 400px;">
@@ -277,6 +300,19 @@
         </div>
       </section>
 
+      <section class="overview-panel overview-stock-additions-panel">
+        <div class="overview-panel-heading">
+          <div><h3>Recent stock additions</h3><p>Stock received during the selected period</p></div>
+          <button type="button" class="overview-link-button" data-overview-tab="inventory">Open Inventory</button>
+        </div>
+        <div class="overview-recent-table">
+          <table class="compact-data-table">
+            <thead><tr><th>Date</th><th>Item</th><th>Added</th></tr></thead>
+            <tbody id="overviewStockAdditions"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="overview-panel overview-recent-panel">
         <div class="overview-panel-heading">
           <div><h3>Recent sales</h3><p>Latest non-petrol sales in the selected period</p></div>
@@ -394,6 +430,15 @@
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
       </div>
+      <div class="analytics-breakdown-table">
+        <h3>Stock additions</h3>
+        <table class="compact-data-table">
+          <thead>
+            <tr><th>Date</th><th>Day</th><th>Item</th><th>Quantity added</th></tr>
+          </thead>
+          <tbody id="analyticsStockAdditionsTable"></tbody>
+        </table>
+      </div>
       <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">Export Analytics PDF</button>
     </div>
 
@@ -441,10 +486,10 @@
             <option value="soda-300ml">Soda 300ml (24 pieces)</option>
             <option value="soda-500ml">Soda 500ml (24 pieces)</option>
             <option value="predator">Predator (12 pieces)</option>
-            <option value="afia">Afia (12 pieces)</option>
-            <option value="steam">Steam (12 pieces)</option>
-            <option value="brava">Brava (12 pieces)</option>
-            <option value="minute-maid">Minute Maid (12 pieces)</option>
+            <option value="afia-500ml">Afia 500ml (12 pieces)</option>
+            <option value="steam-300ml">Steam 300ml (12 pieces)</option>
+            <option value="brava-300ml">Brava 300ml (12 pieces)</option>
+            <option value="minute-maid-400ml">Minute Maid 400ml (12 pieces)</option>
             <option value="soda-1l">Soda 1L (12 pieces)</option>
             <option value="soda-2l">Soda 2L (6 pieces)</option>
             <option value="yoghurt-500ml">Yoghurt 500ml (10 pieces)</option>
