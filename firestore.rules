@@ -80,6 +80,20 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /customCrateTypes/{crateTypeId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin() || ownsDocument(resource.data);
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+
     match /salesSummaries/{userId} {
       allow read, create, update: if isAdmin() ||
         (isActiveClient() && request.auth.uid == userId);

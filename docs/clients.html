@@ -151,6 +151,26 @@
     </div>
   </div>
 
+  <div id="addCrateTypeModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="addCrateTypeTitle">
+    <div class="modal-content stock-top-up-modal">
+      <h2 id="addCrateTypeTitle">Add Crate Type</h2>
+      <p>Add a crate type to this business's inventory presets.</p>
+      <form id="addCrateTypeForm" class="stock-top-up-form">
+        <label for="crateTypeName">Crate or product name</label>
+        <input type="text" id="crateTypeName" maxlength="60" placeholder="e.g. Juice 500ml" required />
+        <label for="crateTypePieces">Pieces per crate</label>
+        <input type="number" id="crateTypePieces" min="1" step="1" required />
+        <div class="stock-top-up-actions">
+          <button type="submit" id="saveCrateTypeBtn" class="action-btn" style="background:#059669;">
+            <span class="btn-text">Save crate type</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="cancelCrateTypeBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- PAYMENT CONFIRMATION MODAL -->
   <div id="paymentConfirmModal" class="modal" style="display:none;">
     <div class="modal-content" style="max-width: 400px;">
@@ -236,6 +256,7 @@
       <button type="button" class="tab-btn" data-tab="inventory">Inventory</button>
       <button type="button" class="tab-btn" data-tab="orders">Customer Orders</button>
       <button type="button" class="tab-btn" data-tab="sales">Sales</button>
+      <button type="button" class="tab-btn" data-tab="expenses">Expenses & Purchases</button>
       <button type="button" class="tab-btn" data-tab="analytics">Analytics</button>
     </nav>
 
@@ -259,12 +280,19 @@
       </div>
       <div class="overview-stat-grid">
         <article class="overview-stat-card overview-revenue-card">
-          <span>Sales revenue</span><strong id="overviewRevenue">KES 0</strong>
+          <span>Gross sales revenue</span><strong id="overviewRevenue">KES 0</strong>
           <small id="overviewRangeLabel">Last 30 days</small>
         </article>
         <article class="overview-stat-card">
-          <span>Profit</span><strong id="overviewProfit">KES 0</strong>
+          <span>Gross sales profit</span><strong id="overviewGrossProfit">KES 0</strong>
+        </article>
+        <article class="overview-stat-card">
+          <span>Expenses & purchases</span><strong id="overviewExpenseTotal">KES 0</strong>
           <small>Selected period</small>
+        </article>
+        <article class="overview-stat-card">
+          <span>Net sales revenue</span><strong id="overviewNetRevenue">KES 0</strong>
+          <small>Revenue less expenses</small>
         </article>
         <article class="overview-stat-card">
           <span>Quantity sold</span><strong id="overviewQuantity">0</strong>
@@ -312,6 +340,19 @@
           <table class="compact-data-table">
             <thead><tr><th>Date</th><th>Item</th><th>Added</th></tr></thead>
             <tbody id="overviewStockAdditions"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="overview-panel overview-expenses-panel">
+        <div class="overview-panel-heading">
+          <div><h3>Recent expenses & purchases</h3><p>Recorded costs in the selected period</p></div>
+          <button type="button" class="overview-link-button" data-overview-tab="expenses">Open records</button>
+        </div>
+        <div class="overview-recent-table">
+          <table class="compact-data-table">
+            <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th></tr></thead>
+            <tbody id="overviewExpenses"></tbody>
           </table>
         </div>
       </section>
@@ -408,10 +449,13 @@
         </div>
       </div>
       <div class="analytics-grid sales-analytics-grid">
-        <div class="stat-card"><h3>Sales Revenue</h3><p>KES <span id="analyticsSalesTotal">0.00</span></p></div>
-        <div class="stat-card"><h3>Total Profit</h3><p>KES <span id="analyticsProfitTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Gross Sales Revenue</h3><p>KES <span id="analyticsSalesTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Gross Sales Profit</h3><p>KES <span id="analyticsGrossProfitTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Expenses & Purchases</h3><p>KES <span id="analyticsExpenseTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Items Sold</h3><p id="analyticsQuantityTotal">0</p></div>
       </div>
+      <p class="analytics-expense-note">Net totals subtract expenses and purchases for the selected dates. Select All Items for business-wide net figures.</p>
       <div id="petrolAnalyticsPreview" class="analytics-breakdown-table petrol-analytics-preview" hidden>
         <h3>Petrol Dip Breakdown</h3>
         <table class="compact-data-table">
@@ -428,7 +472,7 @@
       <div class="analytics-breakdown-table">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th>Sales</th><th>Profit</th><th>Items Sold</th></tr>
+            <tr><th>Period</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -443,6 +487,47 @@
         </table>
       </div>
       <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">Export Analytics PDF</button>
+    </div>
+
+    <!-- EXPENSES AND PURCHASES SECTION -->
+    <div id="expensesSection" class="tab-content" style="display:none;">
+      <div class="section-divider">
+        <div class="analytics-section-heading">
+          <div><h2>Expenses & Purchases</h2><p>Record dated business costs for profit reporting and audit history.</p></div>
+        </div>
+      </div>
+      <form id="expenseForm" class="expense-form">
+        <label for="expenseDate">Date
+          <input type="date" id="expenseDate" required />
+        </label>
+        <label for="expenseType">Type
+          <select id="expenseType" required>
+            <option value="Expense">Expense</option>
+            <option value="Purchase">Purchase</option>
+          </select>
+        </label>
+        <label for="expenseDescription">Description
+          <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
+        </label>
+        <label for="expenseVendor">Paid to / Supplier
+          <input type="text" id="expenseVendor" maxlength="100" placeholder="Optional" />
+        </label>
+        <label for="expenseAmount">Amount (KES)
+          <input type="number" id="expenseAmount" min="0.01" step="0.01" required />
+        </label>
+        <label for="expenseNotes">Notes
+          <input type="text" id="expenseNotes" maxlength="250" placeholder="Optional reference or details" />
+        </label>
+        <button type="submit" id="saveExpenseBtn" class="action-btn" style="background:#059669;">
+          <span class="btn-text">Record cost</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+      <p id="expenseFormMessage" role="status" aria-live="polite"></p>
+      <table class="compact-data-table">
+        <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Paid to / Supplier</th><th>Amount (KES)</th><th>Notes</th></tr></thead>
+        <tbody id="expensesTable"></tbody>
+      </table>
     </div>
 
     <!-- ORDERS SECTION -->
@@ -493,12 +578,14 @@
             <option value="steam-300ml">Steam 300ml (12 pieces)</option>
             <option value="brava-300ml">Brava 300ml (12 pieces)</option>
             <option value="minute-maid-400ml">Minute Maid 400ml (12 pieces)</option>
+            <option value="powerboost-300ml">Powerboost 300ml (12 pieces)</option>
             <option value="soda-1l">Soda 1L (12 pieces)</option>
             <option value="soda-2l">Soda 2L (6 pieces)</option>
             <option value="yoghurt-500ml">Yoghurt 500ml (10 pieces)</option>
             <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
           </select>
         </label>
+        <button type="button" id="openAddCrateTypeBtn" class="action-btn" style="background:#2563eb;">Add crate</button>
       </div>
       <form id="itemForm">
         <input type="text" id="itemName" placeholder="Item Name" required />

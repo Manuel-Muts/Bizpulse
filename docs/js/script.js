@@ -90,6 +90,7 @@ onSnapshotsInSync(db, () => {
 const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
+const customCrateTypesRef = collection(db, "customCrateTypes");
 const usersRef = collection(db, "users");
 const paymentsRef = collection(db, "payments");
 
@@ -110,6 +111,13 @@ const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
 const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
 const pieceSellingPriceInput = document.getElementById("pieceSellingPrice");
 const crateTypeSelect = document.getElementById("crateTypeSelect");
+const openAddCrateTypeBtn = document.getElementById("openAddCrateTypeBtn");
+const addCrateTypeModal = document.getElementById("addCrateTypeModal");
+const addCrateTypeForm = document.getElementById("addCrateTypeForm");
+const crateTypeNameInput = document.getElementById("crateTypeName");
+const crateTypePiecesInput = document.getElementById("crateTypePieces");
+const saveCrateTypeBtn = document.getElementById("saveCrateTypeBtn");
+const cancelCrateTypeBtn = document.getElementById("cancelCrateTypeBtn");
 const includeInAllAnalyticsInput = document.getElementById("includeInAllAnalytics");
 const saveItemBtn = document.getElementById("saveItemBtn");
 const table = document.getElementById("itemTable");
@@ -194,20 +202,7 @@ itemName.addEventListener("input", () => {
   updateCrateInventoryFields();
 });
 crateTypeSelect.addEventListener("change", () => {
-  const crateTypes = {
-    "soda-300ml": { name: "SODA 300ML CRATE", piecesPerCrate: 24 },
-    "soda-500ml": { name: "SODA 500ML CRATE", piecesPerCrate: 24 },
-    "predator-400ml": { name: "PREDATOR 400ML CRATE", piecesPerCrate: 12 },
-    "afia-500ml": { name: "AFIA 500ML CRATE", piecesPerCrate: 12 },
-    "steam-300ml": { name: "STEAM 300ML CRATE", piecesPerCrate: 12 },
-    "brava-300ml": { name: "BRAVA 300ML CRATE", piecesPerCrate: 12 },
-    "minute-maid-400ml": { name: "MINUTE MAID 400ML CRATE", piecesPerCrate: 12 },
-    "soda-1l": { name: "SODA 1L CRATE", piecesPerCrate: 12 },
-    "soda-2l": { name: "SODA 2L CRATE", piecesPerCrate: 6 },
-    "yoghurt-500ml": { name: "YOGHURT 500ML CRATE", piecesPerCrate: 10 },
-    "yoghurt-250ml": { name: "YOGHURT 250ML CRATE", piecesPerCrate: 18 }
-  };
-  const crateType = crateTypes[crateTypeSelect.value];
+  const crateType = getCrateType(crateTypeSelect.value);
   if (!crateType) return;
 
   itemName.value = crateType.name;
@@ -217,6 +212,115 @@ crateTypeSelect.addEventListener("change", () => {
   piecesPerCrateInput.value = String(crateType.piecesPerCrate);
   updateCrateInventoryFields();
   crateLoosePiecesInput.max = String(crateType.piecesPerCrate - 1);
+});
+
+function getCrateType(crateTypeId) {
+  return builtInCrateTypes[crateTypeId] ||
+    customCrateTypes.find(crateType => crateType.id === crateTypeId) ||
+    null;
+}
+
+function renderCrateTypeOptions() {
+  crateTypeSelect.querySelectorAll("option[data-custom-crate-type]").forEach(option => option.remove());
+  customCrateTypes
+    .slice()
+    .sort((left, right) => left.label.localeCompare(right.label))
+    .forEach(crateType => {
+      const option = document.createElement("option");
+      option.value = crateType.id;
+      option.dataset.customCrateType = "true";
+      option.textContent = `${crateType.label} (${formatNumber(crateType.piecesPerCrate)} pieces)`;
+      crateTypeSelect.appendChild(option);
+    });
+}
+
+function listenToCustomCrateTypes(uid) {
+  if (customCrateTypesUnsubscribe) customCrateTypesUnsubscribe();
+  const userCrateTypesQuery = query(customCrateTypesRef, where("uid", "==", uid));
+  customCrateTypesUnsubscribe = onSnapshot(userCrateTypesQuery, snapshot => {
+    customCrateTypes = snapshot.docs.map(crateTypeDoc => ({
+      id: crateTypeDoc.id,
+      ...crateTypeDoc.data()
+    }));
+    renderCrateTypeOptions();
+  }, error => {
+    console.error("Unable to load custom crate types:", error);
+    alert(`Unable to load saved crate types: ${error.message}`);
+  });
+}
+
+openAddCrateTypeBtn.addEventListener("click", () => {
+  addCrateTypeForm.reset();
+  addCrateTypeModal.style.display = "flex";
+  crateTypeNameInput.focus();
+});
+cancelCrateTypeBtn.addEventListener("click", () => {
+  addCrateTypeModal.style.display = "none";
+});
+addCrateTypeModal.addEventListener("click", event => {
+  if (event.target === addCrateTypeModal) addCrateTypeModal.style.display = "none";
+});
+addCrateTypeForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const label = crateTypeNameInput.value.trim();
+  const piecesPerCrate = Number(crateTypePiecesInput.value);
+  if (!user || !label) {
+    alert("Enter a crate or product name.");
+    return;
+  }
+  if (!Number.isInteger(piecesPerCrate) || piecesPerCrate < 1) {
+    alert("Pieces per crate must be a positive whole number.");
+    return;
+  }
+  const normalizedName = label.toLowerCase();
+  const duplicate = [
+    ...Object.values(builtInCrateTypes),
+    ...customCrateTypes
+  ].some(crateType =>
+    crateType.label.trim().toLowerCase() === normalizedName ||
+    crateType.name.trim().toLowerCase() === `${normalizedName} crate`
+  );
+  if (duplicate) {
+    alert("That crate type already exists in the dropdown.");
+    return;
+  }
+
+  const crateItemName = /\bcrates?$/i.test(label)
+    ? label.toUpperCase()
+    : `${label.toUpperCase()} CRATE`;
+  saveCrateTypeBtn.disabled = true;
+  saveCrateTypeBtn.classList.add("loading");
+  try {
+    const crateTypeRef = await addDoc(customCrateTypesRef, {
+      uid: user.uid,
+      label,
+      name: crateItemName,
+      piecesPerCrate,
+      createdAt: new Date().toISOString()
+    });
+    const customCrateType = {
+      id: crateTypeRef.id,
+      label,
+      name: crateItemName,
+      piecesPerCrate
+    };
+    customCrateTypes = [
+      ...customCrateTypes.filter(crateType => crateType.id !== customCrateType.id),
+      customCrateType
+    ];
+    renderCrateTypeOptions();
+    crateTypeSelect.value = customCrateType.id;
+    crateTypeSelect.dispatchEvent(new Event("change"));
+    addCrateTypeModal.style.display = "none";
+    addCrateTypeForm.reset();
+  } catch (error) {
+    console.error("Unable to save custom crate type:", error);
+    alert(`Unable to save crate type: ${error.message}`);
+  } finally {
+    saveCrateTypeBtn.disabled = false;
+    saveCrateTypeBtn.classList.remove("loading");
+  }
 });
 quantityInput.addEventListener("input", () => {
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
@@ -272,6 +376,23 @@ const lowStockPageSize = 5;
 let itemsUnsubscribe = null;
 let ordersUnsubscribe = null;
 let stockTopUpItemId = null;
+let customCrateTypes = [];
+let customCrateTypesUnsubscribe = null;
+
+const builtInCrateTypes = {
+  "soda-300ml": { name: "SODA 300ML CRATE", label: "Soda 300ml", piecesPerCrate: 24 },
+  "soda-500ml": { name: "SODA 500ML CRATE", label: "Soda 500ml", piecesPerCrate: 24 },
+  "predator-400ml": { name: "PREDATOR 400ML CRATE", label: "Predator 400ml", piecesPerCrate: 12 },
+  "afia-500ml": { name: "AFIA 500ML CRATE", label: "Afia 500ml", piecesPerCrate: 12 },
+  "steam-300ml": { name: "STEAM 300ML CRATE", label: "Steam 300ml", piecesPerCrate: 12 },
+  "brava-300ml": { name: "BRAVA 300ML CRATE", label: "Brava 300ml", piecesPerCrate: 12 },
+  "minute-maid-400ml": { name: "MINUTE MAID 400ML CRATE", label: "Minute Maid 400ml", piecesPerCrate: 12 },
+  "powerboost-300ml": { name: "POWERBOOST 300ML CRATE", label: "Powerboost 300ml", piecesPerCrate: 12 },
+  "soda-1l": { name: "SODA 1L CRATE", label: "Soda 1L", piecesPerCrate: 12 },
+  "soda-2l": { name: "SODA 2L CRATE", label: "Soda 2L", piecesPerCrate: 6 },
+  "yoghurt-500ml": { name: "YOGHURT 500ML CRATE", label: "Yoghurt 500ml", piecesPerCrate: 10 },
+  "yoghurt-250ml": { name: "YOGHURT 250ML CRATE", label: "Yoghurt 250ml", piecesPerCrate: 18 }
+};
 
 let isFirestoreOnline = navigator.onLine;
 window.addEventListener('online', () => {
@@ -564,6 +685,7 @@ onAuthStateChanged(auth, async (user) => {
         return;
       } else {
         if (bizContainer) bizContainer.style.display = "block";
+        listenToCustomCrateTypes(user.uid);
         
         // Display Business Name in the title
         const bizTitle = document.getElementById("bizTitle");
@@ -606,6 +728,12 @@ onAuthStateChanged(auth, async (user) => {
       showLoadingIndicator(false);
     }
   } else {
+    if (customCrateTypesUnsubscribe) {
+      customCrateTypesUnsubscribe();
+      customCrateTypesUnsubscribe = null;
+    }
+    customCrateTypes = [];
+    renderCrateTypeOptions();
     if (bizContainer) bizContainer.style.display = "none";
     if (suspendedSection) suspendedSection.style.display = "none";
     if (passwordChangeModal) passwordChangeModal.style.display = "none";

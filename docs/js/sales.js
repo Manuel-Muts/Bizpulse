@@ -1,4 +1,5 @@
 import {
+  addDoc,
   collection,
   onSnapshot,
   doc,
@@ -59,7 +60,9 @@ const analyticsPeriodFilter = document.getElementById("analyticsPeriodFilter");
 const analyticsDateFilter = document.getElementById("analyticsDateFilter");
 const analyticsDateLabel = document.getElementById("analyticsDateLabel");
 const analyticsSalesTotalEl = document.getElementById("analyticsSalesTotal");
-const analyticsProfitTotalEl = document.getElementById("analyticsProfitTotal");
+const analyticsGrossProfitTotalEl = document.getElementById("analyticsGrossProfitTotal");
+const analyticsNetRevenueTotalEl = document.getElementById("analyticsNetRevenueTotal");
+const analyticsExpenseTotalEl = document.getElementById("analyticsExpenseTotal");
 const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
 const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable");
 const analyticsStockAdditionsTable = document.getElementById("analyticsStockAdditionsTable");
@@ -68,7 +71,9 @@ const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
 const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
 const overviewPeriodFilter = document.getElementById("overviewPeriodFilter");
 const overviewRevenueEl = document.getElementById("overviewRevenue");
-const overviewProfitEl = document.getElementById("overviewProfit");
+const overviewGrossProfitEl = document.getElementById("overviewGrossProfit");
+const overviewNetRevenueEl = document.getElementById("overviewNetRevenue");
+const overviewExpenseTotalEl = document.getElementById("overviewExpenseTotal");
 const overviewQuantityEl = document.getElementById("overviewQuantity");
 const overviewLowStockEl = document.getElementById("overviewLowStock");
 const overviewRangeLabel = document.getElementById("overviewRangeLabel");
@@ -79,6 +84,17 @@ const overviewPetrolRevenue = document.getElementById("overviewPetrolRevenue");
 const overviewPetrolClosingDip = document.getElementById("overviewPetrolClosingDip");
 const overviewRecentSales = document.getElementById("overviewRecentSales");
 const overviewStockAdditions = document.getElementById("overviewStockAdditions");
+const overviewExpenses = document.getElementById("overviewExpenses");
+const expenseForm = document.getElementById("expenseForm");
+const expenseDateInput = document.getElementById("expenseDate");
+const expenseTypeInput = document.getElementById("expenseType");
+const expenseDescriptionInput = document.getElementById("expenseDescription");
+const expenseVendorInput = document.getElementById("expenseVendor");
+const expenseAmountInput = document.getElementById("expenseAmount");
+const expenseNotesInput = document.getElementById("expenseNotes");
+const saveExpenseBtn = document.getElementById("saveExpenseBtn");
+const expenseFormMessage = document.getElementById("expenseFormMessage");
+const expensesTable = document.getElementById("expensesTable");
 
 let dbInstance;
 let authInstance;
@@ -86,6 +102,7 @@ let itemsArray = []; // Reference to the items array from script.js
 let salesArray = []; // Local sales array for this module
 let salesRef;
 let stockAdditionsRef;
+let expensesRef;
 let itemsRef; // Need itemsRef for batch updates
 let ordersCollectionRef; // Reference to the orders collection
 let salesSummaryRef = null;
@@ -97,8 +114,11 @@ let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
 let stockAdditionsForAnalytics = [];
 let stockAdditionsError = null;
+let expensesForAnalytics = [];
+let expensesError = null;
 let analyticsUnsubscribe = null;
 let stockAdditionsUnsubscribe = null;
+let expensesUnsubscribe = null;
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
 let analyticsAllSalesError = null;
@@ -136,6 +156,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   itemsRef = itemsCollectionRef;
   salesRef = collection(dbInstance, "sales");
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
+  expensesRef = collection(dbInstance, "expenses");
   ordersCollectionRef = ordersRef;
   salesSummaryRef = doc(dbInstance, "salesSummaries", authInstance.currentUser.uid);
   clientBusinessName = businessName;
@@ -176,6 +197,9 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
     });
   });
   exportAnalyticsPdfBtn.addEventListener("click", exportAnalyticsPdf);
+  expenseDateInput.value = dateKey(new Date());
+  expenseDateInput.max = dateKey(new Date());
+  expenseForm.addEventListener("submit", handleExpenseFormSubmit);
 
   const today = dateKey(new Date());
   salesDateFilter.value = today;
@@ -206,6 +230,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   updateAnalyticsDateLabel();
   listenToAnalyticsItems(authInstance.currentUser.uid);
   listenToStockAdditions(authInstance.currentUser.uid);
+  listenToExpenses(authInstance.currentUser.uid);
   salesPrevPageBtn.addEventListener("click", () => {
     if (authInstance.currentUser) loadSales(authInstance.currentUser.uid, "prev");
   });
@@ -267,6 +292,100 @@ function listenToStockAdditions(uid) {
     renderAnalyticsStockAdditions();
     renderOverview();
   });
+}
+
+function listenToExpenses(uid) {
+  if (expensesUnsubscribe) expensesUnsubscribe();
+  const userExpensesQuery = query(expensesRef, where("uid", "==", uid));
+  expensesUnsubscribe = onSnapshot(userExpensesQuery, snapshot => {
+    expensesForAnalytics = snapshot.docs.map(expenseDoc => ({
+      id: expenseDoc.id,
+      ...expenseDoc.data()
+    }));
+    expensesError = null;
+    renderExpensesTable();
+    updateAnalyticsUI();
+    renderOverview();
+  }, error => {
+    console.error("Unable to load expense records:", error);
+    expensesError = "Unable to load expense and purchase records. Please try again.";
+    renderExpensesTable();
+    updateAnalyticsUI();
+    renderOverview();
+  });
+}
+
+async function handleExpenseFormSubmit(event) {
+  event.preventDefault();
+  const user = authInstance.currentUser;
+  const date = expenseDateInput.value;
+  const today = dateKey(new Date());
+  const amount = Number(expenseAmountInput.value);
+  const parsedDate = new Date(`${date}T00:00:00`);
+  if (!user) {
+    expenseFormMessage.textContent = "You must be signed in to record a cost.";
+    return;
+  }
+  if (!date || !Number.isFinite(parsedDate.getTime()) || date > today) {
+    expenseFormMessage.textContent = "Choose today or an earlier date.";
+    return;
+  }
+  if (!expenseDescriptionInput.value.trim()) {
+    expenseFormMessage.textContent = "Enter a description for this cost.";
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    expenseFormMessage.textContent = "Enter an amount greater than zero.";
+    return;
+  }
+
+  saveExpenseBtn.disabled = true;
+  saveExpenseBtn.classList.add("loading");
+  expenseFormMessage.textContent = "";
+  try {
+    await addDoc(expensesRef, {
+      uid: user.uid,
+      date,
+      type: expenseTypeInput.value,
+      description: expenseDescriptionInput.value.trim(),
+      vendor: expenseVendorInput.value.trim(),
+      amount,
+      notes: expenseNotesInput.value.trim(),
+      createdAt: new Date().toISOString()
+    });
+    expenseForm.reset();
+    expenseDateInput.value = today;
+    expenseFormMessage.textContent = "Cost recorded.";
+  } catch (error) {
+    console.error("Unable to record expense or purchase:", error);
+    expenseFormMessage.textContent = `Unable to record cost: ${error.message}`;
+  } finally {
+    saveExpenseBtn.disabled = false;
+    saveExpenseBtn.classList.remove("loading");
+  }
+}
+
+function renderExpensesTable() {
+  if (expensesError) {
+    expensesTable.innerHTML = `<tr><td colspan="6">${escapeQuantity(expensesError)}</td></tr>`;
+    return;
+  }
+  const sortedExpenses = [...expensesForAnalytics].sort((left, right) =>
+    (right.date || dateKey(new Date(right.createdAt)))
+      .localeCompare(left.date || dateKey(new Date(left.createdAt))));
+  expensesTable.innerHTML = sortedExpenses.length
+    ? sortedExpenses.map(expense => {
+      const date = expense.date || dateKey(new Date(expense.createdAt));
+      return `<tr>
+        <td>${escapeQuantity(date)}</td>
+        <td>${escapeQuantity(expense.type || "Expense")}</td>
+        <td>${escapeQuantity(expense.description || "")}</td>
+        <td>${escapeQuantity(expense.vendor || "—")}</td>
+        <td>${formatNumber(expense.amount)}</td>
+        <td>${escapeQuantity(expense.notes || "—")}</td>
+      </tr>`;
+    }).join("")
+    : `<tr><td colspan="6" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
 }
 
 function addAnalyticsItemOptions(items) {
@@ -653,8 +772,8 @@ function renderPetrolAnalytics() {
 }
 
 function exportAnalyticsPdf() {
-  if (stockAdditionsError) {
-    alert("Stock addition history could not be loaded, so the report was not exported.");
+  if (stockAdditionsError || expensesError) {
+    alert("Stock additions or expense history could not be loaded, so the report was not exported.");
     return;
   }
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -760,8 +879,10 @@ function exportAnalyticsPdf() {
   drawTable(
     ["Metric", "Value"],
     [
-      ["Sales revenue", `KES ${analyticsSalesTotalEl.textContent}`],
-      ["Total profit", `KES ${analyticsProfitTotalEl.textContent}`],
+      ["Gross sales revenue", `KES ${analyticsSalesTotalEl.textContent}`],
+      ["Gross sales profit", `KES ${analyticsGrossProfitTotalEl.textContent}`],
+      ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
+      ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
       ["Quantity sold", formatNumber(analyticsQuantityTotalEl.textContent)]
     ],
     [pageWidth - margin * 2 - 55, 55]
@@ -772,7 +893,7 @@ function exportAnalyticsPdf() {
     ? analyticsItemSales
     : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   drawTable(
-    ["Period", "Sales (KES)", "Profit (KES)", "Quantity sold", "Products and quantities"],
+    ["Period", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Quantity sold", "Products and quantities"],
     rows.map(row => {
       const salesByItem = new Map();
       selectedAnalyticsSales.forEach(sale => {
@@ -791,16 +912,21 @@ function exportAnalyticsPdf() {
       const productsAndQuantities = [...salesByItem.values()]
         .map(item => `${item.name}: ${formatDisplayQuantity(formatQuantity(item.quantity, item.unit))}`)
         .join("\n") || "—";
+      const rowExpenses = getExpensesForDateKeys(row.dateKeys)
+        .reduce((total, expense) => total + (Number(expense.amount) || 0), 0);
+      const netRevenue = analyticsItemFilter.value ? null : row.revenue - rowExpenses;
 
       return [
         row.label,
         formatNumber(row.revenue),
         formatNumber(row.profit),
+        `KES ${formatNumber(rowExpenses)}`,
+        netRevenue === null ? "—" : formatNumber(netRevenue),
         formatNumber(row.quantity),
         productsAndQuantities
       ];
     }),
-    [50, 37, 37, 35, pageWidth - margin * 2 - 159]
+    [36, 30, 30, 30, 30, 25, pageWidth - margin * 2 - 181]
   );
 
   const { start: stockStart, end: stockEnd } = getAnalyticsDateRange(period, selectedDate);
@@ -831,6 +957,29 @@ function exportAnalyticsPdf() {
       ? stockAdditionRows
       : [["No stock additions for this period", "", "", ""]],
     [30, 35, 75, pageWidth - margin * 2 - 140]
+  );
+
+  const expenseRows = getExpensesForDateRange(stockStart, stockEnd)
+    .sort((left, right) => expenseDateKey(left).localeCompare(expenseDateKey(right)))
+    .map(expense => {
+      const expenseDate = expenseDateKey(expense);
+      return [
+        expenseDate,
+        new Date(`${expenseDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long" }),
+        expense.type || "Expense",
+        expense.description || "",
+        expense.vendor || "—",
+        `KES ${formatNumber(expense.amount)}`,
+        expense.notes || "—"
+      ];
+    });
+  drawSectionTitle("Expenses and purchases");
+  drawTable(
+    ["Date", "Day", "Type", "Description", "Paid to / Supplier", "Amount", "Notes"],
+    expenseRows.length
+      ? expenseRows
+      : [["No expenses or purchases for this period", "", "", "", "", "", ""]],
+    [25, 29, 23, 49, 43, 28, pageWidth - margin * 2 - 197]
   );
 
   if (!petrolAnalyticsPreview.hidden) {
@@ -977,15 +1126,17 @@ function updateAnalyticsUI() {
   const selectedDate = analyticsDateFilter.value;
   if (!selectedDate) return;
 
-  const analyticsError = analyticsItemFilter.value
+  const analyticsError = expensesError || (analyticsItemFilter.value
     ? analyticsItemSalesError
-    : analyticsAllSalesError || analyticsItemsError;
+    : analyticsAllSalesError || analyticsItemsError);
   if (analyticsError) {
     analyticsSalesTotalEl.textContent = "—";
-    analyticsProfitTotalEl.textContent = "—";
+    analyticsGrossProfitTotalEl.textContent = "—";
+    analyticsNetRevenueTotalEl.textContent = "—";
+    analyticsExpenseTotalEl.textContent = "—";
     analyticsQuantityTotalEl.textContent = "—";
     currentAnalyticsRows = [];
-    analyticsBreakdownTable.innerHTML = `<tr><td colspan="4">${escapeQuantity(analyticsError)}</td></tr>`;
+    analyticsBreakdownTable.innerHTML = `<tr><td colspan="6">${escapeQuantity(analyticsError)}</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -1002,15 +1153,29 @@ function updateAnalyticsUI() {
     profit: result.profit + row.profit,
     quantity: result.quantity + row.quantity
   }), { revenue: 0, profit: 0, quantity: 0 });
+  const periodExpenses = getExpensesForDateKeys(rows.flatMap(row => row.dateKeys));
+  const expenseTotal = periodExpenses.reduce((total, expense) =>
+    total + (Number(expense.amount) || 0), 0);
+  const hasBusinessWideView = !analyticsItemFilter.value;
 
   analyticsSalesTotalEl.textContent = formatNumber(totals.revenue);
-  analyticsProfitTotalEl.textContent = formatNumber(totals.profit);
+  analyticsGrossProfitTotalEl.textContent = formatNumber(totals.profit);
+  analyticsNetRevenueTotalEl.textContent = hasBusinessWideView
+    ? formatNumber(totals.revenue - expenseTotal)
+    : "—";
+  analyticsExpenseTotalEl.textContent = formatNumber(expenseTotal);
   analyticsQuantityTotalEl.textContent = formatNumber(totals.quantity);
   analyticsBreakdownTable.innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
       <td>${formatNumber(row.revenue)}</td>
       <td>${formatNumber(row.profit)}</td>
+      <td>${formatNumber(getExpensesForDateKeys(row.dateKeys)
+        .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))}</td>
+      <td>${hasBusinessWideView
+        ? formatNumber(row.revenue - getExpensesForDateKeys(row.dateKeys)
+          .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))
+        : "—"}</td>
       <td>${formatNumber(row.quantity)}</td>
     </tr>
   `).join("");
@@ -1035,11 +1200,13 @@ function renderOverview() {
   const periodLabel = `Last ${days} days`;
   overviewRangeLabel.textContent = periodLabel;
 
-  const overviewError = analyticsAllSalesError || analyticsItemsError;
+  const overviewError = analyticsAllSalesError || analyticsItemsError || expensesError;
   if (overviewError) {
     const errorMessage = escapeQuantity(overviewError);
     overviewRevenueEl.textContent = "—";
-    overviewProfitEl.textContent = "—";
+    overviewGrossProfitEl.textContent = "—";
+    overviewNetRevenueEl.textContent = "—";
+    overviewExpenseTotalEl.textContent = "—";
     overviewQuantityEl.textContent = "—";
     overviewSalesChart.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewTopItems.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
@@ -1049,6 +1216,7 @@ function renderOverview() {
     overviewPetrolClosingDip.textContent = "—";
     overviewLowStockEl.textContent = String(countLowStockItems());
     renderOverviewStockAdditions(start, end);
+    renderOverviewExpenses(getExpensesForDateRange(start, end));
     return;
   }
 
@@ -1068,15 +1236,21 @@ function renderOverview() {
     revenue: result.revenue + (Number(sale.revenue) || 0),
     profit: result.profit + (Number(sale.profit) || 0)
   }), { revenue: 0, profit: 0 });
+  const periodExpenses = getExpensesForDateRange(start, end);
+  const expenseTotal = periodExpenses.reduce((total, expense) =>
+    total + (Number(expense.amount) || 0), 0);
 
   overviewRevenueEl.textContent = `KES ${formatNumber(totals.revenue)}`;
-  overviewProfitEl.textContent = `KES ${formatNumber(totals.profit)}`;
+  overviewGrossProfitEl.textContent = `KES ${formatNumber(totals.profit)}`;
+  overviewNetRevenueEl.textContent = `KES ${formatNumber(totals.revenue - expenseTotal)}`;
+  overviewExpenseTotalEl.textContent = `KES ${formatNumber(expenseTotal)}`;
   overviewQuantityEl.textContent = formatOverviewQuantities(includedSales);
   overviewLowStockEl.textContent = String(countLowStockItems());
   renderOverviewSalesChart(start, days, includedSales);
   renderOverviewTopItems(includedSales);
   renderOverviewRecentSales(includedSales);
   renderOverviewStockAdditions(start, end);
+  renderOverviewExpenses(periodExpenses);
   renderOverviewPetrol(petrolSales);
 }
 
@@ -1101,6 +1275,42 @@ function formatStockAdditionQuantity(addition) {
     return `${formatNumber(quantity)} ${crateLabel} (${formatNumber(piecesAdded)} PIECES)`;
   }
   return formatDisplayQuantity(formatQuantity(quantity, unit));
+}
+
+function expenseDateKey(expense) {
+  return expense.date || dateKey(new Date(expense.createdAt));
+}
+
+function getExpensesForDateKeys(dateKeys) {
+  const dateSet = new Set(dateKeys);
+  return expensesForAnalytics.filter(expense => dateSet.has(expenseDateKey(expense)));
+}
+
+function getExpensesForDateRange(start, end) {
+  return expensesForAnalytics.filter(expense => {
+    const date = new Date(`${expenseDateKey(expense)}T00:00:00`);
+    return Number.isFinite(date.getTime()) && date >= start && date < end;
+  });
+}
+
+function renderOverviewExpenses(expenses) {
+  if (!overviewExpenses) return;
+  if (expensesError) {
+    overviewExpenses.innerHTML =
+      `<tr><td colspan="4" class="overview-empty-state">${escapeQuantity(expensesError)}</td></tr>`;
+    return;
+  }
+  const recentExpenses = [...expenses]
+    .sort((left, right) => expenseDateKey(right).localeCompare(expenseDateKey(left)))
+    .slice(0, 5);
+  overviewExpenses.innerHTML = recentExpenses.length
+    ? recentExpenses.map(expense => `<tr>
+        <td>${escapeQuantity(new Date(`${expenseDateKey(expense)}T00:00:00`).toLocaleDateString())}</td>
+        <td>${escapeQuantity(expense.type || "Expense")}</td>
+        <td>${escapeQuantity(expense.description || "")}</td>
+        <td>KES ${formatNumber(expense.amount)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="overview-empty-state">No expenses or purchases in this period.</td></tr>`;
 }
 
 function renderAnalyticsStockAdditions() {
