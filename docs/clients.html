@@ -271,8 +271,9 @@
           <label for="overviewPeriodFilter">
             Show
             <select id="overviewPeriodFilter">
+              <option value="today" selected>Today</option>
               <option value="7">Last 7 days</option>
-              <option value="30" selected>Last 30 days</option>
+              <option value="30">Last 30 days</option>
               <option value="90">Last 90 days</option>
             </select>
           </label>
@@ -281,7 +282,7 @@
       <div class="overview-stat-grid">
         <article class="overview-stat-card overview-revenue-card">
           <span>Gross sales revenue</span><strong id="overviewRevenue">KES 0</strong>
-          <small id="overviewRangeLabel">Last 30 days</small>
+          <small id="overviewRangeLabel">Today</small>
         </article>
         <article class="overview-stat-card">
           <span>Gross sales profit</span><strong id="overviewGrossProfit">KES 0</strong>
@@ -509,7 +510,13 @@
         <label for="expenseDescription">Description
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>
-        <label for="expenseVendor">Paid to / Supplier
+        <label for="expensePaidToSupplier">Paid to supplier?
+          <select id="expensePaidToSupplier" required>
+            <option value="No" selected>No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </label>
+        <label for="expenseVendor">Supplier name
           <input type="text" id="expenseVendor" maxlength="100" placeholder="Optional" />
         </label>
         <label for="expenseAmount">Amount (KES)
@@ -525,7 +532,7 @@
       </form>
       <p id="expenseFormMessage" role="status" aria-live="polite"></p>
       <table class="compact-data-table">
-        <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Paid to / Supplier</th><th>Amount (KES)</th><th>Notes</th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Paid to supplier?</th><th>Supplier</th><th>Amount (KES)</th><th>Notes</th></tr></thead>
         <tbody id="expensesTable"></tbody>
       </table>
     </div>

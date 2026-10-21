@@ -89,6 +89,7 @@ const expenseForm = document.getElementById("expenseForm");
 const expenseDateInput = document.getElementById("expenseDate");
 const expenseTypeInput = document.getElementById("expenseType");
 const expenseDescriptionInput = document.getElementById("expenseDescription");
+const expensePaidToSupplierInput = document.getElementById("expensePaidToSupplier");
 const expenseVendorInput = document.getElementById("expenseVendor");
 const expenseAmountInput = document.getElementById("expenseAmount");
 const expenseNotesInput = document.getElementById("expenseNotes");
@@ -348,6 +349,7 @@ async function handleExpenseFormSubmit(event) {
       date,
       type: expenseTypeInput.value,
       description: expenseDescriptionInput.value.trim(),
+      paidToSupplier: expensePaidToSupplierInput.value,
       vendor: expenseVendorInput.value.trim(),
       amount,
       notes: expenseNotesInput.value.trim(),
@@ -367,7 +369,7 @@ async function handleExpenseFormSubmit(event) {
 
 function renderExpensesTable() {
   if (expensesError) {
-    expensesTable.innerHTML = `<tr><td colspan="6">${escapeQuantity(expensesError)}</td></tr>`;
+    expensesTable.innerHTML = `<tr><td colspan="7">${escapeQuantity(expensesError)}</td></tr>`;
     return;
   }
   const sortedExpenses = [...expensesForAnalytics].sort((left, right) =>
@@ -380,12 +382,13 @@ function renderExpensesTable() {
         <td>${escapeQuantity(date)}</td>
         <td>${escapeQuantity(expense.type || "Expense")}</td>
         <td>${escapeQuantity(expense.description || "")}</td>
+        <td>${escapeQuantity(expense.paidToSupplier || "—")}</td>
         <td>${escapeQuantity(expense.vendor || "—")}</td>
         <td>${formatNumber(expense.amount)}</td>
         <td>${escapeQuantity(expense.notes || "—")}</td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="6" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
+    : `<tr><td colspan="7" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
 }
 
 function addAnalyticsItemOptions(items) {
@@ -968,6 +971,7 @@ function exportAnalyticsPdf() {
         new Date(`${expenseDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long" }),
         expense.type || "Expense",
         expense.description || "",
+        expense.paidToSupplier || "—",
         expense.vendor || "—",
         `KES ${formatNumber(expense.amount)}`,
         expense.notes || "—"
@@ -975,10 +979,10 @@ function exportAnalyticsPdf() {
     });
   drawSectionTitle("Expenses and purchases");
   drawTable(
-    ["Date", "Day", "Type", "Description", "Paid to / Supplier", "Amount", "Notes"],
+    ["Date", "Day", "Type", "Description", "Paid to supplier?", "Supplier", "Amount", "Notes"],
     expenseRows.length
       ? expenseRows
-      : [["No expenses or purchases for this period", "", "", "", "", "", ""]],
+      : [["No expenses or purchases for this period", "", "", "", "", "", "", ""]],
     [25, 29, 23, 49, 43, 28, pageWidth - margin * 2 - 197]
   );
 
@@ -1190,14 +1194,15 @@ function updateAnalyticsUI() {
 function renderOverview() {
   if (!overviewPeriodFilter) return;
 
-  const days = Number(overviewPeriodFilter.value) || 30;
+  const isToday = overviewPeriodFilter.value === "today";
+  const days = isToday ? 1 : Number(overviewPeriodFilter.value) || 30;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const end = new Date(today);
   end.setDate(today.getDate() + 1);
   const start = new Date(today);
   start.setDate(today.getDate() - days + 1);
-  const periodLabel = `Last ${days} days`;
+  const periodLabel = isToday ? "Today" : `Last ${days} days`;
   overviewRangeLabel.textContent = periodLabel;
 
   const overviewError = analyticsAllSalesError || analyticsItemsError || expensesError;
