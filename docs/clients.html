@@ -296,7 +296,7 @@
       <div class="section-divider">
         <div class="sales-section-heading">
           <h2>Sales</h2>
-          <label for="salesDateFilter">Sales date</label>
+          <label for="salesDateFilter">Record sales for</label>
           <input type="date" id="salesDateFilter" required />
         </div>
       </div>
@@ -306,7 +306,17 @@
           <div id="saleSearchResults" class="search-results-dropdown" style="display: none;"></div>
         </div>
         <input type="number" id="salePrice" placeholder="Price Sold" required />
-        <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
+        <div class="sale-quantity-field">
+          <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
+          <small id="saleCrateStockStatus" class="sale-crate-stock-status" hidden></small>
+        </div>
+        <label id="saleQuantityUnitField" class="sale-quantity-unit-field" hidden>
+          Sell as
+          <select id="saleQuantityUnit">
+            <option id="saleCrateOption" value="crate">Crate (24 pieces)</option>
+            <option value="piece">Piece</option>
+          </select>
+        </label>
         <fieldset id="petrolDipFields" class="petrol-dip-fields" hidden>
           <legend>Petrol Dip Record (Liters)</legend>
           <p class="petrol-dip-formula">Total Available = Opening Dip + Fuel Received. Expected Closing = Total Available - Pump Sales. Variance = Actual Closing - Expected Closing.</p>
@@ -422,14 +432,47 @@
     <!-- INVENTORY SECTION -->
     <div id="inventorySection" class="tab-content">
       <div class="section-divider"><h2>Inventory Management</h2></div>
-      <div style="margin-bottom: 20px;">
+      <div class="inventory-stock-tools">
         <button id="openStockHealthModalBtn" class="action-btn" style="background: #047857;">Open Stock Health</button>
+        <label for="crateTypeSelect">
+          Choose crate
+          <select id="crateTypeSelect">
+            <option value="">Choose crate type...</option>
+            <option value="soda-300ml">Soda 300ml (24 pieces)</option>
+            <option value="soda-500ml">Soda 500ml (24 pieces)</option>
+            <option value="predator">Predator (12 pieces)</option>
+            <option value="afia">Afia (12 pieces)</option>
+            <option value="steam">Steam (12 pieces)</option>
+            <option value="brava">Brava (12 pieces)</option>
+            <option value="minute-maid">Minute Maid (12 pieces)</option>
+            <option value="soda-1l">Soda 1L (12 pieces)</option>
+            <option value="soda-2l">Soda 2L (6 pieces)</option>
+            <option value="yoghurt-500ml">Yoghurt 500ml (10 pieces)</option>
+            <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
+          </select>
+        </label>
       </div>
       <form id="itemForm">
         <input type="text" id="itemName" placeholder="Item Name" required />
         <input type="number" id="incomingPrice" placeholder="Buying Price" required />
         <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
         <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
+        <label id="crateLoosePiecesField" class="inventory-crate-field" hidden>
+          Loose pieces in stock
+          <input type="number" id="crateLoosePieces" min="0" step="1" value="0" />
+        </label>
+        <label id="piecesPerCrateField" class="inventory-crate-field" hidden>
+          Pieces per crate
+          <input type="number" id="piecesPerCrate" min="1" step="1" value="24" required />
+        </label>
+        <label id="buyingCostPerPieceField" class="inventory-crate-field" hidden>
+          Buying cost per piece (calculated)
+          <output id="buyingCostPerPiece">Enter crate buying price</output>
+        </label>
+        <label id="pieceSellingPriceField" class="inventory-crate-field" hidden>
+          Selling price per piece
+          <input type="number" id="pieceSellingPrice" min="0" step="0.01" />
+        </label>
         <label class="analytics-inclusion-option">
           <input type="checkbox" id="includeInAllAnalytics" checked />
           Include in All Items analytics (petrol is excluded by default)

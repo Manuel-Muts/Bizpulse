@@ -20,6 +20,51 @@ export function isPetrolName(name) {
   return /\bpetrol\b/i.test(name || "");
 }
 
+export const PIECES_PER_CRATE = 24;
+
+export function isCrateItem(name) {
+  return /\bcrates?\b/i.test(name || "");
+}
+
+export function getPiecesPerCrate(item) {
+  const piecesPerCrate = Number(item.piecesPerCrate);
+  return Number.isInteger(piecesPerCrate) && piecesPerCrate > 0
+    ? piecesPerCrate
+    : PIECES_PER_CRATE;
+}
+
+export function getCrateStockPieces(item) {
+  const crates = parseQuantity(item.quantity)?.amount ?? 0;
+  const loosePieces = Number(item.loosePieces) || 0;
+  return crates * getPiecesPerCrate(item) + loosePieces;
+}
+
+export function adjustCrateStock(item, pieceAdjustment) {
+  const totalPieces = getCrateStockPieces(item) + pieceAdjustment;
+  if (totalPieces < 0 || !Number.isInteger(totalPieces)) {
+    throw new Error("Crate stock must remain a non-negative whole number of pieces.");
+  }
+  const piecesPerCrate = getPiecesPerCrate(item);
+  const crates = Math.floor(totalPieces / piecesPerCrate);
+  return {
+    quantity: formatQuantity(crates, "CRATES"),
+    loosePieces: totalPieces % piecesPerCrate
+  };
+}
+
+export function formatCrateStock(item) {
+  const crates = parseQuantity(item.quantity)?.amount ?? 0;
+  const loosePieces = Number(item.loosePieces) || 0;
+  const parts = [];
+  if (crates > 0 || loosePieces === 0) {
+    parts.push(`${formatNumber(crates)} ${crates === 1 ? "CRATE" : "CRATES"}`);
+  }
+  if (loosePieces > 0) {
+    parts.push(`${formatNumber(loosePieces)} ${loosePieces === 1 ? "PIECE" : "PIECES"}`);
+  }
+  return parts.join(" + ");
+}
+
 export function isLiterUnit(unit) {
   return ["l", "liter", "liters", "litre", "litres"].includes(String(unit).trim().toLowerCase());
 }

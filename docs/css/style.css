@@ -757,6 +757,32 @@ button.loading .btn-text {
   text-align: center;
 }
 
+.inventory-stock-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.inventory-stock-tools > label {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inventory-stock-tools select {
+  min-height: 40px;
+  min-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+}
+
 .analytics-section-heading {
   display: flex;
   align-items: center;
@@ -1116,6 +1142,59 @@ form input, form button {
   padding: 12px;
   border-radius: 6px;
   border: 1px solid #d1d5db;
+}
+
+.inventory-crate-field,
+.sale-quantity-unit-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sale-quantity-field {
+  min-width: 0;
+}
+
+.sale-crate-stock-status {
+  display: block;
+  margin-top: 6px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sale-crate-stock-status[hidden] {
+  display: none;
+}
+
+.inventory-crate-field[hidden],
+.sale-quantity-unit-field[hidden] {
+  display: none;
+}
+
+.inventory-crate-field input,
+.sale-quantity-unit-field select {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+}
+
+.inventory-crate-field output {
+  display: block;
+  min-height: 42px;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 500;
 }
 
 form input:focus {
@@ -1725,6 +1804,17 @@ table tr:hover {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .inventory-stock-tools {
+    align-items: stretch;
+  }
+
+  .inventory-stock-tools > button,
+  .inventory-stock-tools > label,
+  .inventory-stock-tools select {
+    width: 100%;
+    min-width: 0;
   }
 
   .inventory-controls #searchInput {

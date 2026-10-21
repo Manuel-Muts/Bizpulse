@@ -15,13 +15,18 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import {
+  adjustCrateStock,
   adjustQuantity,
   appendQuantityUnit,
   calculatePetrolDip,
   escapeQuantity,
+  formatCrateStock,
   formatDisplayQuantity,
   formatNumber,
   formatQuantity,
+  getCrateStockPieces,
+  getPiecesPerCrate,
+  isCrateItem,
   isLiterUnit,
   isPetrolName,
   parseQuantity,
@@ -34,6 +39,10 @@ const saleItemSearch = document.getElementById("saleItemSearch");
 const saleSearchResults = document.getElementById("saleSearchResults");
 const salePriceInput = document.getElementById("salePrice");
 const saleQuantityInput = document.getElementById("saleQuantity");
+const saleCrateStockStatus = document.getElementById("saleCrateStockStatus");
+const saleQuantityUnitField = document.getElementById("saleQuantityUnitField");
+const saleQuantityUnit = document.getElementById("saleQuantityUnit");
+const saleCrateOption = document.getElementById("saleCrateOption");
 const recordSaleBtn = document.getElementById("recordSaleBtn");
 const salesTableBody = document.getElementById("salesTable"); // Renamed to avoid conflict with global sales array
 const salesDateFilter = document.getElementById("salesDateFilter");
@@ -80,6 +89,7 @@ let salesSummaryRef = null;
 let clientBusinessName; // The business name of the logged-in client
 let selectedItemId = null;
 let editSaleId = null;
+let editingOriginalSale = null;
 let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
 let analyticsUnsubscribe = null;
@@ -129,9 +139,26 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   // Attach search listener
   saleItemSearch.addEventListener("input", handleItemSearch);
   saleQuantityInput.addEventListener("input", () => {
-    appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(itemsArray.find(item => item.id === selectedItemId)));
+    const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+    if (isCrateItem(selectedItem?.name)) {
+      appendQuantityUnit(
+        saleQuantityInput,
+        saleQuantityUnit.value === "crate" ? "CRATES" : "PIECES",
+        true
+      );
+    } else {
+      appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(selectedItem));
+    }
     uppercaseInput(saleQuantityInput);
+    updateCrateSaleStockPreview();
     updatePetrolSalePreview();
+  });
+  saleQuantityUnit.addEventListener("change", () => {
+    syncSaleQuantityUnit(selectedItemId
+      ? itemsArray.find(item => item.id === selectedItemId)
+      : null);
+    updateCrateSaleStockPreview();
+    updateSaleUnitPrice();
   });
   [petrolOpeningDipInput, petrolFuelReceivedInput, petrolActualClosingInput].forEach(input => {
     input.addEventListener("input", () => {
@@ -145,11 +172,16 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
 
   const today = dateKey(new Date());
   salesDateFilter.value = today;
+  salesDateFilter.max = today;
   salesDateFilter.addEventListener("change", () => {
     if (!salesDateFilter.value) return;
     firstSalesDoc = null;
     lastSalesDoc = null;
     loadSales(authInstance.currentUser.uid);
+    const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+    if (!editSaleId && isPetrolItem(selectedItem)) {
+      prefillPetrolDipFromPreviousDay(selectedItem, false);
+    }
   });
   analyticsDateFilter.value = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
@@ -269,6 +301,7 @@ function handleAnalyticsItemChange() {
 function handleItemSearch() {
   const term = saleItemSearch.value.toLowerCase().trim();
   selectedItemId = null;
+  setSaleQuantityUnit(null);
   setPetrolDipFieldsVisible(false);
 
   if (!term) {
@@ -277,7 +310,8 @@ function handleItemSearch() {
   }
 
   const matches = itemsArray.filter(i =>
-    i.name.toLowerCase().includes(term) && (parseQuantity(i.quantity)?.amount ?? 0) > 0);
+    i.name.toLowerCase().includes(term) &&
+    (isCrateItem(i.name) ? getCrateStockPieces(i) : (parseQuantity(i.quantity)?.amount ?? 0)) > 0);
 
   if (matches.length === 0) {
     saleSearchResults.style.display = "none";
@@ -287,7 +321,16 @@ function handleItemSearch() {
   saleSearchResults.innerHTML = matches.map(item => `
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
-      <small>Price: KES ${formatNumber(item.outgoing)} | Stock: ${escapeQuantity(formatDisplayQuantity(item.quantity))}</small>
+      <small>${isCrateItem(item.name)
+        ? `Price: KES ${formatNumber(item.outgoing)} / crate | KES ${
+          item.pieceSellingPrice === null || item.pieceSellingPrice === undefined
+            ? "Not set"
+            : formatNumber(item.pieceSellingPrice)
+        } / piece`
+        : `Price: KES ${formatNumber(item.outgoing)}`
+      } | Stock: ${escapeQuantity(
+        isCrateItem(item.name) ? formatCrateStock(item) : formatDisplayQuantity(item.quantity)
+      )}</small>
     </div>
   `).join("");
   saleSearchResults.style.display = "block";
@@ -301,6 +344,8 @@ window.selectSaleItem = (id, name) => {
   saleItemSearch.value = name;
   saleSearchResults.style.display = "none";
   const selectedItem = itemsArray.find(item => item.id === id);
+  setSaleQuantityUnit(selectedItem);
+  updateCrateSaleStockPreview();
   setPetrolDipFieldsVisible(isPetrolItem(selectedItem));
   if (isPetrolItem(selectedItem)) {
     prefillPetrolDipFromPreviousDay(selectedItem);
@@ -311,15 +356,17 @@ window.selectSaleItem = (id, name) => {
   saleQuantityInput.focus();
 }
 
-async function prefillPetrolDipFromPreviousDay(item) {
+async function prefillPetrolDipFromPreviousDay(item, resetEntries = true) {
   const requestId = ++petrolDipPrefillRequest;
   const inputRevision = petrolDipInputRevision;
   const itemId = item.id;
-  const currentDateKey = dateKey(new Date());
+  const selectedDateKey = salesDateFilter.value;
 
   petrolOpeningDipInput.value = "";
-  petrolFuelReceivedInput.value = "0 L";
-  petrolActualClosingInput.value = "";
+  if (resetEntries) {
+    petrolFuelReceivedInput.value = "0 L";
+    petrolActualClosingInput.value = "";
+  }
   updatePetrolSalePreview();
 
   try {
@@ -341,7 +388,7 @@ async function prefillPetrolDipFromPreviousDay(item) {
         const closingDip = sale.petrolDip?.actualClosingDipLiters;
         if (closingDip === null || closingDip === undefined) return false;
         const saleTimestamp = new Date(sale.createdAt);
-        return Number.isFinite(saleTimestamp.getTime()) && dateKey(saleTimestamp) < currentDateKey;
+        return Number.isFinite(saleTimestamp.getTime()) && dateKey(saleTimestamp) < selectedDateKey;
       })
       .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
     const previousClosingDip = priorDipSales[0]?.petrolDip.actualClosingDipLiters;
@@ -360,6 +407,112 @@ async function prefillPetrolDipFromPreviousDay(item) {
 
 function isPetrolItem(item) {
   return isPetrolName(item?.name);
+}
+
+function setSaleQuantityUnit(item) {
+  const crateItem = isCrateItem(item?.name);
+  saleQuantityUnitField.hidden = !crateItem;
+  saleCrateStockStatus.hidden = !crateItem;
+  saleQuantityInput.placeholder = crateItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
+  salePriceInput.placeholder = crateItem ? "Selling price per crate" : "Price Sold";
+  saleQuantityUnit.value = "crate";
+  const piecesPerCrate = crateItem ? getPiecesPerCrate(item) : 24;
+  saleCrateOption.textContent = `Crate (${formatNumber(piecesPerCrate)} pieces)`;
+  syncSaleQuantityUnit(item);
+  updateCrateSaleStockPreview();
+}
+
+function updateCrateSaleStockPreview() {
+  const item = itemsArray.find(candidate => candidate.id === selectedItemId);
+  if (!isCrateItem(item?.name)) {
+    saleCrateStockStatus.hidden = true;
+    saleCrateStockStatus.textContent = "";
+    return;
+  }
+
+  saleCrateStockStatus.hidden = false;
+  const piecesPerCrate = getPiecesPerCrate(item);
+  let availablePieces = getCrateStockPieces(item);
+  if (editSaleId && editingOriginalSale?.itemId === selectedItemId) {
+    availablePieces += getCrateSaleStockUnits(editingOriginalSale, item);
+  }
+
+  const formatStock = pieces => {
+    const crates = Math.floor(pieces / piecesPerCrate);
+    const loosePieces = pieces % piecesPerCrate;
+    const stock = formatCrateStock({
+      quantity: formatQuantity(crates, "CRATES"),
+      loosePieces,
+      piecesPerCrate
+    });
+    return `${stock} (${formatNumber(pieces)} ${pieces === 1 ? "PIECE" : "PIECES"})`;
+  };
+
+  const lines = [`Available: ${formatStock(availablePieces)}`];
+  const saleQuantity = parseQuantity(saleQuantityInput.value);
+  if (saleQuantity && Number.isInteger(saleQuantity.amount) && saleQuantity.amount > 0) {
+    const piecesToSell = saleQuantity.amount *
+      (saleQuantityUnit.value === "crate" ? piecesPerCrate : 1);
+    if (piecesToSell <= availablePieces) {
+      lines.push(`After sale: ${formatStock(availablePieces - piecesToSell)}`);
+    } else {
+      lines.push("Not enough stock for this quantity.");
+    }
+  }
+  saleCrateStockStatus.textContent = lines.join(" | ");
+}
+
+function syncSaleQuantityUnit(item) {
+  const quantity = parseQuantity(saleQuantityInput.value);
+  if (!quantity) return;
+
+  if (isCrateItem(item?.name)) {
+    if (!quantity.unit || /^(crates?|pieces?)$/i.test(quantity.unit)) {
+      const unit = saleQuantityUnit.value === "crate" ? "CRATES" : "PIECES";
+      saleQuantityInput.value = formatQuantity(quantity.amount, unit);
+    }
+    return;
+  }
+
+  if (/^(crates?|pieces?)$/i.test(quantity.unit)) {
+    saleQuantityInput.value = String(quantity.amount);
+  }
+  appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(item));
+  saleCrateStockStatus.hidden = true;
+}
+
+function updateSaleUnitPrice() {
+  const item = itemsArray.find(candidate => candidate.id === selectedItemId);
+  if (!isCrateItem(item?.name)) return;
+  salePriceInput.placeholder = saleQuantityUnit.value === "piece"
+    ? "Selling price per piece"
+    : "Selling price per crate";
+  salePriceInput.value = saleQuantityUnit.value === "piece"
+    ? Number(item.pieceSellingPrice) || ""
+    : item.outgoing;
+}
+
+function getCrateSaleStockUnits(sale, item) {
+  const quantity = Number(sale.quantity) || 0;
+  const unit = String(sale.quantityUnit || "").toLowerCase();
+  return isCrateItem(item?.name)
+    ? quantity * (!unit || unit.startsWith("crate")
+      ? Number(sale.piecesPerCrate) || getPiecesPerCrate(item)
+      : 1)
+    : quantity;
+}
+
+function getItemStockUnits(item) {
+  return isCrateItem(item.name)
+    ? getCrateStockPieces(item)
+    : parseQuantity(item.quantity)?.amount ?? 0;
+}
+
+function getItemStockUpdate(item, unitAdjustment) {
+  if (isCrateItem(item.name)) {
+    return adjustCrateStock(item, unitAdjustment);
+  }
+  return { quantity: adjustQuantity(item.quantity, unitAdjustment) };
 }
 
 function setPetrolDipFieldsVisible(visible) {
@@ -681,13 +834,14 @@ export function loadSales(uid, direction = 'initial') {
   let q;
   const selectedDate = salesDateFilter.value;
   if (!selectedDate) return Promise.resolve();
-  const nextDay = new Date(`${selectedDate}T00:00:00`);
-  nextDay.setDate(nextDay.getDate() + 1);
+  const startDate = new Date(`${selectedDate}T00:00:00`);
+  const nextDay = new Date(startDate);
+  nextDay.setDate(startDate.getDate() + 1);
   const baseQuery = query(
     salesRef,
     where("uid", "==", uid),
-    where("createdAt", ">=", `${selectedDate}T00:00:00.000`),
-    where("createdAt", "<", `${dateKey(nextDay)}T00:00:00.000`),
+    where("createdAt", ">=", startDate.toISOString()),
+    where("createdAt", "<", nextDay.toISOString()),
     orderBy("createdAt", "desc")
   );
 
@@ -1157,6 +1311,14 @@ function renderSalesTable() {
 async function handleSaleFormSubmit(e) {
   window.showLoadingIndicator(true); // Show loading indicator
   e.preventDefault();
+  const selectedSaleDate = salesDateFilter.value;
+  const selectedSaleDateStart = new Date(`${selectedSaleDate}T00:00:00`);
+  if (!selectedSaleDate || !Number.isFinite(selectedSaleDateStart.getTime()) ||
+      selectedSaleDate > dateKey(new Date())) {
+    alert("Choose today or an earlier date for this sale.");
+    window.showLoadingIndicator(false);
+    return;
+  }
   const unitPriceSold = Number(salePriceInput.value);
   const saleQuantity = parseQuantity(saleQuantityInput.value);
   const item = itemsArray.find(i => i.id === selectedItemId);
@@ -1176,7 +1338,27 @@ async function handleSaleFormSubmit(e) {
   const itemQuantity = parseQuantity(item.quantity);
   const itemUnit = itemQuantity?.unit || "";
   const petrolItem = isPetrolItem(item);
-  if (saleQuantity.unit && itemUnit &&
+  const crateItem = isCrateItem(item.name);
+  const saleUnit = crateItem ? saleQuantityUnit.value : "";
+  if (crateItem && !Number.isInteger(saleQuantity.amount)) {
+    alert("Crates and pieces must be sold as whole numbers.");
+    window.showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && saleQuantity.unit &&
+      !new RegExp(`^${saleUnit}s?$`, "i").test(saleQuantity.unit)) {
+    alert(`Select ${saleUnit} in the Sell as menu or remove the unit from the quantity.`);
+    window.showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && saleUnit === "piece" &&
+      (item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
+       item.pieceSellingPrice === "" || !Number.isFinite(Number(item.pieceSellingPrice)))) {
+    alert("Set this item's selling price per piece in Inventory before selling pieces.");
+    window.showLoadingIndicator(false);
+    return;
+  }
+  if (!crateItem && saleQuantity.unit && itemUnit &&
       saleQuantity.unit.toLowerCase() !== itemUnit.toLowerCase() &&
       !(petrolItem && isLiterUnit(saleQuantity.unit) && isLiterUnit(itemUnit))) {
     alert(`Sale unit must match the inventory unit (${itemUnit}).`);
@@ -1184,7 +1366,12 @@ async function handleSaleFormSubmit(e) {
     return;
   }
   const qtySold = saleQuantity.amount;
-  const quantityUnit = petrolItem ? "L" : (itemUnit || saleQuantity.unit);
+  const stockUnitsSold = crateItem
+    ? qtySold * (saleUnit === "crate" ? getPiecesPerCrate(item) : 1)
+    : qtySold;
+  const quantityUnit = crateItem
+    ? saleUnit === "crate" ? "CRATES" : "PIECES"
+    : petrolItem ? "L" : (itemUnit || saleQuantity.unit);
   let petrolDip = null;
   if (petrolItem) {
     const saleUnit = saleQuantity.unit || itemUnit;
@@ -1202,38 +1389,55 @@ async function handleSaleFormSubmit(e) {
   }
 
   // Stock check logic adjustment for Edit
-  let availableStock = parseQuantity(item.quantity)?.amount ?? 0;
+  let availableStock = getItemStockUnits(item);
   if (editSaleId) {
-    const originalSale = salesArray.find(s => s.id === editSaleId);
+    const originalSale = editingOriginalSale || salesArray.find(s => s.id === editSaleId);
     if (originalSale.itemId === selectedItemId) {
-      availableStock += originalSale.quantity;
+      availableStock += getCrateSaleStockUnits(originalSale, item);
     }
   }
 
-  if (qtySold > availableStock) {
+  if (stockUnitsSold > availableStock) {
     const availableUnit = petrolItem ? "L" : itemUnit;
-    const availableQuantity = formatDisplayQuantity(formatQuantity(availableStock, availableUnit));
+    const availableQuantity = crateItem
+      ? formatCrateStock({
+        quantity: formatQuantity(Math.floor(availableStock / getPiecesPerCrate(item)), "CRATES"),
+        loosePieces: availableStock % getPiecesPerCrate(item),
+        piecesPerCrate: getPiecesPerCrate(item)
+      })
+      : formatDisplayQuantity(formatQuantity(availableStock, availableUnit));
     alert(`Insufficient stock! | ${availableQuantity}`);
     window.showLoadingIndicator(false);
     return;
   }
 
   const revenue = unitPriceSold * qtySold;
-  const cost = item.incoming * qtySold;
+  const cost = crateItem
+    ? item.incoming * (stockUnitsSold / getPiecesPerCrate(item))
+    : item.incoming * qtySold;
   const profit = revenue - cost;
+  const saleDateTimestamp = new Date(selectedSaleDateStart);
+  const currentTime = new Date();
+  saleDateTimestamp.setHours(
+    currentTime.getHours(),
+    currentTime.getMinutes(),
+    currentTime.getSeconds(),
+    currentTime.getMilliseconds()
+  );
 
-  const isOutOfStock = (availableStock - qtySold === 0);
+  const isOutOfStock = availableStock - stockUnitsSold === 0;
   const saleData = {
     itemId: selectedItemId,
     itemName: item.name,
     unitPriceSold,
     quantity: qtySold,
     quantityUnit,
+    ...(crateItem ? { piecesPerCrate: getPiecesPerCrate(item) } : {}),
     ...(petrolDip ? { petrolDip } : {}),
     revenue,
     profit,
     uid: authInstance.currentUser.uid,
-    createdAt: new Date().toISOString()
+    createdAt: saleDateTimestamp.toISOString()
   };
 
   recordSaleBtn.disabled = true;
@@ -1245,39 +1449,58 @@ async function handleSaleFormSubmit(e) {
     const itemRef = doc(dbInstance, "items", selectedItemId);
 
     if (editSaleId) {
-      const originalSale = salesArray.find(s => s.id === editSaleId);
-      
-      // If item changed during edit
+      const originalSale = editingOriginalSale || salesArray.find(s => s.id === editSaleId);
+      const originalItem = itemsArray.find(candidate => candidate.id === originalSale.itemId);
+      const originalStockUnits = getCrateSaleStockUnits(
+        originalSale,
+        originalItem || { name: originalSale.itemName }
+      );
+
       if (originalSale.itemId !== selectedItemId) {
-        const originalItem = itemsArray.find(i => i.id === originalSale.itemId);
         if (originalItem) {
-          batch.update(doc(dbInstance, "items", originalSale.itemId), {
-            quantity: adjustQuantity(originalItem.quantity, originalSale.quantity)
-          });
+          batch.update(
+            doc(dbInstance, "items", originalSale.itemId),
+            getItemStockUpdate(originalItem, originalStockUnits)
+          );
         }
-        batch.update(itemRef, { quantity: adjustQuantity(item.quantity, -qtySold) });
+        batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
       } else {
-        batch.update(itemRef, {
-          quantity: adjustQuantity(item.quantity, originalSale.quantity - qtySold)
-        });
+        batch.update(itemRef, getItemStockUpdate(item, originalStockUnits - stockUnitsSold));
       }
       
       batch.update(doc(salesRef, editSaleId), saleData);
 
-      const originalDate = new Date(originalSale.createdAt).toLocaleDateString('en-CA');
+      const originalDate = dateKey(new Date(originalSale.createdAt));
       const originalMonth = originalDate.slice(0, 7);
       const deltaRevenue = revenue - originalSale.revenue;
       const deltaProfit = profit - originalSale.profit;
       const deltaCount = qtySold - originalSale.quantity;
+      const currentMonth = selectedSaleDate.slice(0, 7);
       const summaryUpdate = {
-        [`dailyTotals.${originalDate}.revenue`]: increment(deltaRevenue),
-        [`dailyTotals.${originalDate}.profit`]: increment(deltaProfit),
-        [`dailyTotals.${originalDate}.count`]: increment(deltaCount),
-        [`monthlyTotals.${originalMonth}.revenue`]: increment(deltaRevenue),
-        [`monthlyTotals.${originalMonth}.profit`]: increment(deltaProfit),
-        [`lifetime.revenue`]: increment(deltaRevenue),
-        [`lifetime.profit`]: increment(deltaProfit)
+        "lifetime.revenue": increment(deltaRevenue),
+        "lifetime.profit": increment(deltaProfit)
       };
+      if (originalDate === selectedSaleDate) {
+        summaryUpdate[`dailyTotals.${originalDate}.revenue`] = increment(deltaRevenue);
+        summaryUpdate[`dailyTotals.${originalDate}.profit`] = increment(deltaProfit);
+        summaryUpdate[`dailyTotals.${originalDate}.count`] = increment(deltaCount);
+      } else {
+        summaryUpdate[`dailyTotals.${originalDate}.revenue`] = increment(-originalSale.revenue);
+        summaryUpdate[`dailyTotals.${originalDate}.profit`] = increment(-originalSale.profit);
+        summaryUpdate[`dailyTotals.${originalDate}.count`] = increment(-originalSale.quantity);
+        summaryUpdate[`dailyTotals.${selectedSaleDate}.revenue`] = increment(revenue);
+        summaryUpdate[`dailyTotals.${selectedSaleDate}.profit`] = increment(profit);
+        summaryUpdate[`dailyTotals.${selectedSaleDate}.count`] = increment(qtySold);
+      }
+      if (originalMonth === currentMonth) {
+        summaryUpdate[`monthlyTotals.${originalMonth}.revenue`] = increment(deltaRevenue);
+        summaryUpdate[`monthlyTotals.${originalMonth}.profit`] = increment(deltaProfit);
+      } else {
+        summaryUpdate[`monthlyTotals.${originalMonth}.revenue`] = increment(-originalSale.revenue);
+        summaryUpdate[`monthlyTotals.${originalMonth}.profit`] = increment(-originalSale.profit);
+        summaryUpdate[`monthlyTotals.${currentMonth}.revenue`] = increment(revenue);
+        summaryUpdate[`monthlyTotals.${currentMonth}.profit`] = increment(profit);
+      }
       
       // Use update for surgical nested increments; set ensures doc existence
       // Correct Pattern: set ensures the doc exists, update ensures dot-notation creates Maps
@@ -1285,11 +1508,9 @@ async function handleSaleFormSubmit(e) {
       batch.update(salesSummaryRef, summaryUpdate);
     } else {
       batch.set(newSaleRef, saleData);
-      batch.update(itemRef, {
-        quantity: adjustQuantity(item.quantity, -qtySold)
-      });
+      batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
 
-      const currentDate = new Date().toLocaleDateString('en-CA');
+      const currentDate = selectedSaleDate;
       const currentMonth = currentDate.slice(0, 7);
       const summaryUpdate = {
         [`dailyTotals.${currentDate}.revenue`]: increment(revenue),
@@ -1311,7 +1532,7 @@ async function handleSaleFormSubmit(e) {
       const reorderData = {
         customerName: clientBusinessName, // Use the client's business name
         itemName: item.name,
-        quantity: isPetrolItem(item) ? "5 L" : 5,
+        quantity: isPetrolItem(item) ? "5 L" : crateItem ? "5 CRATES" : 5,
         notes: "Item quantity reached 0. <br>Quantity to be adjusted.",
         date: new Date().toISOString(),
         uid: authInstance.currentUser.uid,
@@ -1325,6 +1546,7 @@ async function handleSaleFormSubmit(e) {
 
     if (editSaleId) {
       editSaleId = null;
+      editingOriginalSale = null;
       if (recordSaleBtn.querySelector(".btn-text")) recordSaleBtn.querySelector(".btn-text").textContent = "Record Sale";
     }
 
@@ -1338,6 +1560,7 @@ async function handleSaleFormSubmit(e) {
 
     saleForm.reset();
     selectedItemId = null;
+    setSaleQuantityUnit(null);
     // Trigger a reload of items and sales in the main script
     window.dispatchEvent(new CustomEvent('saleRecorded', { detail: { uid: authInstance.currentUser.uid } }));
   } catch (err) {
@@ -1359,6 +1582,7 @@ window.editSale = (id) => {
   if (!sale) return;
 
   editSaleId = id;
+  editingOriginalSale = sale;
   selectedItemId = sale.itemId;
   
   // Populate form fields
@@ -1368,6 +1592,14 @@ window.editSale = (id) => {
     saleQuantityInput.value = formatQuantity(sale.quantity, sale.quantityUnit || "");
   }
   const item = itemsArray.find(candidate => candidate.id === sale.itemId);
+  setSaleQuantityUnit(item);
+  if (isCrateItem(item?.name)) {
+    saleQuantityUnit.value = String(sale.quantityUnit || "").toLowerCase().startsWith("crate")
+      ? "crate"
+      : "piece";
+  }
+  syncSaleQuantityUnit(item);
+  updateCrateSaleStockPreview();
   setPetrolDipFieldsVisible(isPetrolItem(item));
   if (sale.petrolDip) {
     petrolOpeningDipInput.value = `${sale.petrolDip.openingDipLiters} L`;

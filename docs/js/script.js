@@ -34,6 +34,10 @@ import {
   formatDisplayQuantity,
   formatNumber,
   isLiterUnit,
+  isCrateItem,
+  formatCrateStock,
+  getPiecesPerCrate,
+  PIECES_PER_CRATE,
   isPetrolName,
   parseQuantity,
   formatQuantity,
@@ -92,6 +96,15 @@ const itemName = document.getElementById("itemName");
 const incomingPrice = document.getElementById("incomingPrice");
 const outgoingPrice = document.getElementById("outgoingPrice");
 const quantityInput = document.getElementById("quantity");
+const crateLoosePiecesField = document.getElementById("crateLoosePiecesField");
+const crateLoosePiecesInput = document.getElementById("crateLoosePieces");
+const piecesPerCrateField = document.getElementById("piecesPerCrateField");
+const piecesPerCrateInput = document.getElementById("piecesPerCrate");
+const buyingCostPerPieceField = document.getElementById("buyingCostPerPieceField");
+const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
+const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
+const pieceSellingPriceInput = document.getElementById("pieceSellingPrice");
+const crateTypeSelect = document.getElementById("crateTypeSelect");
 const includeInAllAnalyticsInput = document.getElementById("includeInAllAnalytics");
 const saveItemBtn = document.getElementById("saveItemBtn");
 const table = document.getElementById("itemTable");
@@ -162,11 +175,41 @@ itemName.addEventListener("input", () => {
     includeInAllAnalyticsInput.checked = !isPetrolName(itemName.value);
   }
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
+  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
+  updateCrateInventoryFields();
+});
+crateTypeSelect.addEventListener("change", () => {
+  const crateTypes = {
+    "soda-300ml": { name: "SODA 300ML CRATE", piecesPerCrate: 24 },
+    "soda-500ml": { name: "SODA 500ML CRATE", piecesPerCrate: 24 },
+    predator: { name: "PREDATOR CRATE", piecesPerCrate: 12 },
+    afia: { name: "AFIA CRATE", piecesPerCrate: 12 },
+    steam: { name: "STEAM CRATE", piecesPerCrate: 12 },
+    brava: { name: "BRAVA CRATE", piecesPerCrate: 12 },
+    "minute-maid": { name: "MINUTE MAID CRATE", piecesPerCrate: 12 },
+    "soda-1l": { name: "SODA 1L CRATE", piecesPerCrate: 12 },
+    "soda-2l": { name: "SODA 2L CRATE", piecesPerCrate: 6 },
+    "yoghurt-500ml": { name: "YOGHURT 500ML CRATE", piecesPerCrate: 10 },
+    "yoghurt-250ml": { name: "YOGHURT 250ML CRATE", piecesPerCrate: 18 }
+  };
+  const crateType = crateTypes[crateTypeSelect.value];
+  if (!crateType) return;
+
+  itemName.value = crateType.name;
+  itemName.dispatchEvent(new Event("input", { bubbles: true }));
+  quantityInput.value = "0 CRATES";
+  crateLoosePiecesInput.value = "0";
+  piecesPerCrateInput.value = String(crateType.piecesPerCrate);
+  updateCrateInventoryFields();
+  crateLoosePiecesInput.max = String(crateType.piecesPerCrate - 1);
 });
 quantityInput.addEventListener("input", () => {
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
+  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
   uppercaseInput(quantityInput);
 });
+piecesPerCrateInput.addEventListener("input", () => updateCrateInventoryFields());
+incomingPrice.addEventListener("input", updateBuyingCostPerPiece);
 orderedItem.addEventListener("input", () => {
   uppercaseInput(orderedItem);
   appendQuantityUnit(orderedQuantity, "L", isPetrolName(orderedItem.value));
@@ -702,7 +745,67 @@ function calculateSingleItemProfit(item) {
 }
 
 function calculateProfit(item) {
+  if (isCrateItem(item.name)) {
+    const crates = parseQuantity(item.quantity)?.amount ?? 0;
+    const loosePieces = Number(item.loosePieces) || 0;
+    const pieceProfit = (Number(item.pieceSellingPrice) || 0) - item.incoming / getPiecesPerCrate(item);
+    return crates * calculateSingleItemProfit(item) + loosePieces * pieceProfit;
+  }
   return calculateSingleItemProfit(item) * (parseQuantity(item.quantity)?.amount || 0);
+}
+
+function updateCrateInventoryFields(item = null) {
+  const showCrateFields = isCrateItem(item?.name || itemName.value);
+  crateLoosePiecesField.hidden = !showCrateFields;
+  piecesPerCrateField.hidden = !showCrateFields;
+  buyingCostPerPieceField.hidden = !showCrateFields;
+  pieceSellingPriceField.hidden = !showCrateFields;
+  incomingPrice.placeholder = showCrateFields ? "Buying Price per Crate" : "Buying Price";
+  outgoingPrice.placeholder = showCrateFields ? "Selling Price per Crate" : "Selling Price";
+  quantityInput.placeholder = showCrateFields
+    ? "Crates in stock (e.g. 5 crates)"
+    : "Quantity (e.g. 5 L, 3 kg, 5 cartons)";
+  crateLoosePiecesInput.required = showCrateFields;
+  piecesPerCrateInput.required = showCrateFields;
+  pieceSellingPriceInput.required = showCrateFields;
+  if (!showCrateFields && !item) {
+    crateLoosePiecesInput.value = "0";
+    piecesPerCrateInput.value = String(PIECES_PER_CRATE);
+    pieceSellingPriceInput.value = "";
+    crateTypeSelect.value = "";
+  }
+  const piecesPerCrate = Number(piecesPerCrateInput.value);
+  crateLoosePiecesInput.max = String(
+    Number.isInteger(piecesPerCrate) && piecesPerCrate > 0
+      ? piecesPerCrate - 1
+      : PIECES_PER_CRATE - 1
+  );
+  updateBuyingCostPerPiece();
+}
+
+function updateBuyingCostPerPiece() {
+  const crateBuyingPrice = Number(incomingPrice.value);
+  const piecesPerCrate = Number(piecesPerCrateInput.value);
+  if (!incomingPrice.value.trim() || !Number.isFinite(crateBuyingPrice) ||
+      !Number.isInteger(piecesPerCrate) || piecesPerCrate < 1) {
+    buyingCostPerPieceOutput.textContent = "Enter crate buying price";
+    return;
+  }
+  buyingCostPerPieceOutput.textContent =
+    `KES ${formatNumber(crateBuyingPrice / piecesPerCrate)} per piece`;
+}
+
+function formatInventoryStock(item) {
+  return isCrateItem(item.name)
+    ? formatCrateStock(item)
+    : formatDisplayQuantity(item.quantity);
+}
+
+function formatCratePiecePrice(item) {
+  return item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
+      item.pieceSellingPrice === ""
+    ? "Not set"
+    : formatNumber(item.pieceSellingPrice);
 }
 
 async function loadItems(uid, direction = 'initial', search = '') {
@@ -808,9 +911,13 @@ function renderItems(filter = "") {
     if (quantity < 3) row.classList.add("low-stock-row");
     row.innerHTML = `
       <td>${item.name}</td>
-      <td>${formatNumber(item.incoming)}</td>
-      <td>${formatNumber(item.outgoing)}</td>
-      <td>${escapeQuantity(formatDisplayQuantity(item.quantity))}</td>
+      <td>${isCrateItem(item.name)
+        ? `KES ${formatNumber(item.incoming)} / crate`
+        : formatNumber(item.incoming)}</td>
+      <td>${isCrateItem(item.name)
+        ? `KES ${formatNumber(item.outgoing)} / crate<br>KES ${formatCratePiecePrice(item)} / piece`
+        : formatNumber(item.outgoing)}</td>
+      <td>${escapeQuantity(formatInventoryStock(item))}</td>
       <td>${formatNumber(singleItemProfit)}</td>
       <td>${formatNumber(profit)}</td>
       <td>
@@ -847,9 +954,13 @@ function renderLowStockAlerts(page = 1) {
   lowStockTable.innerHTML = paginatedItems.map(item => `
     <tr>
       <td>${item.name}</td>
-      <td>${formatNumber(item.incoming)}</td>
-      <td>${formatNumber(item.outgoing)}</td>
-      <td>${escapeQuantity(formatDisplayQuantity(item.quantity))}</td>
+      <td>${isCrateItem(item.name)
+        ? `KES ${formatNumber(item.incoming)} / crate`
+        : formatNumber(item.incoming)}</td>
+      <td>${isCrateItem(item.name)
+        ? `KES ${formatNumber(item.outgoing)} / crate<br>KES ${formatCratePiecePrice(item)} / piece`
+        : formatNumber(item.outgoing)}</td>
+      <td>${escapeQuantity(formatInventoryStock(item))}</td>
     </tr>
   `).join("");
 
@@ -1025,8 +1136,34 @@ form.addEventListener("submit", async e => {
 
   const nameVal = itemName.value.trim();
   const quantity = parseQuantity(quantityInput.value);
+  const crateItem = isCrateItem(nameVal);
   if (!quantity) {
     alert("Enter a valid quantity, such as 5, 3 kg, or 5 cartons.");
+    showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && (!Number.isInteger(quantity.amount) ||
+      (quantity.unit && !/^crates?$/i.test(quantity.unit)))) {
+    alert("Crate stock must be a whole number of crates.");
+    showLoadingIndicator(false);
+    return;
+  }
+  const loosePieces = Number(crateLoosePiecesInput.value);
+  const piecesPerCrate = Number(piecesPerCrateInput.value);
+  if (crateItem && (!Number.isInteger(piecesPerCrate) || piecesPerCrate < 1)) {
+    alert("Pieces per crate must be a positive whole number.");
+    showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && (!Number.isInteger(loosePieces) || loosePieces < 0 ||
+      loosePieces >= piecesPerCrate)) {
+    alert(`Loose pieces must be a whole number between 0 and ${piecesPerCrate - 1}.`);
+    showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && (!Number.isFinite(Number(pieceSellingPriceInput.value)) ||
+      Number(pieceSellingPriceInput.value) < 0)) {
+    alert("Enter a valid selling price per piece.");
     showLoadingIndicator(false);
     return;
   }
@@ -1035,7 +1172,7 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  const quantityUnit = isPetrolName(nameVal) ? "L" : quantity.unit;
+  const quantityUnit = isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" : quantity.unit;
 
   const data = {
     name: nameVal,
@@ -1043,6 +1180,9 @@ form.addEventListener("submit", async e => {
     incoming: Number(incomingPrice.value),
     outgoing: Number(outgoingPrice.value),
     quantity: formatQuantity(quantity.amount, quantityUnit),
+    loosePieces: crateItem ? loosePieces : null,
+    piecesPerCrate: crateItem ? piecesPerCrate : null,
+    pieceSellingPrice: crateItem ? Number(pieceSellingPriceInput.value) : null,
     includeInAllAnalytics: includeInAllAnalyticsInput.checked,
     uid: user.uid, // ✅ REQUIRED
     createdAt: new Date().toISOString()
@@ -1077,6 +1217,9 @@ form.addEventListener("submit", async e => {
     }
 
     form.reset();
+    crateLoosePiecesInput.value = "0";
+    piecesPerCrateInput.value = String(PIECES_PER_CRATE);
+    updateCrateInventoryFields();
     analyticsInclusionManuallySet = false;
     loadItems(user.uid);
   } catch (err) {
@@ -1106,6 +1249,12 @@ window.editItem = id => {
     ? item.quantity
     : String(item.quantity);
   appendQuantityUnit(quantityInput, "L", isPetrolName(item.name));
+  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(item.name));
+  crateLoosePiecesInput.value = String(Number(item.loosePieces) || 0);
+  piecesPerCrateInput.value = String(getPiecesPerCrate(item));
+  pieceSellingPriceInput.value = item.pieceSellingPrice ?? "";
+  updateCrateInventoryFields(item);
+  crateTypeSelect.value = "";
   editId = id;
 };
 
@@ -1132,9 +1281,13 @@ window.deleteItem = async (id) => {
    EXPORT TO EXCEL
    ========================= */
 exportBtn.addEventListener("click", () => {
-  let csv = "Item,Buying Price,Selling Price,Quantity,Single Item Profit,Profit\n";
+  let csv = "Item,Buying Price,Selling Price,Selling Price Per Piece,Pieces Per Crate,Quantity,Single Item Profit,Profit\n";
   items.forEach(item => {
-    csv += `${item.name},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${formatDisplayQuantity(item.quantity)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
+    const piecePrice = item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
+        item.pieceSellingPrice === ""
+      ? ""
+      : formatNumber(item.pieceSellingPrice);
+    csv += `${item.name},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${isCrateItem(item.name) ? getPiecesPerCrate(item) : ""},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
