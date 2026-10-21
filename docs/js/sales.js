@@ -56,6 +56,18 @@ const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable
 const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview");
 const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
 const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
+const overviewPeriodFilter = document.getElementById("overviewPeriodFilter");
+const overviewRevenueEl = document.getElementById("overviewRevenue");
+const overviewProfitEl = document.getElementById("overviewProfit");
+const overviewQuantityEl = document.getElementById("overviewQuantity");
+const overviewLowStockEl = document.getElementById("overviewLowStock");
+const overviewRangeLabel = document.getElementById("overviewRangeLabel");
+const overviewSalesChart = document.getElementById("overviewSalesChart");
+const overviewTopItems = document.getElementById("overviewTopItems");
+const overviewPetrolQuantity = document.getElementById("overviewPetrolQuantity");
+const overviewPetrolRevenue = document.getElementById("overviewPetrolRevenue");
+const overviewPetrolClosingDip = document.getElementById("overviewPetrolClosingDip");
+const overviewRecentSales = document.getElementById("overviewRecentSales");
 
 let dbInstance;
 let authInstance;
@@ -142,6 +154,12 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   analyticsDateFilter.value = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
   analyticsDateFilter.addEventListener("change", updateAnalyticsUI);
+  overviewPeriodFilter.addEventListener("change", renderOverview);
+  document.querySelectorAll("[data-overview-tab]").forEach(button => {
+    button.addEventListener("click", () => {
+      document.querySelector(`.tab-btn[data-tab="${button.dataset.overviewTab}"]`)?.click();
+    });
+  });
   analyticsPeriodFilter.addEventListener("change", () => {
     updateAnalyticsDateLabel();
     updateAnalyticsUI();
@@ -170,6 +188,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
 export function updateSaleDropdown(currentItems) {
   itemsArray = currentItems; // Update local reference
   addAnalyticsItemOptions(currentItems);
+  renderOverview();
 }
 
 function listenToAnalyticsItems(uid) {
@@ -183,10 +202,12 @@ function listenToAnalyticsItems(uid) {
     analyticsItemsError = null;
     addAnalyticsItemOptions(analyticsItems);
     updateAnalyticsUI();
+    renderOverview();
   }, error => {
     console.error("Unable to load analytics item settings:", error);
     analyticsItemsError = "Unable to load item analytics settings. Please try again.";
     updateAnalyticsUI();
+    renderOverview();
   });
 }
 
@@ -725,10 +746,12 @@ function listenToAnalytics(uid) {
     allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
     analyticsAllSalesError = null;
     updateAnalyticsUI();
+    renderOverview();
   }, error => {
     console.error("Analytics listener error:", error);
     analyticsAllSalesError = "Unable to load sales analytics. Please try again.";
     updateAnalyticsUI();
+    renderOverview();
   });
 }
 
@@ -781,6 +804,204 @@ function updateAnalyticsUI() {
 
   updateAnalyticsDateLabel();
 
+}
+
+function renderOverview() {
+  if (!overviewPeriodFilter) return;
+
+  const days = Number(overviewPeriodFilter.value) || 30;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(today);
+  end.setDate(today.getDate() + 1);
+  const start = new Date(today);
+  start.setDate(today.getDate() - days + 1);
+  const periodLabel = `Last ${days} days`;
+  overviewRangeLabel.textContent = periodLabel;
+
+  const overviewError = analyticsAllSalesError || analyticsItemsError;
+  if (overviewError) {
+    const errorMessage = escapeQuantity(overviewError);
+    overviewRevenueEl.textContent = "—";
+    overviewProfitEl.textContent = "—";
+    overviewQuantityEl.textContent = "—";
+    overviewSalesChart.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
+    overviewTopItems.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
+    overviewRecentSales.innerHTML = `<tr><td colspan="4">${errorMessage}</td></tr>`;
+    overviewPetrolQuantity.textContent = "—";
+    overviewPetrolRevenue.textContent = "—";
+    overviewPetrolClosingDip.textContent = "—";
+    overviewLowStockEl.textContent = String(countLowStockItems());
+    return;
+  }
+
+  const periodSales = allSalesForAnalytics.filter(sale => {
+    const saleDate = new Date(sale.createdAt);
+    return Number.isFinite(saleDate.getTime()) && saleDate >= start && saleDate < end;
+  });
+  const petrolSales = periodSales.filter(sale =>
+    isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName)
+  );
+  const includedSales = periodSales.filter(sale =>
+    !isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName) &&
+    isIncludedInAllAnalytics(sale)
+  );
+
+  const totals = includedSales.reduce((result, sale) => ({
+    revenue: result.revenue + (Number(sale.revenue) || 0),
+    profit: result.profit + (Number(sale.profit) || 0)
+  }), { revenue: 0, profit: 0 });
+
+  overviewRevenueEl.textContent = `KES ${formatNumber(totals.revenue)}`;
+  overviewProfitEl.textContent = `KES ${formatNumber(totals.profit)}`;
+  overviewQuantityEl.textContent = formatOverviewQuantities(includedSales);
+  overviewLowStockEl.textContent = String(countLowStockItems());
+  renderOverviewSalesChart(start, days, includedSales);
+  renderOverviewTopItems(includedSales);
+  renderOverviewRecentSales(includedSales);
+  renderOverviewPetrol(petrolSales);
+}
+
+function countLowStockItems() {
+  return itemsArray.filter(item => (parseQuantity(item.quantity)?.amount ?? 0) <= 3).length;
+}
+
+function formatOverviewQuantities(sales) {
+  const quantitiesByUnit = new Map();
+  sales.forEach(sale => {
+    const unit = String(sale.quantityUnit || "").trim().toUpperCase();
+    quantitiesByUnit.set(unit, (quantitiesByUnit.get(unit) || 0) + (Number(sale.quantity) || 0));
+  });
+  return quantitiesByUnit.size
+    ? [...quantitiesByUnit.entries()]
+      .map(([unit, amount]) => `${formatNumber(amount)}${unit ? ` ${unit}` : ""}`)
+      .join(" · ")
+    : "0";
+}
+
+function renderOverviewSalesChart(start, days, sales) {
+  const dailyRevenue = new Map();
+  sales.forEach(sale => {
+    const key = dateKey(new Date(sale.createdAt));
+    dailyRevenue.set(key, (dailyRevenue.get(key) || 0) + (Number(sale.revenue) || 0));
+  });
+
+  const values = Array.from({ length: days }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return { date, value: dailyRevenue.get(dateKey(date)) || 0 };
+  });
+  const width = 680;
+  const height = 220;
+  const left = 54;
+  const right = 12;
+  const top = 18;
+  const bottom = 38;
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const maxRevenue = Math.max(...values.map(point => point.value), 0);
+  const scaleMax = maxRevenue || 1;
+  const points = values.map((point, index) => {
+    const x = left + (values.length === 1 ? chartWidth / 2 : (index * chartWidth) / (values.length - 1));
+    const y = top + chartHeight - (point.value / scaleMax) * chartHeight;
+    return { ...point, x, y };
+  });
+  const polyline = points.map(point => `${point.x},${point.y}`).join(" ");
+  const labels = [0, Math.floor((days - 1) / 2), days - 1]
+    .filter((index, position, indexes) => indexes.indexOf(index) === position)
+    .map(index => {
+      const point = points[index];
+      return `<text x="${point.x}" y="${height - 10}" text-anchor="middle">${escapeQuantity(
+        point.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      )}</text>`;
+    }).join("");
+  const guides = [0, 0.5, 1].map(ratio => {
+    const y = top + chartHeight * ratio;
+    return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" class="overview-chart-guide" />
+      <text x="${left - 8}" y="${y + 4}" text-anchor="end">${escapeQuantity(
+        formatNumber(scaleMax * (1 - ratio))
+      )}</text>`;
+  }).join("");
+
+  overviewSalesChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily sales revenue for ${days} days">
+      ${guides}
+      <polyline points="${polyline}" class="overview-chart-line" />
+      ${points.map(point => `<circle cx="${point.x}" cy="${point.y}" r="3.5" class="overview-chart-point">
+        <title>${escapeQuantity(point.date.toLocaleDateString())}: KES ${escapeQuantity(formatNumber(point.value))}</title>
+      </circle>`).join("")}
+      ${labels}
+    </svg>`;
+}
+
+function renderOverviewTopItems(sales) {
+  const items = new Map();
+  sales.forEach(sale => {
+    const key = sale.itemId || sale.itemName || "unknown";
+    const item = items.get(key) || {
+      name: sale.itemName || "Item",
+      revenue: 0,
+      quantities: new Map()
+    };
+    const unit = String(sale.quantityUnit || "").trim().toUpperCase();
+    item.revenue += Number(sale.revenue) || 0;
+    item.quantities.set(unit, (item.quantities.get(unit) || 0) + (Number(sale.quantity) || 0));
+    items.set(key, item);
+  });
+
+  const topItems = [...items.values()]
+    .sort((left, right) => right.revenue - left.revenue)
+    .slice(0, 5);
+  if (!topItems.length) {
+    overviewTopItems.innerHTML = `<p class="overview-empty-state">No non-petrol sales for this period.</p>`;
+    return;
+  }
+  const maxRevenue = topItems[0].revenue || 1;
+  overviewTopItems.innerHTML = topItems.map(item => {
+    const quantity = [...item.quantities.entries()]
+      .map(([unit, amount]) => `${formatNumber(amount)}${unit ? ` ${unit}` : ""}`)
+      .join(" + ");
+    const width = Math.max(4, (item.revenue / maxRevenue) * 100);
+    return `<div class="overview-top-item">
+      <div class="overview-top-item-label">
+        <strong>${escapeQuantity(item.name)}</strong>
+        <span>${escapeQuantity(quantity)} · KES ${formatNumber(item.revenue)}</span>
+      </div>
+      <div class="overview-top-item-track" aria-hidden="true"><span style="width: ${width}%"></span></div>
+    </div>`;
+  }).join("");
+}
+
+function renderOverviewRecentSales(sales) {
+  const recentSales = [...sales]
+    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+    .slice(0, 5);
+  overviewRecentSales.innerHTML = recentSales.length
+    ? recentSales.map(sale => `<tr>
+        <td>${escapeQuantity(new Date(sale.createdAt).toLocaleDateString())}</td>
+        <td>${escapeQuantity(sale.itemName || "Item")}</td>
+        <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
+        <td>${formatNumber(sale.revenue)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="overview-empty-state">No non-petrol sales for this period.</td></tr>`;
+}
+
+function renderOverviewPetrol(sales) {
+  const quantity = sales.reduce((total, sale) => total + (Number(sale.quantity) || 0), 0);
+  const revenue = sales.reduce((total, sale) => total + (Number(sale.revenue) || 0), 0);
+  overviewPetrolQuantity.textContent = `${formatNumber(quantity)} L`;
+  overviewPetrolRevenue.textContent = `KES ${formatNumber(revenue)}`;
+
+  const latestDip = allSalesForAnalytics
+    .filter(sale => sale.petrolDip &&
+      isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName) &&
+      sale.petrolDip.actualClosingDipLiters !== null &&
+      sale.petrolDip.actualClosingDipLiters !== undefined &&
+      Number.isFinite(Number(sale.petrolDip.actualClosingDipLiters)))
+    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))[0];
+  overviewPetrolClosingDip.textContent = latestDip
+    ? `${formatNumber(latestDip.petrolDip.actualClosingDipLiters)} L`
+    : "No dip record";
 }
 
 function getDailyAnalyticsTotals() {

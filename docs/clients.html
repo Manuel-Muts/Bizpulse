@@ -178,12 +178,10 @@
       <span id="syncStatusIndicator" style="display: none; margin-left: 15px; font-weight: bold; color: #2563eb;"></span>
     </div>
 
-    <div class="analytics-grid" style="margin-top: 10px;">
-      <div class="stat-card">
-        <h3>Low Stock Items</h3>
-        <p><span id="lowStockCount">0</span></p>
-      </div>
-    </div>
+    <section class="dashboard-welcome" aria-live="polite">
+      <h2 id="welcomeMessage">Welcome back!</h2>
+      <p>Here’s your business at a glance.</p>
+    </section>
 
     <div style="margin-bottom: 20px;">
       <button id="openPaymentModalBtn" class="action-btn">Open Payment Details</button>
@@ -200,7 +198,7 @@
       >
         <span></span><span></span><span></span>
       </button>
-      <span id="currentDashboardSection" class="current-dashboard-section">Inventory</span>
+      <span id="currentDashboardSection" class="current-dashboard-section">Overview</span>
     </div>
     <button type="button" id="dashboardMenuBackdrop" class="dashboard-menu-backdrop" aria-label="Close navigation menu" hidden></button>
     <nav id="dashboardNavigation" class="dashboard-navigation" aria-label="Dashboard navigation" aria-hidden="true">
@@ -208,11 +206,90 @@
         <h2>Navigation</h2>
         <button type="button" id="dashboardMenuClose" class="dashboard-menu-close" aria-label="Close navigation menu">&times;</button>
       </div>
-      <button type="button" class="tab-btn active" data-tab="inventory">Inventory</button>
+      <button type="button" class="tab-btn active" data-tab="overview">Overview</button>
+      <button type="button" class="tab-btn" data-tab="inventory">Inventory</button>
       <button type="button" class="tab-btn" data-tab="orders">Customer Orders</button>
       <button type="button" class="tab-btn" data-tab="sales">Sales</button>
       <button type="button" class="tab-btn" data-tab="analytics">Analytics</button>
     </nav>
+
+    <!-- OVERVIEW SECTION -->
+    <section id="overviewSection" class="tab-content overview-section" style="display: none;">
+      <div class="section-divider">
+        <div class="overview-heading">
+          <div>
+            <h2>Business Overview</h2>
+            <p>Sales insights at a glance. Petrol is shown separately from other items.</p>
+          </div>
+          <label for="overviewPeriodFilter">
+            Show
+            <select id="overviewPeriodFilter">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="90">Last 90 days</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="overview-stat-grid">
+        <article class="overview-stat-card overview-revenue-card">
+          <span>Sales revenue</span><strong id="overviewRevenue">KES 0</strong>
+          <small id="overviewRangeLabel">Last 30 days</small>
+        </article>
+        <article class="overview-stat-card">
+          <span>Profit</span><strong id="overviewProfit">KES 0</strong>
+          <small>Selected period</small>
+        </article>
+        <article class="overview-stat-card">
+          <span>Quantity sold</span><strong id="overviewQuantity">0</strong>
+          <small>Non-petrol items</small>
+        </article>
+        <button type="button" class="overview-stat-card overview-stock-card" data-overview-tab="inventory">
+          <span>Low-stock items</span><strong id="overviewLowStock">0</strong>
+          <small>At or below 3 in stock</small>
+        </button>
+      </div>
+
+      <div class="overview-panel-grid">
+        <section class="overview-panel overview-chart-panel">
+          <div class="overview-panel-heading">
+            <div><h3>Sales trend</h3><p>Daily revenue for the selected period</p></div>
+            <button type="button" class="overview-link-button" data-overview-tab="analytics">Open Analytics</button>
+          </div>
+          <div id="overviewSalesChart" class="overview-sales-chart" aria-live="polite"></div>
+        </section>
+        <section class="overview-panel overview-top-items-panel">
+          <div class="overview-panel-heading">
+            <div><h3>Top-selling items</h3><p>Ranked by revenue</p></div>
+          </div>
+          <div id="overviewTopItems" class="overview-top-items"></div>
+        </section>
+      </div>
+
+      <section class="overview-panel overview-petrol-panel">
+        <div class="overview-panel-heading">
+          <div><h3>Petrol snapshot</h3><p>Fuel quantities and dip figures stay separate from other items.</p></div>
+        </div>
+        <div class="overview-petrol-stats">
+          <div><span>Petrol sold</span><strong id="overviewPetrolQuantity">0 L</strong></div>
+          <div><span>Petrol revenue</span><strong id="overviewPetrolRevenue">KES 0</strong></div>
+          <div><span>Latest actual closing dip</span><strong id="overviewPetrolClosingDip">—</strong></div>
+        </div>
+      </section>
+
+      <section class="overview-panel overview-recent-panel">
+        <div class="overview-panel-heading">
+          <div><h3>Recent sales</h3><p>Latest non-petrol sales in the selected period</p></div>
+          <button type="button" class="overview-link-button" data-overview-tab="sales">Open Sales</button>
+        </div>
+        <div class="overview-recent-table">
+          <table>
+            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Revenue</th></tr></thead>
+            <tbody id="overviewRecentSales"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
 
     <!-- SALES SECTION -->
     <div id="salesSection" class="tab-content" style="display: none;">

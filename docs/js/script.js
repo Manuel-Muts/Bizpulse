@@ -105,7 +105,6 @@ const importProgressContainer = document.getElementById("importProgressContainer
 const importProgressBar = document.getElementById("importProgressBar");
 const syncStatusIndicator = document.getElementById("syncStatusIndicator");
 const dataLoadingBar = document.getElementById("dataLoadingBar");
-const lowStockCountEl = document.getElementById("lowStockCount");
 const lowStockDetails = document.getElementById("lowStockDetails");
 const lowStockTable = document.getElementById("lowStockTable");
 const lowStockPrevBtn = document.getElementById("lowStockPrevBtn");
@@ -390,6 +389,12 @@ onAuthStateChanged(auth, async (user) => {
         if (bizTitle && userData.businessName) {
           bizTitle.textContent = userData.businessName;
         }
+        const welcomeMessage = document.getElementById("welcomeMessage");
+        if (welcomeMessage) {
+          welcomeMessage.textContent = userData.businessName
+            ? `Welcome back, ${userData.businessName}!`
+            : "Welcome back!";
+        }
         
         if (suspendedSection) suspendedSection.style.display = "none";
         if (passwordChangeModal) passwordChangeModal.style.display = "none";
@@ -615,7 +620,8 @@ document.addEventListener("keydown", event => {
 });
 
 // Initialize/Restore tab
-switchTab(localStorage.getItem('bizPulse_activeTab') || 'inventory');
+const savedDashboardTab = localStorage.getItem('bizPulse_activeTab');
+switchTab(savedDashboardTab && savedDashboardTab !== "inventory" ? savedDashboardTab : "overview");
 
 /* =========================
    LOGOUT LOGIC
@@ -820,14 +826,12 @@ function renderItems(filter = "") {
 }
 
 function renderLowStockAlerts(page = 1) {
-  if (!lowStockCountEl || !lowStockDetails || !lowStockTable || !lowStockPageInfo) return;
+  if (!lowStockDetails || !lowStockTable || !lowStockPageInfo) return;
 
   const lowStockItems = items.filter(item => (parseQuantity(item.quantity)?.amount ?? 0) <= 3);
   const totalItems = lowStockItems.length;
   const totalPages = totalItems === 0 ? 1 : Math.ceil(totalItems / lowStockPageSize);
   lowStockPage = Math.min(Math.max(page, 1), totalPages);
-
-  lowStockCountEl.textContent = totalItems;
 
   if (totalItems === 0) {
     lowStockTable.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#475569;">No low-stock items.</td></tr>`;
