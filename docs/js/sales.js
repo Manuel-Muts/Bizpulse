@@ -918,7 +918,7 @@ function renderExpensesTable() {
           <select data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}">
             <option value=""${selectedCategory ? "" : " selected"}>Unclassified</option>
             <option value="general"${selectedCategory === "general" ? " selected" : ""}>General</option>
-            <option value="petrol"${selectedCategory === "petrol" ? " selected" : ""}>Fuel & Energy: Petrol</option>
+            <option value="petrol"${selectedCategory === "petrol" ? " selected" : ""}>Fuel & Energy: PETROL</option>
             <option value="k-gas"${selectedCategory === "k-gas" ? " selected" : ""}>Fuel & Energy: K GAS</option>
             <option value="total-gas"${selectedCategory === "total-gas" ? " selected" : ""}>Fuel & Energy: TOTAL GAS</option>
             <option value="pro-gas"${selectedCategory === "pro-gas" ? " selected" : ""}>Fuel & Energy: PRO GAS</option>
