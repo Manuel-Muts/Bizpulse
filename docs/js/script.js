@@ -40,6 +40,7 @@ import {
   getCrateStockPieces,
   getPiecesPerCrate,
   PIECES_PER_CRATE,
+  isExcludedFromAllAnalyticsName,
   isPetrolName,
   parseQuantity,
   formatQuantity,
@@ -107,6 +108,10 @@ const crateLoosePiecesField = document.getElementById("crateLoosePiecesField");
 const crateLoosePiecesInput = document.getElementById("crateLoosePieces");
 const piecesPerCrateField = document.getElementById("piecesPerCrateField");
 const piecesPerCrateInput = document.getElementById("piecesPerCrate");
+const gasTypeField = document.getElementById("gasTypeField");
+const gasTypeSelect = document.getElementById("gasType");
+const incomingPriceLabel = document.getElementById("incomingPriceLabel");
+const outgoingPriceLabel = document.getElementById("outgoingPriceLabel");
 const buyingCostPerPieceField = document.getElementById("buyingCostPerPieceField");
 const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
 const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
@@ -205,7 +210,7 @@ fuelEnergyItemNameInput.addEventListener("input", () => uppercaseInput(fuelEnerg
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
   if (!editId && !analyticsInclusionManuallySet) {
-    includeInAllAnalyticsInput.checked = !isPetrolName(itemName.value);
+    includeInAllAnalyticsInput.checked = !isExcludedFromAllAnalyticsName(itemName.value);
   }
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
   appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
@@ -1141,12 +1146,26 @@ function calculateProfit(item) {
 
 function updateCrateInventoryFields(item = null) {
   const showCrateFields = isCrateItem(item?.name || itemName.value);
+  const itemNameValue = item?.name || itemName.value;
+  const showGasFields = itemNameValue.toLowerCase().includes("gas");
+  if (item) {
+    gasTypeSelect.value = showGasFields ? item.gasType || "" : "";
+  } else if (!showGasFields) {
+    gasTypeSelect.value = "";
+  }
+  gasTypeField.hidden = !showGasFields;
+  gasTypeSelect.required = showGasFields;
+  const isRefillableGas = showGasFields && gasTypeSelect.value === "refillable";
+  incomingPriceLabel.textContent = showCrateFields ? "Buying Price per Crate" : "Buying Price";
+  outgoingPriceLabel.textContent = isRefillableGas
+    ? "Refilling Cost (Selling Price)"
+    : showCrateFields ? "Selling Price per Crate" : "Selling Price";
   crateLoosePiecesField.hidden = !showCrateFields;
   piecesPerCrateField.hidden = !showCrateFields;
   buyingCostPerPieceField.hidden = !showCrateFields;
   pieceSellingPriceField.hidden = !showCrateFields;
-  incomingPrice.placeholder = showCrateFields ? "Buying Price per Crate" : "Buying Price";
-  outgoingPrice.placeholder = showCrateFields ? "Selling Price per Crate" : "Selling Price";
+  incomingPrice.placeholder = incomingPriceLabel.textContent;
+  outgoingPrice.placeholder = outgoingPriceLabel.textContent;
   quantityInput.placeholder = showCrateFields
     ? "Crates in stock (e.g. 5 crates)"
     : "Quantity (e.g. 5 L, 3 kg, 5 cartons)";
@@ -1167,6 +1186,8 @@ function updateCrateInventoryFields(item = null) {
   );
   updateBuyingCostPerPiece();
 }
+
+gasTypeSelect.addEventListener("change", () => updateCrateInventoryFields());
 
 function updateBuyingCostPerPiece() {
   const crateBuyingPrice = Number(incomingPrice.value);
@@ -1305,7 +1326,9 @@ function renderItems(filter = "") {
     const row = document.createElement("tr");
     if (quantity <= 3) row.classList.add("low-stock-row");
     row.innerHTML = `
-      <td>${item.name}</td>
+      <td>${item.name}${item.gasType
+        ? `<br><small>${item.gasType === "refillable" ? "Refillable" : "Non-refillable"}</small>`
+        : ""}</td>
       <td>${isCrateItem(item.name)
         ? `KES ${formatNumber(item.incoming)} / crate`
         : formatNumber(item.incoming)}</td>
@@ -1349,7 +1372,9 @@ function renderLowStockAlerts(page = 1) {
 
   lowStockTable.innerHTML = paginatedItems.map(item => `
     <tr>
-      <td>${item.name}</td>
+      <td>${item.name}${item.gasType
+        ? `<br><small>${item.gasType === "refillable" ? "Refillable" : "Non-refillable"}</small>`
+        : ""}</td>
       <td>${isCrateItem(item.name)
         ? `KES ${formatNumber(item.incoming)} / crate`
         : formatNumber(item.incoming)}</td>
@@ -1533,6 +1558,12 @@ form.addEventListener("submit", async e => {
   const nameVal = itemName.value.trim();
   const quantity = parseQuantity(quantityInput.value);
   const crateItem = isCrateItem(nameVal);
+  const gasItem = nameVal.toLowerCase().includes("gas");
+  if (gasItem && !gasTypeSelect.value) {
+    alert("Choose whether this gas item is refillable or non-refillable.");
+    showLoadingIndicator(false);
+    return;
+  }
   if (!quantity) {
     alert("Enter a valid quantity, such as 5, 3 kg, or 5 cartons.");
     showLoadingIndicator(false);
@@ -1576,6 +1607,7 @@ form.addEventListener("submit", async e => {
     incoming: Number(incomingPrice.value),
     outgoing: Number(outgoingPrice.value),
     quantity: formatQuantity(quantity.amount, quantityUnit),
+    gasType: gasItem ? gasTypeSelect.value : null,
     loosePieces: crateItem ? loosePieces : null,
     piecesPerCrate: crateItem ? piecesPerCrate : null,
     pieceSellingPrice: crateItem ? Number(pieceSellingPriceInput.value) : null,
@@ -1637,7 +1669,7 @@ window.editItem = id => {
   itemName.value = item.name;
   includeInAllAnalyticsInput.checked = typeof item.includeInAllAnalytics === "boolean"
     ? item.includeInAllAnalytics
-    : !isPetrolName(item.name);
+    : !isExcludedFromAllAnalyticsName(item.name);
   analyticsInclusionManuallySet = false;
   incomingPrice.value = item.incoming;
   outgoingPrice.value = item.outgoing;
@@ -1677,13 +1709,13 @@ window.deleteItem = async (id) => {
    EXPORT TO EXCEL
    ========================= */
 exportBtn.addEventListener("click", () => {
-  let csv = "Item,Buying Price,Selling Price,Selling Price Per Piece,Pieces Per Crate,Quantity,Single Item Profit,Profit\n";
+  let csv = "Item,Gas Type,Buying Price,Selling / Refilling Price,Selling Price Per Piece,Pieces Per Crate,Quantity,Single Item Profit,Profit\n";
   items.forEach(item => {
     const piecePrice = item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
         item.pieceSellingPrice === ""
       ? ""
       : formatNumber(item.pieceSellingPrice);
-    csv += `${item.name},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${isCrateItem(item.name) ? getPiecesPerCrate(item) : ""},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
+    csv += `${item.name},${item.gasType || ""},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${isCrateItem(item.name) ? getPiecesPerCrate(item) : ""},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -1718,7 +1750,10 @@ importCsvInput.addEventListener("change", (event) => {
     }
 
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const expectedHeaders = ["item", "buying price", "selling price", "quantity"];
+    const sellingPriceHeader = headers.includes("selling / refilling price")
+      ? "selling / refilling price"
+      : "selling price";
+    const expectedHeaders = ["item", "buying price", sellingPriceHeader, "quantity"];
 
     if (!expectedHeaders.every(h => headers.includes(h))) {
       alert(`CSV headers must include: ${expectedHeaders.join(', ')}`);
@@ -1767,9 +1802,12 @@ importCsvInput.addEventListener("change", (event) => {
         name: itemNameFromCsv,
         name_lowercase: itemNameFromCsv.toLowerCase(),
         incoming: cleanNum(itemData["buying price"]) || 0,
-        outgoing: cleanNum(itemData["selling price"]) || 0,
+        outgoing: cleanNum(itemData[sellingPriceHeader]) || 0,
         quantity: formatQuantity(quantity.amount, quantity.unit),
-        includeInAllAnalytics: !isPetrolName(itemNameFromCsv),
+        gasType: ["refillable", "non-refillable"].includes(
+          String(itemData["gas type"] || "").toLowerCase()
+        ) ? String(itemData["gas type"]).toLowerCase() : null,
+        includeInAllAnalytics: !isExcludedFromAllAnalyticsName(itemNameFromCsv),
         uid: user.uid,
         createdAt: new Date().toISOString()
       });

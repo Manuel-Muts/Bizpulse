@@ -28,6 +28,7 @@ import {
   formatQuantity,
   getCrateStockPieces,
   getPiecesPerCrate,
+  isExcludedFromAllAnalyticsName,
   isCrateItem,
   isLiterUnit,
   isPetrolName,
@@ -35,7 +36,34 @@ import {
   uppercaseInput
 } from "./quantity.js";
 
-const EXPENSE_COST_CATEGORIES = new Set(["general", "petrol", "gas-cylinder"]);
+const EXPENSE_COST_CATEGORIES = new Set([
+  "general",
+  "petrol",
+  "gas-cylinder",
+  "gas-refillable",
+  "gas-nonrefillable",
+  "soda-300ml",
+  "soda-500ml"
+]);
+const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
+  "petrol",
+  "gas-cylinder",
+  "gas-refillable",
+  "gas-nonrefillable",
+  "soda-300ml",
+  "soda-500ml"
+]);
+const isExcludedItemPurchase = expense =>
+  String(expense.type || "").toLowerCase() === "purchase" &&
+  (EXCLUDED_ITEM_PURCHASE_CATEGORIES.has(expense.costCategory) ||
+    getCustomFuelCategoryName(expense.costCategory).toLowerCase().includes("gas"));
+const ALL_GAS_ANALYTICS_FILTER = "__all_gas__";
+const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
+
+function isCombinedAnalyticsFilter(filterValue) {
+  return filterValue === ALL_GAS_ANALYTICS_FILTER ||
+    filterValue === ALL_SODA_ANALYTICS_FILTER;
+}
 
 // DOM Elements (Sales & Analytics)
 const saleForm = document.getElementById("saleForm");
@@ -59,6 +87,10 @@ const petrolExpectedClosingInput = document.getElementById("petrolExpectedClosin
 const petrolActualClosingInput = document.getElementById("petrolActualClosingDip");
 const petrolVarianceInput = document.getElementById("petrolVariance");
 const analyticsItemFilter = document.getElementById("analyticsItemFilter");
+const analyticsItemSearch = document.getElementById("analyticsItemSearch");
+const analyticsItemPrevBtn = document.getElementById("analyticsItemPrevBtn");
+const analyticsItemNextBtn = document.getElementById("analyticsItemNextBtn");
+const analyticsItemPageInfo = document.getElementById("analyticsItemPageInfo");
 const analyticsPeriodFilter = document.getElementById("analyticsPeriodFilter");
 const analyticsDateFilter = document.getElementById("analyticsDateFilter");
 const analyticsDateLabel = document.getElementById("analyticsDateLabel");
@@ -73,6 +105,7 @@ const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview")
 const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
 const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
 const overviewPeriodFilter = document.getElementById("overviewPeriodFilter");
+const overviewTodayDate = document.getElementById("overviewTodayDate");
 const overviewRevenueEl = document.getElementById("overviewRevenue");
 const overviewGrossProfitEl = document.getElementById("overviewGrossProfit");
 const overviewNetRevenueEl = document.getElementById("overviewNetRevenue");
@@ -91,6 +124,8 @@ const expenseForm = document.getElementById("expenseForm");
 const expenseDateInput = document.getElementById("expenseDate");
 const expenseTypeInput = document.getElementById("expenseType");
 const expenseCostCategoryInput = document.getElementById("expenseCostCategory");
+const expenseGasTypeField = document.getElementById("expenseGasTypeField");
+const expenseGasTypeInput = document.getElementById("expenseGasType");
 const expenseDescriptionInput = document.getElementById("expenseDescription");
 const expensePaidToSupplierInput = document.getElementById("expensePaidToSupplier");
 const expenseVendorInput = document.getElementById("expenseVendor");
@@ -108,6 +143,15 @@ let salesRef;
 let stockAdditionsRef;
 let expensesRef;
 let itemsRef; // Need itemsRef for batch updates
+let analyticsItemsUid = null;
+let analyticsItemPageItems = [];
+let analyticsItemPageDocs = [];
+let analyticsItemPageStarts = [null];
+let analyticsItemPageIndex = 0;
+let analyticsItemHasNextPage = false;
+let analyticsItemSearchTimeout = null;
+let analyticsItemPageRequest = 0;
+const analyticsItemPageSize = 20;
 let ordersCollectionRef; // Reference to the orders collection
 let salesSummaryRef = null;
 let clientBusinessName; // The business name of the logged-in client
@@ -160,6 +204,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   authInstance = auth;
   itemsArray = items;
   itemsRef = itemsCollectionRef;
+  analyticsItemsUid = authInstance.currentUser.uid;
   salesRef = collection(dbInstance, "sales");
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
   expensesRef = collection(dbInstance, "expenses");
@@ -207,7 +252,9 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   expenseDateInput.value = dateKey(new Date());
   expenseDateInput.max = dateKey(new Date());
   expenseForm.addEventListener("submit", handleExpenseFormSubmit);
+  expenseCostCategoryInput.addEventListener("change", updateExpenseGasTypeField);
   expensesTable.addEventListener("click", handleExpenseCategorySave);
+  updateExpenseGasTypeField();
   listenToFuelEnergyCategories(fuelEnergyCategoriesRef, authInstance.currentUser.uid);
 
   const today = dateKey(new Date());
@@ -225,6 +272,10 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   });
   analyticsDateFilter.value = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
+  analyticsItemSearch.addEventListener("input", handleAnalyticsItemSearch);
+  analyticsItemPrevBtn.addEventListener("click", () => changeAnalyticsItemPage(-1));
+  analyticsItemNextBtn.addEventListener("click", () => changeAnalyticsItemPage(1));
+  loadAnalyticsItemPage();
   analyticsDateFilter.addEventListener("change", updateAnalyticsUI);
   overviewPeriodFilter.addEventListener("change", renderOverview);
   document.querySelectorAll("[data-overview-tab]").forEach(button => {
@@ -261,7 +312,6 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
  */
 export function updateSaleDropdown(currentItems) {
   itemsArray = currentItems; // Update local reference
-  addAnalyticsItemOptions(currentItems);
   renderOverview();
 }
 
@@ -274,7 +324,10 @@ function listenToAnalyticsItems(uid) {
     }));
     analyticsItemsById = new Map(analyticsItems.map(item => [item.id, item]));
     analyticsItemsError = null;
-    addAnalyticsItemOptions(analyticsItems);
+    renderAnalyticsItemPageOptions();
+    if (isCombinedAnalyticsFilter(analyticsItemFilter.value)) {
+      analyticsItemSales = getGroupedAnalyticsSales(analyticsItemFilter.value);
+    }
     updateAnalyticsUI();
     renderOverview();
   }, error => {
@@ -283,6 +336,116 @@ function listenToAnalyticsItems(uid) {
     updateAnalyticsUI();
     renderOverview();
   });
+}
+
+function handleAnalyticsItemSearch() {
+  clearTimeout(analyticsItemSearchTimeout);
+  analyticsItemSearchTimeout = setTimeout(() => {
+    analyticsItemPageStarts = [null];
+    analyticsItemPageIndex = 0;
+    loadAnalyticsItemPage();
+  }, 300);
+}
+
+function changeAnalyticsItemPage(direction) {
+  if (direction < 0) {
+    if (analyticsItemPageIndex === 0) return;
+    analyticsItemPageIndex--;
+    loadAnalyticsItemPage();
+    return;
+  }
+
+  if (!analyticsItemHasNextPage || !analyticsItemPageDocs.length) return;
+  analyticsItemPageStarts = analyticsItemPageStarts.slice(0, analyticsItemPageIndex + 1);
+  analyticsItemPageStarts.push(analyticsItemPageDocs[analyticsItemPageDocs.length - 1]);
+  analyticsItemPageIndex++;
+  loadAnalyticsItemPage();
+}
+
+async function loadAnalyticsItemPage() {
+  if (!analyticsItemsUid || !itemsRef) return;
+  const requestId = ++analyticsItemPageRequest;
+  const search = analyticsItemSearch.value.trim().toLowerCase();
+  analyticsItemPageInfo.textContent = "Loading items...";
+  analyticsItemPrevBtn.disabled = true;
+  analyticsItemNextBtn.disabled = true;
+
+  try {
+    let itemQuery = query(
+      itemsRef,
+      where("uid", "==", analyticsItemsUid),
+      orderBy("name_lowercase")
+    );
+    if (search) {
+      itemQuery = query(
+        itemQuery,
+        where("name_lowercase", ">=", search),
+        where("name_lowercase", "<=", `${search}\uf8ff`)
+      );
+    }
+    const pageStart = analyticsItemPageStarts[analyticsItemPageIndex];
+    const pagedQuery = pageStart
+      ? query(itemQuery, startAfter(pageStart), limit(analyticsItemPageSize + 1))
+      : query(itemQuery, limit(analyticsItemPageSize + 1));
+    const snapshot = await getDocs(pagedQuery);
+    if (requestId !== analyticsItemPageRequest) return;
+
+    analyticsItemHasNextPage = snapshot.docs.length > analyticsItemPageSize;
+    analyticsItemPageDocs = snapshot.docs.slice(0, analyticsItemPageSize);
+    analyticsItemPageItems = analyticsItemPageDocs.map(itemDoc => ({
+      id: itemDoc.id,
+      ...itemDoc.data()
+    }));
+    renderAnalyticsItemPageOptions();
+    analyticsItemPageInfo.textContent = analyticsItemPageDocs.length
+      ? `Page ${analyticsItemPageIndex + 1} · ${analyticsItemPageSize} per page`
+      : search ? "No matching items" : "No items available";
+    analyticsItemPrevBtn.disabled = analyticsItemPageIndex === 0;
+    analyticsItemNextBtn.disabled = !analyticsItemHasNextPage;
+  } catch (error) {
+    if (requestId !== analyticsItemPageRequest) return;
+    console.error("Unable to load Analytics item page:", error);
+    analyticsItemPageInfo.textContent = "Unable to load items. Edit the search or try again.";
+    analyticsItemPrevBtn.disabled = analyticsItemPageIndex === 0;
+    analyticsItemNextBtn.disabled = true;
+  }
+}
+
+function renderAnalyticsItemPageOptions() {
+  const selectedValue = analyticsItemFilter.value;
+  const selectedOption = [...analyticsItemFilter.options]
+    .find(option => option.value === selectedValue);
+  const selectedLabel = selectedOption?.textContent || "";
+  [...analyticsItemFilter.options]
+    .filter(option => option.value !== "" && !isCombinedAnalyticsFilter(option.value))
+    .forEach(option => option.remove());
+
+  analyticsItemPageItems.forEach(pageItem => {
+    const item = analyticsItemsById.get(pageItem.id) || pageItem;
+    if (!item.name) return;
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.dataset.analyticsPageItem = "true";
+    option.textContent = getAnalyticsItemLabel(item);
+    analyticsItemFilter.appendChild(option);
+  });
+
+  if (selectedValue && !isCombinedAnalyticsFilter(selectedValue) &&
+      !analyticsItemPageItems.some(item => item.id === selectedValue)) {
+    const selectedItem = analyticsItemsById.get(selectedValue);
+    const option = document.createElement("option");
+    option.value = selectedValue;
+    option.textContent = selectedItem ? getAnalyticsItemLabel(selectedItem) : selectedLabel;
+    analyticsItemFilter.appendChild(option);
+  }
+  analyticsItemFilter.value = selectedValue;
+}
+
+function getAnalyticsItemLabel(item) {
+  const gasType = item.gasType === "refillable"
+    ? "Refillable"
+    : item.gasType === "non-refillable" ? "Non-refillable" : "";
+  return gasType ? `${item.name} (${gasType})` : item.name;
 }
 
 function listenToStockAdditions(uid) {
@@ -354,11 +517,60 @@ function renderExpenseCostCategoryOptions() {
       option.textContent = category.name;
       fuelOptions.appendChild(option);
     });
+  updateExpenseGasTypeField();
 }
 
 function isValidExpenseCostCategory(category) {
   return EXPENSE_COST_CATEGORIES.has(category) ||
     customFuelEnergyCategories.some(fuelCategory => `fuel:${fuelCategory.id}` === category);
+}
+
+function updateExpenseGasTypeField() {
+  const category = expenseCostCategoryInput.value;
+  const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"].includes(category) ||
+    getSelectedExpenseCategoryName().toLowerCase().includes("gas");
+  expenseGasTypeField.hidden = !isGasCategory;
+  expenseGasTypeInput.required = isGasCategory;
+  if (!isGasCategory) {
+    expenseGasTypeInput.value = "";
+  } else if (category === "gas-refillable") {
+    expenseGasTypeInput.value = "refillable";
+  } else if (category === "gas-nonrefillable") {
+    expenseGasTypeInput.value = "non-refillable";
+  }
+}
+
+function getSelectedExpenseCategoryName() {
+  const selectedOption = expenseCostCategoryInput.selectedOptions[0];
+  if (selectedOption?.value.startsWith("fuel:")) {
+    return getCustomFuelCategoryName(selectedOption.value);
+  }
+  return selectedOption?.textContent || "";
+}
+
+function getCustomFuelCategoryName(categoryId) {
+  return customFuelEnergyCategories.find(category => `fuel:${category.id}` === categoryId)?.name || "";
+}
+
+function getExpenseGasType(expense) {
+  if (expense.costCategory === "gas-refillable") return "refillable";
+  if (expense.costCategory === "gas-nonrefillable") return "non-refillable";
+  return expense.gasType || "";
+}
+
+function getExpenseGasCategory(expense) {
+  const category = expense.costCategory || "";
+  if (category === "gas-cylinder" || category === "gas-refillable" ||
+      category === "gas-nonrefillable") return category;
+  const customCategoryName = getCustomFuelCategoryName(category);
+  if (customCategoryName.toLowerCase().includes("gas")) {
+    return getExpenseGasType(expense) === "refillable"
+      ? "gas-refillable"
+      : getExpenseGasType(expense) === "non-refillable"
+        ? "gas-nonrefillable"
+        : "gas-cylinder";
+  }
+  return "";
 }
 
 async function handleExpenseFormSubmit(event) {
@@ -384,6 +596,18 @@ async function handleExpenseFormSubmit(event) {
     expenseFormMessage.textContent = "Enter an amount greater than zero.";
     return;
   }
+  const selectedCategoryName = getSelectedExpenseCategoryName();
+  const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"]
+    .includes(expenseCostCategoryInput.value) ||
+    selectedCategoryName.toLowerCase().includes("gas");
+  if (isGasCategory && !expenseGasTypeInput.value) {
+    expenseFormMessage.textContent = "Choose whether this gas cost is refillable or non-refillable.";
+    return;
+  }
+  const gasType = isGasCategory ? expenseGasTypeInput.value : "";
+  const costCategory = isGasCategory
+    ? gasType === "refillable" ? "gas-refillable" : "gas-nonrefillable"
+    : expenseCostCategoryInput.value;
 
   saveExpenseBtn.disabled = true;
   saveExpenseBtn.classList.add("loading");
@@ -393,7 +617,8 @@ async function handleExpenseFormSubmit(event) {
       uid: user.uid,
       date,
       type: expenseTypeInput.value,
-      costCategory: expenseCostCategoryInput.value,
+      costCategory,
+      ...(gasType ? { gasType } : {}),
       description: expenseDescriptionInput.value.trim(),
       paidToSupplier: expensePaidToSupplierInput.value,
       vendor: expenseVendorInput.value.trim(),
@@ -403,6 +628,7 @@ async function handleExpenseFormSubmit(event) {
     });
     expenseForm.reset();
     expenseDateInput.value = today;
+    updateExpenseGasTypeField();
     expenseFormMessage.textContent = "Cost recorded.";
   } catch (error) {
     console.error("Unable to record expense or purchase:", error);
@@ -437,6 +663,10 @@ function renderExpensesTable() {
             <option value="general"${selectedCategory === "general" ? " selected" : ""}>General</option>
             <option value="petrol"${selectedCategory === "petrol" ? " selected" : ""}>Fuel & Energy: Petrol</option>
             <option value="gas-cylinder"${selectedCategory === "gas-cylinder" ? " selected" : ""}>Fuel & Energy: Gas cylinder</option>
+            <option value="gas-refillable"${selectedCategory === "gas-refillable" ? " selected" : ""}>Gas: Refillable</option>
+            <option value="gas-nonrefillable"${selectedCategory === "gas-nonrefillable" ? " selected" : ""}>Gas: Non-refillable</option>
+            <option value="soda-300ml"${selectedCategory === "soda-300ml" ? " selected" : ""}>Soda: 300ml</option>
+            <option value="soda-500ml"${selectedCategory === "soda-500ml" ? " selected" : ""}>Soda: 500ml</option>
             ${customFuelEnergyCategories.map(category =>
               `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>Fuel & Energy: ${escapeQuantity(category.name)}</option>`
             ).join("")}
@@ -477,25 +707,6 @@ async function handleExpenseCategorySave(event) {
   }
 }
 
-function addAnalyticsItemOptions(items) {
-  const existingOptions = new Map(
-    [...analyticsItemFilter.options].map(option => [option.value, option])
-  );
-
-  items
-    .filter(item => item.name)
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .forEach(item => {
-      let option = existingOptions.get(item.id);
-      if (!option) {
-        option = document.createElement("option");
-        option.value = item.id;
-        analyticsItemFilter.appendChild(option);
-      }
-      option.textContent = item.name;
-    });
-}
-
 function handleAnalyticsItemChange() {
   if (analyticsItemSalesUnsubscribe) {
     analyticsItemSalesUnsubscribe();
@@ -506,6 +717,11 @@ function handleAnalyticsItemChange() {
   const itemId = analyticsItemFilter.value;
   if (!itemId) {
     analyticsItemSales = null;
+    updateAnalyticsUI();
+    return;
+  }
+  if (isCombinedAnalyticsFilter(itemId)) {
+    analyticsItemSales = getGroupedAnalyticsSales(itemId);
     updateAnalyticsUI();
     return;
   }
@@ -555,6 +771,7 @@ function handleItemSearch() {
   saleSearchResults.innerHTML = matches.map(item => `
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
+      ${item.gasType ? `<small class="sale-gas-type">${getGasTypeLabel(item.gasType)}</small><br/>` : ""}
       <small>${isCrateItem(item.name)
         ? `Price: KES ${formatNumber(item.outgoing)} / crate | KES ${
           item.pieceSellingPrice === null || item.pieceSellingPrice === undefined
@@ -588,6 +805,16 @@ window.selectSaleItem = (id, name) => {
   // Auto-fill price if preferred
   if (selectedItem) salePriceInput.value = selectedItem.outgoing;
   saleQuantityInput.focus();
+}
+
+function getGasTypeLabel(gasType) {
+  if (gasType === "refillable") return "Refillable";
+  if (gasType === "non-refillable") return "Non-refillable";
+  return "";
+}
+
+function getSaleGasType(sale) {
+  return sale.gasType || itemsArray.find(item => item.id === sale.itemId)?.gasType || "";
 }
 
 async function prefillPetrolDipFromPreviousDay(item, resetEntries = true) {
@@ -641,6 +868,43 @@ async function prefillPetrolDipFromPreviousDay(item, resetEntries = true) {
 
 function isPetrolItem(item) {
   return isPetrolName(item?.name);
+}
+
+function isGasAnalyticsItem(item) {
+  return Boolean(item && !isPetrolItem(item) &&
+    (item.gasType === "refillable" || item.gasType === "non-refillable" ||
+     /gas/i.test(item.name || "")));
+}
+
+function isSodaAnalyticsItem(item) {
+  const name = String(item?.name || "");
+  return /\bsoda\b/i.test(name) && /\b(?:300|500)\s*ml\b/i.test(name);
+}
+
+function matchesAnalyticsGroup(item, filterValue) {
+  if (filterValue === ALL_GAS_ANALYTICS_FILTER) return isGasAnalyticsItem(item);
+  if (filterValue === ALL_SODA_ANALYTICS_FILTER) return isSodaAnalyticsItem(item);
+  return false;
+}
+
+function getGasTypeForSale(sale) {
+  const item = analyticsItemsById.get(sale.itemId) ||
+    itemsArray.find(candidate => candidate.id === sale.itemId) ||
+    { name: sale.itemName, gasType: sale.gasType };
+  if (!isGasAnalyticsItem(item)) return "";
+  const gasType = sale.gasType || item?.gasType;
+  if (gasType === "refillable") return "Refillable";
+  if (gasType === "non-refillable") return "Non-refillable";
+  return "Type not recorded";
+}
+
+function getGroupedAnalyticsSales(filterValue) {
+  return allSalesForAnalytics.filter(sale => {
+    const item = analyticsItemsById.get(sale.itemId) ||
+      itemsArray.find(candidate => candidate.id === sale.itemId) ||
+      { name: sale.itemName, gasType: sale.gasType };
+    return matchesAnalyticsGroup(item, filterValue);
+  });
 }
 
 function setSaleQuantityUnit(item) {
@@ -825,7 +1089,8 @@ function getAnalyticsDateRange(period, selectedDate) {
 
 function renderPetrolAnalytics() {
   const selectedItemId = analyticsItemFilter.value;
-  const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+  const selectedItem = analyticsItemsById.get(selectedItemId) ||
+    itemsArray.find(item => item.id === selectedItemId);
   const showPetrol = Boolean(selectedItemId && isPetrolItem(selectedItem));
   petrolAnalyticsPreview.hidden = !showPetrol;
   if (!showPetrol) return;
@@ -860,11 +1125,29 @@ function renderPetrolAnalytics() {
     : `<tr><td colspan="8" style="text-align:center;">No petrol dip records for this period.</td></tr>`;
 }
 
-function exportAnalyticsPdf() {
+async function exportAnalyticsPdf() {
   if (stockAdditionsError || expensesError) {
     alert("Stock additions or expense history could not be loaded, so the report was not exported.");
     return;
   }
+  exportAnalyticsPdfBtn.disabled = true;
+  exportAnalyticsPdfBtn.classList.add("loading");
+  exportAnalyticsPdfBtn.querySelector(".btn-text").textContent = "Preparing PDF...";
+  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
+  try {
+    buildAnalyticsPdf();
+  } catch (error) {
+    console.error("Unable to export Analytics PDF:", error);
+    alert(`Unable to export Analytics PDF: ${error.message}`);
+  } finally {
+    exportAnalyticsPdfBtn.disabled = false;
+    exportAnalyticsPdfBtn.classList.remove("loading");
+    exportAnalyticsPdfBtn.querySelector(".btn-text").textContent = "Export Analytics PDF";
+  }
+}
+
+function buildAnalyticsPdf() {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const itemName = analyticsItemFilter.value
     ? analyticsItemFilter.selectedOptions[0]?.textContent || "Selected item"
@@ -891,6 +1174,11 @@ function exportAnalyticsPdf() {
   };
 
   const drawTable = (headers, dataRows, columnWidths) => {
+    if (headers.length !== columnWidths.length ||
+        dataRows.some(row => row.length !== headers.length) ||
+        columnWidths.some(width => !Number.isFinite(width) || width <= 0)) {
+      throw new Error("Analytics PDF table has mismatched or invalid columns.");
+    }
     const rowPadding = 2.5;
     const lineHeight = 4.5;
     const drawHeader = () => {
@@ -989,9 +1277,12 @@ function exportAnalyticsPdf() {
         if (!row.dateKeys.includes(dateKey(new Date(sale.createdAt)))) return;
 
         const unit = sale.quantityUnit || "";
-        const itemKey = `${sale.itemId || sale.itemName}|${unit.toLowerCase()}`;
+        const itemName = sale.itemName || "Item";
+        const gasType = getGasTypeForSale(sale);
+        const itemKey = `${sale.itemId || sale.itemName}|${gasType.toLowerCase()}|${unit.toLowerCase()}`;
+        const productLabel = gasType ? `${itemName} (${gasType})` : itemName;
         const existing = salesByItem.get(itemKey) || {
-          name: sale.itemName || "Item",
+          name: productLabel,
           quantity: 0,
           unit
         };
@@ -1003,7 +1294,7 @@ function exportAnalyticsPdf() {
         .join("\n") || "—";
       const rowExpenses = getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0);
-      const netRevenue = analyticsItemFilter.value ? null : row.revenue - rowExpenses;
+      const netRevenue = isAnalyticsNetAvailable() ? row.revenue - rowExpenses : null;
 
       return [
         row.label,
@@ -1024,8 +1315,20 @@ function exportAnalyticsPdf() {
     .filter(addition => {
       const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
       const date = new Date(`${additionDate}T00:00:00`);
+      const groupedAddition = isCombinedAnalyticsFilter(selectedItemId) &&
+        matchesAnalyticsGroup(
+          analyticsItemsById.get(addition.itemId) ||
+            itemsArray.find(item => item.id === addition.itemId) ||
+            { name: addition.itemName },
+          selectedItemId
+        );
+      const matchesItem = !selectedItemId
+        ? true
+        : isCombinedAnalyticsFilter(selectedItemId)
+          ? groupedAddition
+          : addition.itemId === selectedItemId;
       return date >= stockStart && date < stockEnd &&
-        (!selectedItemId || addition.itemId === selectedItemId);
+        matchesItem;
     })
     .sort((left, right) =>
       (left.stockDate || dateKey(new Date(left.createdAt)))
@@ -1048,7 +1351,9 @@ function exportAnalyticsPdf() {
     [30, 35, 75, pageWidth - margin * 2 - 140]
   );
 
-  const expenseRows = getExpensesForDateRange(stockStart, stockEnd)
+  const expenseRows = getExpensesForAnalyticsSelection(
+    getExpensesForDateRange(stockStart, stockEnd)
+  )
     .sort((left, right) => expenseDateKey(left).localeCompare(expenseDateKey(right)))
     .map(expense => {
       const expenseDate = expenseDateKey(expense);
@@ -1069,7 +1374,7 @@ function exportAnalyticsPdf() {
     expenseRows.length
       ? expenseRows
       : [["No expenses or purchases for this period", "", "", "", "", "", "", ""]],
-    [25, 29, 23, 49, 43, 28, pageWidth - margin * 2 - 197]
+    [25, 29, 23, 49, 43, 28, 30, pageWidth - margin * 2 - 227]
   );
 
   if (!petrolAnalyticsPreview.hidden) {
@@ -1198,6 +1503,9 @@ function listenToAnalytics(uid) {
   analyticsUnsubscribe = onSnapshot(userSalesQuery, snapshot => {
     allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
     analyticsAllSalesError = null;
+    if (isCombinedAnalyticsFilter(analyticsItemFilter.value)) {
+      analyticsItemSales = getGroupedAnalyticsSales(analyticsItemFilter.value);
+    }
     updateAnalyticsUI();
     renderOverview();
   }, error => {
@@ -1216,9 +1524,11 @@ function updateAnalyticsUI() {
   const selectedDate = analyticsDateFilter.value;
   if (!selectedDate) return;
 
-  const analyticsError = expensesError || (analyticsItemFilter.value
-    ? analyticsItemSalesError
-    : analyticsAllSalesError || analyticsItemsError);
+  const selectedAnalyticsItem = analyticsItemFilter.value;
+  const analyticsError = expensesError || (isCombinedAnalyticsFilter(selectedAnalyticsItem)
+    ? analyticsAllSalesError || analyticsItemsError
+    : selectedAnalyticsItem ? analyticsItemSalesError
+      : analyticsAllSalesError || analyticsItemsError);
   if (analyticsError) {
     analyticsSalesTotalEl.textContent = "—";
     analyticsGrossProfitTotalEl.textContent = "—";
@@ -1246,11 +1556,11 @@ function updateAnalyticsUI() {
   const periodExpenses = getExpensesForCurrentAnalytics(rows.flatMap(row => row.dateKeys));
   const expenseTotal = periodExpenses.reduce((total, expense) =>
     total + (Number(expense.amount) || 0), 0);
-  const hasBusinessWideView = !analyticsItemFilter.value;
+  const hasNetView = isAnalyticsNetAvailable();
 
   analyticsSalesTotalEl.textContent = formatNumber(totals.revenue);
   analyticsGrossProfitTotalEl.textContent = formatNumber(totals.profit);
-  analyticsNetRevenueTotalEl.textContent = hasBusinessWideView
+  analyticsNetRevenueTotalEl.textContent = hasNetView
     ? formatNumber(totals.revenue - expenseTotal)
     : "—";
   analyticsExpenseTotalEl.textContent = formatNumber(expenseTotal);
@@ -1263,7 +1573,7 @@ function updateAnalyticsUI() {
       <td>${formatNumber(row.profit)}</td>
       <td>${formatNumber(getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))}</td>
-      <td>${hasBusinessWideView
+      <td>${hasNetView
         ? formatNumber(row.revenue - getExpensesForCurrentAnalytics(row.dateKeys)
           .reduce((total, expense) => total + (Number(expense.amount) || 0), 0))
         : "—"}</td>
@@ -1281,6 +1591,7 @@ function updateAnalyticsUI() {
 function renderOverview() {
   if (!overviewPeriodFilter) return;
 
+  overviewTodayDate.textContent = formatOverviewTodayDate(new Date());
   const isToday = overviewPeriodFilter.value === "today";
   const days = isToday ? 1 : Number(overviewPeriodFilter.value) || 30;
   const today = new Date();
@@ -1344,6 +1655,23 @@ function renderOverview() {
   renderOverviewPetrol(petrolSales);
 }
 
+function formatOverviewTodayDate(date) {
+  const day = date.getDate();
+  const remainder = day % 100;
+  const ordinalSuffix = remainder >= 11 && remainder <= 13
+    ? "th"
+    : day % 10 === 1
+      ? "st"
+      : day % 10 === 2
+        ? "nd"
+        : day % 10 === 3
+          ? "rd"
+          : "th";
+  const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
+  const month = date.toLocaleDateString(undefined, { month: "short" });
+  return `${weekday}, ${day}${ordinalSuffix} ${month} ${date.getFullYear()}`;
+}
+
 function countLowStockItems() {
   const inventoryItems = analyticsItemsById.size
     ? [...analyticsItemsById.values()]
@@ -1377,11 +1705,60 @@ function getExpensesForDateKeys(dateKeys) {
 }
 
 function getExpensesForCurrentAnalytics(dateKeys) {
-  const expenses = getExpensesForDateKeys(dateKeys);
-  const selectedItem = itemsArray.find(item => item.id === analyticsItemFilter.value);
-  return isPetrolItem(selectedItem)
-    ? expenses.filter(expense => expense.costCategory === "petrol")
-    : expenses;
+  return getExpensesForAnalyticsSelection(getExpensesForDateKeys(dateKeys));
+}
+
+function getExpensesForAnalyticsSelection(expenses) {
+  const selectedValue = analyticsItemFilter.value;
+  if (!selectedValue) {
+    return expenses.filter(expense => !isExcludedItemPurchase(expense));
+  }
+
+  const selectedItem = analyticsItemsById.get(selectedValue) ||
+    itemsArray.find(item => item.id === selectedValue);
+  if (isPetrolItem(selectedItem)) {
+    return expenses.filter(expense =>
+      String(expense.type || "").toLowerCase() === "purchase" &&
+      expense.costCategory === "petrol"
+    );
+  }
+
+  const isPurchase = expense => String(expense.type || "").toLowerCase() === "purchase";
+  if (selectedValue === ALL_GAS_ANALYTICS_FILTER) {
+    return expenses.filter(expense => isPurchase(expense) &&
+      Boolean(getExpenseGasCategory(expense)));
+  }
+  if (selectedValue === ALL_SODA_ANALYTICS_FILTER) {
+    return expenses.filter(expense => isPurchase(expense) &&
+      ["soda-300ml", "soda-500ml"].includes(expense.costCategory));
+  }
+  if (isGasAnalyticsItem(selectedItem)) {
+    const gasCategory = selectedItem.gasType === "refillable"
+      ? "gas-refillable"
+      : selectedItem.gasType === "non-refillable" ? "gas-nonrefillable" : null;
+    return expenses.filter(expense => isPurchase(expense) &&
+      (gasCategory
+        ? getExpenseGasCategory(expense) === gasCategory
+        : Boolean(getExpenseGasCategory(expense))));
+  }
+  if (isSodaAnalyticsItem(selectedItem)) {
+    const sodaCategory = /\b300\s*ml\b/i.test(selectedItem.name)
+      ? "soda-300ml"
+      : "soda-500ml";
+    return expenses.filter(expense => isPurchase(expense) &&
+      expense.costCategory === sodaCategory);
+  }
+  return [];
+}
+
+function isAnalyticsNetAvailable() {
+  const selectedValue = analyticsItemFilter.value;
+  if (!selectedValue || isCombinedAnalyticsFilter(selectedValue)) return true;
+  const selectedItem = analyticsItemsById.get(selectedValue) ||
+    itemsArray.find(item => item.id === selectedValue);
+  return isPetrolItem(selectedItem) ||
+    isGasAnalyticsItem(selectedItem) ||
+    isSodaAnalyticsItem(selectedItem);
 }
 
 function getExpensesForDateRange(start, end) {
@@ -1424,8 +1801,17 @@ function renderAnalyticsStockAdditions() {
   const additions = stockAdditionsForAnalytics
     .filter(addition => {
       const additionDate = addition.stockDate || dateKey(new Date(addition.createdAt));
+      const groupedAddition = isCombinedAnalyticsFilter(selectedItemId) &&
+        matchesAnalyticsGroup(
+          analyticsItemsById.get(addition.itemId) ||
+            itemsArray.find(item => item.id === addition.itemId) ||
+            { name: addition.itemName },
+          selectedItemId
+        );
       return dateKeys.has(additionDate) &&
-        (!selectedItemId || addition.itemId === selectedItemId);
+        (!selectedItemId || (isCombinedAnalyticsFilter(selectedItemId)
+          ? groupedAddition
+          : addition.itemId === selectedItemId));
     })
     .sort((left, right) =>
       (right.stockDate || dateKey(new Date(right.createdAt)))
@@ -1546,7 +1932,7 @@ function renderOverviewTopItems(sales) {
     .sort((left, right) => right.revenue - left.revenue)
     .slice(0, 5);
   if (!topItems.length) {
-    overviewTopItems.innerHTML = `<p class="overview-empty-state">No non-petrol sales for this period.</p>`;
+    overviewTopItems.innerHTML = `<p class="overview-empty-state">No sales included in All Items analytics for this period.</p>`;
     return;
   }
   const maxRevenue = topItems[0].revenue || 1;
@@ -1572,11 +1958,13 @@ function renderOverviewRecentSales(sales) {
   overviewRecentSales.innerHTML = recentSales.length
     ? recentSales.map(sale => `<tr>
         <td>${escapeQuantity(new Date(sale.createdAt).toLocaleDateString())}</td>
-        <td>${escapeQuantity(sale.itemName || "Item")}</td>
+        <td>${escapeQuantity(sale.itemName || "Item")}${getSaleGasType(sale)
+          ? `<br><small class="sale-gas-type">${escapeQuantity(getGasTypeLabel(getSaleGasType(sale)))}</small>`
+          : ""}</td>
         <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
         <td>${formatNumber(sale.revenue)}</td>
       </tr>`).join("")
-    : `<tr><td colspan="4" class="overview-empty-state">No non-petrol sales for this period.</td></tr>`;
+    : `<tr><td colspan="4" class="overview-empty-state">No sales included in All Items analytics for this period.</td></tr>`;
 }
 
 function renderOverviewPetrol(sales) {
@@ -1618,7 +2006,7 @@ function isIncludedInAllAnalytics(sale) {
   if (typeof item?.includeInAllAnalytics === "boolean") {
     return item.includeInAllAnalytics;
   }
-  return !isPetrolName(item?.name || sale.itemName);
+  return !isExcludedFromAllAnalyticsName(item?.name || sale.itemName);
 }
 
 function dateKey(date) {
@@ -1749,7 +2137,9 @@ function renderSalesTable() {
           hour: '2-digit',
           minute: '2-digit'
         })}</td>
-        <td>${sale.itemName}</td>
+        <td>${sale.itemName}${getSaleGasType(sale)
+          ? `<br><small class="sale-gas-type">${getGasTypeLabel(getSaleGasType(sale))}</small>`
+          : ""}</td>
         <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
         <td>${formatNumber(sale.unitPriceSold)}</td>
         <td>${formatNumber(sale.revenue)}</td>
@@ -1891,6 +2281,7 @@ async function handleSaleFormSubmit(e) {
   const saleData = {
     itemId: selectedItemId,
     itemName: item.name,
+    ...(item.gasType ? { gasType: item.gasType } : {}),
     unitPriceSold,
     quantity: qtySold,
     quantityUnit,

@@ -20,6 +20,13 @@ export function isPetrolName(name) {
   return /\bpetrol\b/i.test(name || "");
 }
 
+export function isExcludedFromAllAnalyticsName(name) {
+  const normalizedName = String(name || "");
+  const isExcludedSoda = /\bsoda\b/i.test(normalizedName) &&
+    /\b(?:300|500)\s*ml\b/i.test(normalizedName);
+  return isPetrolName(normalizedName) || isExcludedSoda || /gas/i.test(normalizedName);
+}
+
 export const PIECES_PER_CRATE = 24;
 
 export function isCrateItem(name) {

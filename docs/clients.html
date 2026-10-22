@@ -110,7 +110,7 @@
             <tr>
               <th>Item</th>
               <th>Buying Price</th>
-              <th>Selling Price</th>
+              <th>Selling / Refilling Price</th>
               <th>Qty</th>
             </tr>
           </thead>
@@ -284,17 +284,20 @@
         <div class="overview-heading">
           <div>
             <h2>Business Overview</h2>
-            <p>Sales insights at a glance. Petrol is shown separately from other items.</p>
+            <p>Sales insights and key business metrics for the selected period.</p>
           </div>
-          <label for="overviewPeriodFilter">
-            Show
-            <select id="overviewPeriodFilter">
-              <option value="today" selected>Today</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-          </label>
+          <div class="overview-heading-tools">
+            <div id="overviewTodayDate" class="overview-today-date" aria-label="Today's date"></div>
+            <label for="overviewPeriodFilter">
+              Show
+              <select id="overviewPeriodFilter">
+                <option value="today" selected>Today</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+            </label>
+          </div>
         </div>
       </div>
       <div class="overview-stat-grid">
@@ -374,7 +377,7 @@
 
       <section class="overview-panel overview-recent-panel">
         <div class="overview-panel-heading">
-          <div><h3>Recent sales</h3><p>Latest non-petrol sales in the selected period</p></div>
+          <div><h3>Recent sales</h3><p>Latest sales included in All Items analytics</p></div>
           <button type="button" class="overview-link-button" data-overview-tab="sales">Open Sales</button>
         </div>
         <div class="overview-recent-table">
@@ -448,18 +451,38 @@
         <div class="analytics-section-heading">
           <h2>Business Analytics</h2>
           <div class="analytics-filters">
-            <label for="analyticsItemFilter">Item</label>
-            <select id="analyticsItemFilter">
-              <option value="">All items</option>
-            </select>
-            <label for="analyticsPeriodFilter">Breakdown</label>
-            <select id="analyticsPeriodFilter">
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-            <label id="analyticsDateLabel" for="analyticsDateFilter">Week of</label>
-            <input type="date" id="analyticsDateFilter" />
+            <div class="analytics-item-filter">
+              <div class="analytics-filter-control">
+                <label for="analyticsItemSearch">Search items</label>
+                <input type="search" id="analyticsItemSearch" placeholder="Search item names..." autocomplete="off" aria-describedby="analyticsItemSearchHint" />
+              </div>
+              <div class="analytics-filter-control">
+                <label for="analyticsItemFilter">Item</label>
+                <select id="analyticsItemFilter" aria-describedby="analyticsItemPageInfo">
+                  <option value="">All items</option>
+                  <option value="__all_gas__">All Gas (Refillable + Non-refillable)</option>
+                  <option value="__all_soda_300_500__">All Soda (300ml + 500ml)</option>
+                </select>
+                <div class="analytics-item-pagination">
+                  <button type="button" id="analyticsItemPrevBtn" aria-label="Previous item page" disabled>Previous</button>
+                  <span id="analyticsItemPageInfo" aria-live="polite">Loading items...</span>
+                  <button type="button" id="analyticsItemNextBtn" aria-label="Next item page" disabled>Next</button>
+                </div>
+              </div>
+              <small id="analyticsItemSearchHint" class="analytics-item-search-hint">Search from the start of a name. All Items uses the full dataset; All Gas and All Soda combine excluded items.</small>
+            </div>
+            <div class="analytics-filter-control analytics-filter-period">
+              <label for="analyticsPeriodFilter">Breakdown</label>
+              <select id="analyticsPeriodFilter">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div class="analytics-filter-control analytics-filter-date">
+              <label id="analyticsDateLabel" for="analyticsDateFilter">Week of</label>
+              <input type="date" id="analyticsDateFilter" />
+            </div>
           </div>
         </div>
       </div>
@@ -501,7 +524,10 @@
           <tbody id="analyticsStockAdditionsTable"></tbody>
         </table>
       </div>
-      <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">Export Analytics PDF</button>
+      <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">
+        <span class="btn-text">Export Analytics PDF</span>
+        <span class="spinner" aria-hidden="true"></span>
+      </button>
     </div>
 
     <!-- EXPENSES AND PURCHASES SECTION -->
@@ -528,8 +554,21 @@
               <option value="petrol">Petrol</option>
               <option value="gas-cylinder">Gas cylinder</option>
             </optgroup>
+            <optgroup label="Soda">
+              <option value="soda-300ml">300ml</option>
+              <option value="soda-500ml">500ml</option>
+            </optgroup>
           </select>
         </label>
+        <label id="expenseGasTypeField" for="expenseGasType" hidden>
+          Gas type
+          <select id="expenseGasType">
+            <option value="">Choose gas type...</option>
+            <option value="refillable">Refillable</option>
+            <option value="non-refillable">Non-refillable</option>
+          </select>
+        </label>
+        <small class="expense-analysis-hint">Purchases categorized as Gas or Soda are deducted only from their matching item analysis, not All Items.</small>
         <label for="expenseDescription">Description
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>
@@ -605,7 +644,10 @@
             <option value="gas-cylinder">Gas Cylinder</option>
           </select>
         </label>
-        <button type="button" id="openAddFuelEnergyItemBtn" class="action-btn" style="background:#b18f43;">Add fuel item</button>
+        <span class="inventory-create-tooltip">
+          <button type="button" id="openAddFuelEnergyItemBtn" class="action-btn" style="background:#b18f43;" aria-describedby="fuelItemCreateTooltip">Add fuel item</button>
+          <span id="fuelItemCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom Fuel & Energy item. It will appear in this dropdown and in expense cost categories.</span>
+        </span>
         <label for="crateTypeSelect">
           Choose crate
           <select id="crateTypeSelect">
@@ -624,12 +666,29 @@
             <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
           </select>
         </label>
-        <button type="button" id="openAddCrateTypeBtn" class="action-btn" style="background:#2563eb;">Add crate</button>
+        <span class="inventory-create-tooltip">
+          <button type="button" id="openAddCrateTypeBtn" class="action-btn" style="background:#2563eb;" aria-describedby="crateTypeCreateTooltip">Add crate</button>
+          <span id="crateTypeCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom crate preset with its pieces-per-crate setting for inventory entry.</span>
+        </span>
       </div>
       <form id="itemForm">
         <input type="text" id="itemName" placeholder="Item Name" required />
-        <input type="number" id="incomingPrice" placeholder="Buying Price" required />
-        <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
+        <label id="gasTypeField" class="inventory-crate-field" hidden>
+          Gas type
+          <select id="gasType" required>
+            <option value="">Choose gas type...</option>
+            <option value="refillable">Refillable</option>
+            <option value="non-refillable">Non-refillable</option>
+          </select>
+        </label>
+        <label class="inventory-price-field">
+          <span id="incomingPriceLabel">Buying Price</span>
+          <input type="number" id="incomingPrice" placeholder="Buying Price" required />
+        </label>
+        <label class="inventory-price-field">
+          <span id="outgoingPriceLabel">Selling Price</span>
+          <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
+        </label>
         <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
         <label id="crateLoosePiecesField" class="inventory-crate-field" hidden>
           Loose pieces in stock
@@ -648,8 +707,14 @@
           <input type="number" id="pieceSellingPrice" min="0" step="0.01" />
         </label>
         <label class="analytics-inclusion-option">
-          <input type="checkbox" id="includeInAllAnalytics" checked />
-          Include in All Items analytics (petrol is excluded by default)
+          <input type="checkbox" id="includeInAllAnalytics" />
+          <span class="analytics-inclusion-copy" tabindex="0" aria-describedby="analyticsInclusionTooltip">
+            <span>Include this item in the All Items analysis section</span>
+            <small>When checked, its sales are included in the combined analysis. You can analyze this item individually either way.</small>
+            <span id="analyticsInclusionTooltip" class="analytics-inclusion-tooltip" role="tooltip">
+              Petrol, Soda 300ml and 500ml, and items with “Gas” in the name are excluded from the All Items analysis by default, but remain available for individual analysis. Check this box to include this item in the combined analysis.
+            </span>
+          </span>
         </label>
         <button type="submit" id="saveItemBtn">
           <span class="btn-text">Save Item</span>
@@ -669,12 +734,22 @@
       </div>
       <p id="searchMessage" style="color:red; text-align:center;"></p>
       <div class="summary"><strong>Total Profit:</strong> KES <span id="totalProfit">0</span></div>
-      <table class="compact-data-table">
-        <thead>
-          <tr><th>Item</th><th>Buying Price</th><th>Selling Price</th><th>Quantity</th><th>S.Item Profit</th><th>PFT</th><th>Actions</th></tr>
-        </thead>
-        <tbody id="itemTable"></tbody>
-      </table>
+      <div class="inventory-table-wrap">
+        <table class="compact-data-table inventory-items-table">
+          <thead>
+            <tr>
+              <th><abbr tabindex="0" title="Inventory item name and gas type, if applicable.">Item</abbr></th>
+              <th><abbr tabindex="0" title="Cost paid to buy one item or one crate.">Buy Price</abbr></th>
+              <th><abbr tabindex="0" title="Customer selling price; for refillable gas, this is the refilling price charged to the customer.">Sell / Refill</abbr></th>
+              <th><abbr tabindex="0" title="Current quantity in stock.">Qty</abbr></th>
+              <th><abbr tabindex="0" title="Profit earned per single item sold.">S.Item Pft</abbr></th>
+              <th><abbr tabindex="0" title="Total profit based on the current stock quantity.">Total Pft</abbr></th>
+              <th><abbr tabindex="0" title="Available inventory actions: add stock, edit, or delete.">Actions</abbr></th>
+            </tr>
+          </thead>
+          <tbody id="itemTable"></tbody>
+        </table>
+      </div>
 
       <!-- PAGINATION CONTROLS -->
       <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-top: 20px;">

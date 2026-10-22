@@ -36,7 +36,15 @@ service cloud.firestore {
     }
 
     function isValidFuelCostCategory(category) {
-      return category in ['general', 'petrol', 'gas-cylinder'] ||
+      return category in [
+          'general',
+          'petrol',
+          'gas-cylinder',
+          'gas-refillable',
+          'gas-nonrefillable',
+          'soda-300ml',
+          'soda-500ml'
+        ] ||
         (category is string && category.matches('^fuel:[A-Za-z0-9_-]{20}$'));
     }
 
