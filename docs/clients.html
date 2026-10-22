@@ -243,22 +243,27 @@
   <!-- BUSINESS SYSTEM CONTAINER -->
   <div class="container" style="display:none;">
     <div id="dataLoadingBar" class="data-loading-bar" role="progressbar" aria-label="Loading data" aria-valuetext="Loading" hidden></div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h1 id="bizTitle">Business Management</h1>
-      <div class="client-profile-menu">
-        <button type="button" id="clientProfileToggle" class="client-profile-toggle" aria-label="Open profile menu" aria-controls="clientProfileMenu" aria-expanded="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="8" r="3.5"></circle>
-            <path d="M5.5 20c.5-3.5 2.8-5.5 6.5-5.5s6 2 6.5 5.5"></path>
-          </svg>
-        </button>
-        <div id="clientProfileMenu" class="client-profile-dropdown" hidden>
-          <button type="button" id="viewClientProfileBtn">View profile</button>
-          <button type="button" id="logoutBtn" class="client-profile-logout">Log out</button>
+    <header class="business-header">
+      <div class="business-header-brand">
+        <h1 id="bizTitle">Business Management</h1>
+      </div>
+      <div id="overviewTodayDate" class="business-header-date" aria-label="Today's date"></div>
+      <div class="business-header-actions">
+        <span id="syncStatusIndicator" aria-live="polite"></span>
+        <div class="client-profile-menu">
+          <button type="button" id="clientProfileToggle" class="client-profile-toggle" aria-label="Open profile menu" aria-controls="clientProfileMenu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5"></circle>
+              <path d="M5.5 20c.5-3.5 2.8-5.5 6.5-5.5s6 2 6.5 5.5"></path>
+            </svg>
+          </button>
+          <div id="clientProfileMenu" class="client-profile-dropdown" hidden>
+            <button type="button" id="viewClientProfileBtn">View profile</button>
+            <button type="button" id="logoutBtn" class="client-profile-logout">Log out</button>
+          </div>
         </div>
       </div>
-      <span id="syncStatusIndicator" style="display: none; margin-left: 15px; font-weight: bold; color: #2563eb;"></span>
-    </div>
+    </header>
 
     <section class="dashboard-welcome" aria-live="polite">
       <h2 id="welcomeMessage">Welcome back!</h2>
@@ -305,7 +310,6 @@
             <p>Sales insights and key business metrics for the selected period.</p>
           </div>
           <div class="overview-heading-tools">
-            <div id="overviewTodayDate" class="overview-today-date" aria-label="Today's date"></div>
             <label for="overviewPeriodFilter">
               Show
               <select id="overviewPeriodFilter">
@@ -430,6 +434,12 @@
             <option value="piece">Piece</option>
           </select>
         </label>
+        <label for="saleType">Sale type
+          <select id="saleType">
+            <option value="retail" selected>Retail</option>
+            <option value="wholesale">Wholesale</option>
+          </select>
+        </label>
         <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
           Crate size
           <select id="saleCrateSize">
@@ -459,7 +469,7 @@
       </form>
       <table class="compact-data-table">
         <thead>
-          <tr><th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Sold At</th><th>Revenue</th><th>Profit</th><th>Actions</th></tr>
+          <tr><th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Sale type</th><th>Sold At</th><th>Revenue</th><th>Profit</th><th>Actions</th></tr>
         </thead>
         <tbody id="salesTable"></tbody>
       </table>
@@ -522,6 +532,7 @@
         <div class="stat-card"><h3>Gross Sales Profit</h3><p>KES <span id="analyticsGrossProfitTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Expenses & Purchases</h3><p>KES <span id="analyticsExpenseTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
+        <div class="stat-card"><h3>Wholesale Discounts</h3><p>KES <span id="analyticsDiscountTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Items Sold</h3><p id="analyticsQuantityTotal">0</p></div>
       </div>
       <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
@@ -541,7 +552,7 @@
       <div class="analytics-breakdown-table">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Items sold</th></tr>
+            <tr><th>Period</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Wholesale discounts</th><th>Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -583,7 +594,9 @@
             <option value="general">General</option>
             <optgroup id="fuelEnergyExpenseOptions" label="Fuel & Energy">
               <option value="petrol">Petrol</option>
-              <option value="gas-cylinder">Gas cylinder</option>
+              <option value="k-gas">K GAS</option>
+              <option value="total-gas">TOTAL GAS</option>
+              <option value="pro-gas">PRO GAS</option>
             </optgroup>
             <optgroup label="Soda">
               <option value="soda-300ml">300ml</option>
@@ -692,7 +705,9 @@
           <select id="fuelEnergyItemSelect">
             <option value="">Choose fuel or energy item...</option>
             <option value="petrol">Petrol</option>
-            <option value="gas-cylinder">Gas Cylinder</option>
+            <option value="k-gas">K GAS</option>
+            <option value="total-gas">TOTAL GAS</option>
+            <option value="pro-gas">PRO GAS</option>
           </select>
         </div>
         <div class="inventory-stock-tool-group">

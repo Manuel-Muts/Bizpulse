@@ -289,6 +289,72 @@ button.loading .btn-text {
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+.business-header {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin: -12px 0 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(10px);
+}
+
+.business-header-brand,
+.business-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.business-header-brand {
+  grid-column: 1;
+}
+
+.business-header-brand h1 {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: clamp(20px, 2.4vw, 30px);
+  line-height: 1.15;
+}
+
+.business-header-date {
+  grid-column: 2;
+  justify-self: center;
+  padding: 13px 36px;
+  border: 1px solid rgba(255, 248, 223, 0.68);
+  border-radius: 16px;
+  background:
+    linear-gradient(90deg, rgba(18, 50, 43, 0.56), rgba(26, 67, 54, 0.24) 48%, rgba(95, 67, 25, 0.4)),
+    url("../images/date-banner.svg") center / cover;
+  box-shadow: 0 8px 20px rgba(23, 62, 53, 0.2), inset 0 1px rgba(255, 255, 255, 0.3);
+  color: #fff9e5;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-shadow: 0 2px 5px rgba(13, 38, 32, 0.72);
+  white-space: nowrap;
+}
+
+.business-header-actions {
+  grid-column: 3;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+#syncStatusIndicator {
+  margin: 0;
+  font-weight: 700;
+  color: #2563eb;
+}
+
 @media (min-width: 901px) {
   body.client-page {
     min-height: 100vh;
@@ -576,20 +642,6 @@ button.loading .btn-text {
   gap: 16px;
 }
 
-.overview-today-date {
-  padding: 10px 16px;
-  border: 1px solid #d7e8d9;
-  border-left: 4px solid #b18f43;
-  border-radius: 10px;
-  background: linear-gradient(110deg, #e9f6eb, #fff8e6);
-  box-shadow: 0 4px 12px rgba(51, 84, 59, 0.1);
-  color: #315f42;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-
 .overview-heading p,
 .overview-panel-heading p {
   margin-top: 5px;
@@ -866,7 +918,7 @@ button.loading .btn-text {
 .expense-form {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
-  align-items: end;
+  align-items: start;
   padding: 16px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -1042,7 +1094,7 @@ button.loading .btn-text {
 .analytics-filters {
   display: grid;
   grid-template-columns: minmax(300px, 1.8fr) repeat(2, minmax(150px, 0.8fr));
-  align-items: stretch;
+  align-items: start;
   gap: 12px;
   width: 100%;
 }
@@ -1063,6 +1115,7 @@ button.loading .btn-text {
 .analytics-item-filter {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 10px;
   min-width: 0;
   padding: 12px;
@@ -1480,8 +1533,13 @@ button.loading .btn-text {
 form {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
+  align-items: start;
   gap: 12px;
   margin-bottom: 20px;
+}
+
+form > * {
+  align-self: start;
 }
 
 form input, form button {
@@ -2029,6 +2087,40 @@ table tr:hover {
     padding: 10px;
   }
 
+  .business-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-top: -4px;
+    padding: 10px 0;
+  }
+
+  .business-header-brand {
+    grid-column: 1;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .business-header-brand h1 {
+    font-size: 20px;
+  }
+
+  .business-header-date {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: center;
+    box-sizing: border-box;
+    max-width: 100%;
+    padding: 10px 24px;
+    font-size: 13px;
+    white-space: normal;
+  }
+
+  .business-header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 8px;
+  }
+
   .home-page {
     padding: 0;
   }
@@ -2161,6 +2253,7 @@ table tr:hover {
   #itemForm {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
     gap: 10px;
   }
 
@@ -2212,7 +2305,7 @@ table tr:hover {
   }
 
   .inventory-stock-tools {
-    align-items: stretch;
+    align-items: flex-start;
   }
 
   .expense-form {
@@ -2278,12 +2371,6 @@ table tr:hover {
     width: 100%;
     flex-wrap: wrap;
     gap: 10px;
-  }
-
-  .overview-today-date {
-    width: 100%;
-    box-sizing: border-box;
-    text-align: center;
   }
 
   .overview-heading-tools > label {

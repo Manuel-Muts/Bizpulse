@@ -257,7 +257,9 @@ fuelEnergyItemSelect.addEventListener("change", () => {
 
 function getFuelEnergyItem(categoryId) {
   if (categoryId === "petrol") return { name: "PETROL" };
-  if (categoryId === "gas-cylinder") return { name: "GAS CYLINDER" };
+  if (categoryId === "k-gas") return { name: "K GAS" };
+  if (categoryId === "total-gas") return { name: "TOTAL GAS" };
+  if (categoryId === "pro-gas") return { name: "PRO GAS" };
   return customFuelEnergyItems.find(category => `fuel:${category.id}` === categoryId) || null;
 }
 
@@ -309,10 +311,11 @@ addFuelEnergyItemForm.addEventListener("submit", async event => {
     alert("Enter a Fuel & Energy item name.");
     return;
   }
-
   const duplicateNames = [
     "PETROL",
-    "GAS CYLINDER",
+    "K GAS",
+    "TOTAL GAS",
+    "PRO GAS",
     ...customFuelEnergyItems.map(category => category.name)
   ];
   if (duplicateNames.some(existingName => existingName.trim().toLowerCase() === name.toLowerCase())) {

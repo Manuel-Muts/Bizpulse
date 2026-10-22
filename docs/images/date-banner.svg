@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="180" viewBox="0 0 720 180" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="720" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173E35"/>
+      <stop offset=".52" stop-color="#2F725C"/>
+      <stop offset="1" stop-color="#B18F43"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="170" y1="0" x2="590" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF4C7" stop-opacity=".08"/>
+      <stop offset=".5" stop-color="#FFF4C7" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#FFF4C7" stop-opacity=".04"/>
+    </linearGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.2" fill="#FFF8DF" fill-opacity=".3"/>
+    </pattern>
+  </defs>
+  <rect width="720" height="180" rx="24" fill="url(#bg)"/>
+  <rect width="720" height="180" rx="24" fill="url(#glow)"/>
+  <path d="M0 143C121 97 190 184 329 131c120-46 224-84 391-18v67H0v-37Z" fill="#163D34" fill-opacity=".2"/>
+  <path d="M0 158c140-54 230 24 351-15 136-43 234-58 369-11v48H0v-22Z" fill="#FFF8DF" fill-opacity=".08"/>
+  <rect width="720" height="180" rx="24" fill="url(#dots)"/>
+  <g stroke="#FFF8DF" stroke-opacity=".46" stroke-width="2">
+    <path d="M74 44v-12M116 44v-12M62 54h66"/>
+    <rect x="54" y="42" width="82" height="68" rx="12"/>
+    <path d="M72 70h12m12 0h12m-36 16h12m12 0h12"/>
+  </g>
+  <g fill="#FFF4C7" fill-opacity=".65">
+    <circle cx="622" cy="46" r="3"/>
+    <circle cx="648" cy="78" r="2"/>
+    <circle cx="594" cy="102" r="2"/>
+    <path d="m654 117 3 8 8 3-8 3-3 8-3-8-8-3 8-3 3-8Z"/>
+    <path d="m560 36 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Z"/>
+  </g>
+</svg>
