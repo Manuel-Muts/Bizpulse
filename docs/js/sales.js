@@ -1224,16 +1224,15 @@ function parseLiterInput(input) {
 }
 
 function getAnalyticsDateRange(period, selectedDate) {
+  const end = new Date(`${selectedDate}T00:00:00`);
+  end.setDate(end.getDate() + 1);
+
   if (period === "daily") {
-    const start = new Date(`${selectedDate}T00:00:00`);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 1);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 1);
     return { start, end };
   }
 
-  const end = new Date();
-  end.setHours(0, 0, 0, 0);
-  end.setDate(end.getDate() + 1);
   const start = new Date(end);
   if (period === "last-7-days") start.setDate(start.getDate() - 7);
   else if (period === "last-30-days") start.setDate(start.getDate() - 30);
@@ -2312,9 +2311,9 @@ function getAnalyticsBreakdownRows(period, selectedDate, dailyTotals) {
 function updateAnalyticsDateLabel() {
   const period = analyticsPeriodFilter.value;
   const isDaily = period === "daily";
-  analyticsDateFilter.closest(".analytics-filter-date").hidden = !isDaily;
+  analyticsDateFilter.closest(".analytics-filter-date").hidden = false;
   analyticsDateFilter.type = "date";
-  analyticsDateLabel.textContent = "Date";
+  analyticsDateLabel.textContent = isDaily ? "Date" : "Through date";
 }
 
 /**
