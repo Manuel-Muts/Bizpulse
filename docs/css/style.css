@@ -12,7 +12,7 @@ body {
 .data-loading-bar {
   position: relative;
   width: 100%;
-  height: 3px;
+  height: 5px;
   margin: 0 0 10px;
   overflow: hidden;
   border-radius: 3px;

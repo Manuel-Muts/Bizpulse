@@ -1236,9 +1236,8 @@ document.addEventListener("keydown", event => {
   }
 });
 
-// Initialize/Restore tab
-const savedDashboardTab = localStorage.getItem('bizPulse_activeTab');
-switchTab(savedDashboardTab && savedDashboardTab !== "inventory" ? savedDashboardTab : "overview");
+// Start each client-page session on the Overview section.
+switchTab("overview");
 
 /* =========================
    LOGOUT LOGIC
