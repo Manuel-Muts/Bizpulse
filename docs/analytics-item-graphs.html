@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Item Sales Graphs</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="analytics-graphs-body">
+  <main class="analytics-graphs-page">
+    <header class="analytics-graphs-header">
+      <div>
+        <p class="analytics-graphs-eyebrow">BUSINESS ANALYTICS</p>
+        <h1 id="analyticsGraphsTitle">Item sales graphs</h1>
+        <p id="analyticsGraphsMeta" class="analytics-graphs-meta">Connecting to Analytics…</p>
+      </div>
+      <div class="analytics-graphs-actions">
+        <button type="button" id="analyticsGraphsBack" class="analytics-graphs-back">Back to Analytics</button>
+        <button type="button" id="analyticsGraphsPrint" class="analytics-graphs-print">Print graphs</button>
+      </div>
+    </header>
+    <p id="analyticsGraphsStatus" class="analytics-graphs-status" role="status">Loading selected group sales…</p>
+    <div id="analyticsGraphsContent" class="analytics-graphs-content" hidden></div>
+  </main>
+  <script type="module" src="js/analytics-item-graphs-page.js"></script>
+</body>
+</html>

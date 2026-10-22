@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock History Backfill Dry Run</title>
+  <style>
+    body {
+      max-width: 1100px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #17212b;
+      font: 16px/1.5 system-ui, sans-serif;
+    }
+    button {
+      margin: 0.75rem 0.5rem 0.75rem 0;
+      padding: 0.65rem 1rem;
+      cursor: pointer;
+    }
+    button:disabled {
+      cursor: not-allowed;
+    }
+    #status {
+      padding: 0.75rem;
+      background: #f1f5f9;
+      border-radius: 0.35rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      margin-top: 1rem;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.55rem;
+      border: 1px solid #cbd5e1;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f1f5f9;
+    }
+    .eligible {
+      color: #166534;
+    }
+    .review {
+      color: #9a3412;
+    }
+    pre {
+      overflow: auto;
+      padding: 1rem;
+      background: #f8fafc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Stock History Backfill — Dry Run</h1>
+  <p>
+    Preview a November 1, 2025 opening balance for non-Petrol inventory using
+    recorded sales, stock additions, and manual adjustments. The preview is
+    read-only; applying ready items is a separate, confirmed action.
+  </p>
+  <p>
+    The item's system creation date does not exclude backdated activity.
+    Historical balances are inferred from current quantity and dated
+    transactions on or after November 1, 2025. Existing sales and stock
+    addition records are not modified. Petrol remains on its separate dip
+    tracking.
+  </p>
+  <p>
+    This page only reports what has been entered so far; it cannot verify that
+    data entry is complete through today. If an item has no dated activity, its
+    current quantity is used as an assumed November 1 opening balance. Items
+    with additions only have those additions subtracted to infer opening stock.
+  </p>
+  <p>
+    Historical values are only as complete as the source records. Manual stock
+    changes that were never recorded, missing transactions, and deleted records
+    cannot be reconstructed automatically.
+  </p>
+  <p>
+    Use the same browser session as the business app. For local use, run
+    <code>node docs\dev-server.js</code> from the repository root, sign in at
+    <code>http://localhost:3000</code>, then open
+    <code>http://localhost:3000/stock-ledger-backfill.html</code>.
+  </p>
+  <p id="status" role="status">Checking sign-in…</p>
+  <button id="runDryRun" type="button" disabled>Run dry run</button>
+  <button id="downloadReport" type="button" disabled>Download JSON report</button>
+  <section id="applySection" hidden>
+    <label>
+      <input id="confirmHistoryComplete" type="checkbox">
+      I have entered all intended sales and stock additions through the period I want to report.
+    </label>
+    <br>
+    <button id="applyBackfill" type="button" disabled>Apply ready items</button>
+    <p>
+      Applying sets ready non-Petrol items' stock-history baseline to
+      November 1, 2025. Sales and additions remain unchanged; analytics will
+      calculate balances from their recorded dates and recorded manual
+      adjustments. Items that fail validation are skipped.
+    </p>
+  </section>
+  <div id="results"></div>
+  <script type="module" src="./js/stock-ledger-backfill.js"></script>
+</body>
+</html>

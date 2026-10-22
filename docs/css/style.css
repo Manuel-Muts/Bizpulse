@@ -496,6 +496,39 @@ button.loading .btn-text {
   color: #1e3a8a;
 }
 
+.dashboard-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dashboard-refresh-button span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.dashboard-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.dashboard-refresh-status {
+  margin: -12px 0 16px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.dashboard-refresh-status:empty {
+  display: none;
+}
+
 .dashboard-menu-backdrop {
   position: fixed;
   inset: 0;
@@ -639,6 +672,261 @@ button.loading .btn-text {
   margin: -8px 0 18px;
   color: #64748b;
   font-size: 12px;
+}
+
+.analytics-item-chart-module {
+  margin: 0 0 18px;
+}
+
+.analytics-item-chart-module[hidden] {
+  display: none;
+}
+
+.analytics-item-chart-toggle {
+  padding: 9px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analytics-item-chart-toggle:hover {
+  background: #dbeafe;
+}
+
+.analytics-item-chart-toggle:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.analytics-graphs-body {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.analytics-graphs-page {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+  padding: 28px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+}
+
+.analytics-graphs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.analytics-graphs-eyebrow {
+  margin: 0 0 6px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.analytics-graphs-header h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: clamp(22px, 3vw, 32px);
+  overflow-wrap: anywhere;
+}
+
+.analytics-graphs-meta {
+  margin: 7px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.analytics-graphs-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analytics-graphs-back,
+.analytics-graphs-print {
+  padding: 9px 14px;
+  border-radius: 7px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analytics-graphs-back {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.analytics-graphs-print {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.analytics-graphs-status,
+.analytics-graphs-empty {
+  margin: 20px 0 0;
+  color: #64748b;
+}
+
+.analytics-graph-unit-section {
+  margin-top: 24px;
+  padding: 20px;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.analytics-graph-unit-section h2 {
+  margin: 0;
+  color: #1e3a8a;
+  font-size: 18px;
+}
+
+.analytics-graph-unit-hint {
+  margin: 5px 0 14px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.analytics-sales-graph {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+  height: auto;
+  overflow: visible;
+}
+
+.analytics-graph-gridline {
+  stroke: #64748b;
+  stroke-dasharray: 4 3;
+  stroke-width: 1.5;
+}
+
+.analytics-graph-tick {
+  fill: #64748b;
+  font-size: 11px;
+}
+
+.analytics-graph-item-label {
+  fill: #334155;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.analytics-graph-bar {
+  fill: #60a5fa;
+}
+
+.analytics-graph-bar-top {
+  fill: #2563eb;
+}
+
+.analytics-graph-value {
+  fill: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.analytics-graph-axis-label {
+  fill: #475569;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.analytics-graph-breakdown {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.analytics-graph-breakdown h3 {
+  margin: 0 0 8px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.analytics-graph-breakdown ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analytics-graph-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.analytics-graph-breakdown strong {
+  text-align: right;
+}
+
+@media (max-width: 700px) {
+  .analytics-graphs-body {
+    padding: 10px;
+  }
+
+  .analytics-graphs-page {
+    padding: 16px 10px;
+  }
+
+  .analytics-graphs-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .analytics-graph-unit-section {
+    padding: 12px 8px;
+  }
+
+  .analytics-graph-item-label {
+    font-size: 11px;
+  }
+
+  .analytics-graph-tick {
+    font-size: 10px;
+  }
+}
+
+@media print {
+  .analytics-graphs-body {
+    padding: 0;
+    background: #fff;
+  }
+
+  .analytics-graphs-page {
+    width: 100%;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .analytics-graphs-actions {
+    display: none;
+  }
+
+  .analytics-graph-unit-section {
+    break-inside: avoid;
+  }
 }
 
 .overview-heading {
@@ -1314,6 +1602,108 @@ button.loading .btn-text {
   margin-top: 0;
 }
 
+.analytics-sales-breakdown table {
+  table-layout: fixed;
+}
+
+.analytics-sales-breakdown th,
+.analytics-sales-breakdown td {
+  padding: 7px 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.analytics-sales-breakdown th:nth-child(1) { width: 11%; }
+.analytics-sales-breakdown th:nth-child(2),
+.analytics-sales-breakdown th:nth-child(3) { width: 17%; }
+.analytics-sales-breakdown th:nth-child(4),
+.analytics-sales-breakdown th:nth-child(5),
+.analytics-sales-breakdown th:nth-child(7) { width: 8%; }
+.analytics-sales-breakdown th:nth-child(6) { width: 7%; }
+.analytics-sales-breakdown th:nth-child(8) { width: 11%; }
+.analytics-sales-breakdown th:nth-child(9) { width: 13%; }
+
+.analytics-sales-breakdown th abbr {
+  font-size: 11px;
+}
+
+.analytics-sales-breakdown .analytics-stock-balance-cell {
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.analytics-sales-breakdown td:nth-child(9) {
+  overflow-wrap: normal;
+}
+
+.analytics-selected-item-badge {
+  display: inline-block;
+  min-width: 0;
+  max-width: 50%;
+  padding: 2px 7px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.sales-analytics-grid .analytics-items-sold-card h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.analytics-selected-item-badge[hidden] {
+  display: none;
+}
+
+.analytics-stock-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid #e8edf3;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.analytics-stock-item:last-child {
+  border-bottom: 0;
+}
+
+.analytics-stock-item-name {
+  min-width: 0;
+  color: #475569;
+  overflow-wrap: anywhere;
+}
+
+.analytics-stock-item-quantity {
+  flex: 0 0 auto;
+  color: #0f172a;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.analytics-stock-message {
+  color: #64748b;
+  font-size: 10px;
+}
+
 .petrol-dip-fields {
   display: grid;
   grid-column: 1 / -1;
@@ -1365,13 +1755,27 @@ button.loading .btn-text {
   color: #1e3a8a;
 }
 
+.analytics-pdf-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .analytics-pdf-button {
-  margin: 16px 4px;
+  margin: 16px 0;
   min-height: 42px;
   padding: 10px 16px;
-  background: #2563eb;
+  background: #7c3aed;
   color: #fff;
   font-weight: 600;
+}
+
+.analytics-pdf-button:hover {
+  background: #6d28d9;
+}
+
+.analytics-pdf-button:focus-visible {
+  outline: 3px solid #c4b5fd;
+  outline-offset: 2px;
 }
 
 .stat-card {
@@ -1621,6 +2025,81 @@ form input, form button {
 
 .sale-quantity-field {
   min-width: 0;
+}
+
+#saleForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+#saleForm .sale-item-search {
+  position: relative;
+  flex: 0 1 280px;
+  min-width: 0;
+}
+
+#saleForm .sale-form-field {
+  flex: 0 1 155px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#saleForm .sale-quantity-unit-field {
+  flex: 0 1 145px;
+  min-width: 0;
+}
+
+#saleForm .sale-quantity-field {
+  flex: 0 1 220px;
+}
+
+#saleForm .sale-form-field input,
+#saleForm .sale-form-field select,
+#saleForm .sale-item-search > input,
+#saleForm .sale-quantity-unit-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+}
+
+#saleForm .sale-form-field input,
+#saleForm .sale-item-search > input {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+#saleForm .sale-quantity-field small {
+  font-weight: 400;
+}
+
+#saleForm #recordSaleBtn {
+  box-sizing: border-box;
+  flex: 0 1 150px;
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+#saleForm .petrol-dip-fields {
+  flex: 1 1 100%;
 }
 
 .sale-crate-stock-status {
@@ -2332,12 +2811,20 @@ table tr:hover {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    padding: 12px;
   }
 
-  #saleForm > div,
+  #saleForm .sale-item-search,
+  #saleForm .sale-quantity-field,
+  #saleForm .petrol-dip-fields,
   #saleForm #recordSaleBtn {
     grid-column: 1 / -1;
+    flex: initial;
     min-width: 0;
+  }
+
+  #saleForm #recordSaleBtn {
+    width: 100%;
   }
 
   #saleForm .petrol-dip-fields {
@@ -2530,6 +3017,37 @@ table tr:hover {
     overflow-wrap: anywhere;
   }
 
+  .analytics-sales-breakdown th,
+  .analytics-sales-breakdown td {
+    padding: 6px 3px;
+    font-size: 10px;
+  }
+
+  .analytics-sales-breakdown table {
+    min-width: 960px;
+  }
+
+  .analytics-sales-breakdown th abbr {
+    font-size: 10px;
+  }
+
+  .analytics-sales-breakdown .analytics-stock-balance-cell {
+    padding: 4px;
+  }
+
+  .analytics-stock-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 9px;
+  }
+
+  .analytics-stock-item-quantity,
+  .analytics-stock-message {
+    font-size: 9px;
+    text-align: left;
+  }
+
   .analytics-section-heading {
     gap: 12px;
   }
@@ -2573,8 +3091,7 @@ table tr:hover {
   }
 
   .analytics-pdf-button {
-    width: 100%;
-    margin: 16px 0;
+    width: auto;
   }
 
   .petrol-dip-fields {
@@ -2596,6 +3113,10 @@ table tr:hover {
 
   form {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  #saleForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .overview-stat-grid {

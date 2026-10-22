@@ -250,6 +250,10 @@
       <div id="overviewTodayDate" class="business-header-date" aria-label="Today's date"></div>
       <div class="business-header-actions">
         <span id="syncStatusIndicator" aria-live="polite"></span>
+        <button type="button" id="dashboardRefreshButton" class="dashboard-refresh-button" title="Refresh the current section">
+          <span aria-hidden="true">↻</span>
+          Refresh
+        </button>
         <div class="client-profile-menu">
           <button type="button" id="clientProfileToggle" class="client-profile-toggle" aria-label="Open profile menu" aria-controls="clientProfileMenu" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -264,6 +268,7 @@
         </div>
       </div>
     </header>
+    <p id="dashboardRefreshStatus" class="dashboard-refresh-status" role="status" aria-live="polite"></p>
 
     <section class="dashboard-welcome" aria-live="polite">
       <h2 id="welcomeMessage">Welcome back!</h2>
@@ -421,11 +426,10 @@
         </div>
       </div>
       <form id="saleForm">
-        <div style="position: relative; flex: 1;">
+        <div class="sale-item-search">
           <input type="text" id="saleItemSearch" placeholder="Search Item (Name)..." required autocomplete="off" />
           <div id="saleSearchResults" class="search-results-dropdown" style="display: none;"></div>
         </div>
-        <input type="number" id="salePrice" placeholder="Price Sold" required />
         <label id="saleQuantityUnitField" class="sale-quantity-unit-field" hidden>
           Sell as
           <select id="saleQuantityUnit">
@@ -434,11 +438,14 @@
             <option value="piece">Piece</option>
           </select>
         </label>
-        <label for="saleType">Sale type
+        <label class="sale-form-field" for="saleType">Sale type
           <select id="saleType">
             <option value="retail" selected>Retail</option>
             <option value="wholesale">Wholesale</option>
           </select>
+        </label>
+        <label class="sale-form-field" for="salePrice">Price sold
+          <input type="number" id="salePrice" placeholder="Price Sold" required />
         </label>
         <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
           Crate size
@@ -447,10 +454,10 @@
             <option value="half">Half crate</option>
           </select>
         </label>
-        <div class="sale-quantity-field">
+        <label class="sale-quantity-field sale-form-field" for="saleQuantity">Quantity
           <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
           <small id="saleCrateStockStatus" class="sale-crate-stock-status" hidden></small>
-        </div>
+        </label>
         <fieldset id="petrolDipFields" class="petrol-dip-fields" hidden>
           <legend>Petrol Dip Record (Liters)</legend>
           <p class="petrol-dip-formula">Total Available = Opening Dip + Fuel Received. Expected Closing = Total Available - Pump Sales. Variance = Actual Closing - Expected Closing.</p>
@@ -557,12 +564,15 @@
         <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Wholesale Discounts</h3><p>KES <span id="analyticsDiscountTotal">0.00</span></p></div>
         <div class="stat-card analytics-items-sold-card">
-          <h3>Items Sold</h3>
+          <h3>Items Sold <span id="analyticsSelectedItemBadge" class="analytics-selected-item-badge" hidden></span></h3>
           <p id="analyticsQuantityTotal">0</p>
           <div id="analyticsSaleTypeBreakdown" class="analytics-sale-type-breakdown" aria-live="polite"></div>
         </div>
       </div>
       <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
+      <section id="analyticsItemChartModule" class="analytics-item-chart-module" hidden>
+        <button type="button" id="analyticsItemChartToggle" class="analytics-item-chart-toggle">Open item sales graphs</button>
+      </section>
       <div id="petrolAnalyticsPreview" class="analytics-breakdown-table petrol-analytics-preview" hidden>
         <h3>Petrol Dip Breakdown</h3>
         <table class="compact-data-table">
@@ -576,10 +586,16 @@
           <tbody id="petrolAnalyticsTable"></tbody>
         </table>
       </div>
-      <div class="analytics-breakdown-table">
+      <div class="analytics-pdf-actions">
+        <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">
+          <span class="btn-text">Export Analytics PDF</span>
+          <span class="spinner" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="analytics-breakdown-table analytics-sales-breakdown">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Wholesale discounts</th><th>Items sold</th></tr>
+            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per unit.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail unit price − wholesale unit price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th>Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -593,10 +609,6 @@
           <tbody id="analyticsStockAdditionsTable"></tbody>
         </table>
       </div>
-      <button type="button" id="exportAnalyticsPdfBtn" class="action-btn analytics-pdf-button">
-        <span class="btn-text">Export Analytics PDF</span>
-        <span class="spinner" aria-hidden="true"></span>
-      </button>
     </div>
 
     <!-- EXPENSES AND PURCHASES SECTION -->
@@ -625,10 +637,6 @@
               <option value="total-gas">TOTAL GAS</option>
               <option value="pro-gas">PRO GAS</option>
             </optgroup>
-            <optgroup label="Soda">
-              <option value="soda-300ml">300ml</option>
-              <option value="soda-500ml">500ml</option>
-            </optgroup>
             <option value="crate-item">Crate Items</option>
             <option value="accessory-item">Accessories</option>
           </select>
@@ -653,7 +661,7 @@
             <option value="non-refillable">Non-refillable</option>
           </select>
         </label>
-        <small class="expense-analysis-hint">Purchases categorized as Gas or Soda are deducted only from their matching analysis. Crate Items and Accessories costs are attributed to the selected item rather than General Items. For Soda or Crate Items, a numeric-only description is completed with “CRATES”. Fuel & Energy categories require a refillable or non-refillable type.</small>
+        <small class="expense-analysis-hint">Purchases categorized as Gas are deducted only from their matching analysis. Crate Items and Accessories costs are attributed to the selected item rather than General Items. For Crate Items, a numeric-only description is completed with “CRATES”. Fuel & Energy categories require a refillable or non-refillable type.</small>
         <label for="expenseDescription">Description
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>

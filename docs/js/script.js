@@ -29,7 +29,12 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-import { initSalesModule, loadSales, updateSaleDropdown } from "./sales.js";
+import {
+  initSalesModule,
+  loadSales,
+  refreshSalesSection,
+  updateSaleDropdown
+} from "./sales.js";
 import {
   escapeQuantity,
   appendQuantityUnit,
@@ -1135,11 +1140,48 @@ function switchTab(tabId) {
 
   const sectionLabel = document.getElementById("currentDashboardSection");
   if (sectionLabel && activeBtn) sectionLabel.textContent = activeBtn.textContent.trim();
+  dashboardRefreshStatus.textContent = "";
 
   // Cache the selection in LocalStorage
   localStorage.setItem('bizPulse_activeTab', tabId);
   closeDashboardNavigation();
 }
+
+const dashboardRefreshButton = document.getElementById("dashboardRefreshButton");
+const dashboardRefreshStatus = document.getElementById("dashboardRefreshStatus");
+
+dashboardRefreshButton?.addEventListener("click", async () => {
+  const activeTab = document.querySelector(".tab-btn.active")?.getAttribute("data-tab");
+  const user = auth.currentUser;
+  if (!activeTab || !user) {
+    dashboardRefreshStatus.textContent = "Sign in before refreshing dashboard data.";
+    return;
+  }
+
+  dashboardRefreshButton.disabled = true;
+  dashboardRefreshButton.setAttribute("aria-busy", "true");
+  dashboardRefreshStatus.textContent = `Refreshing ${activeTab}…`;
+
+  try {
+    if (activeTab === "inventory") {
+      await loadItems(user.uid, "initial", searchInput.value);
+    } else if (activeTab === "orders") {
+      await loadOrdersPaginated(user.uid, "initial");
+    } else if (activeTab === "sales") {
+      await loadSales(user.uid, "initial");
+    } else {
+      await refreshSalesSection(activeTab);
+    }
+    dashboardRefreshStatus.textContent =
+      `${document.getElementById("currentDashboardSection").textContent} refresh requested.`;
+  } catch (error) {
+    console.error(`Unable to refresh the ${activeTab} section:`, error);
+    dashboardRefreshStatus.textContent = `Unable to refresh ${activeTab}. Please try again.`;
+  } finally {
+    dashboardRefreshButton.disabled = false;
+    dashboardRefreshButton.removeAttribute("aria-busy");
+  }
+});
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {

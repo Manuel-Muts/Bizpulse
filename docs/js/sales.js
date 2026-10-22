@@ -19,6 +19,7 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
+import { getAnalyticsItemSalesRanking } from "./analytics-item-chart.js";
 import {
   adjustCrateStock,
   adjustQuantity,
@@ -138,7 +139,10 @@ const analyticsNetRevenueTotalEl = document.getElementById("analyticsNetRevenueT
 const analyticsDiscountTotalEl = document.getElementById("analyticsDiscountTotal");
 const analyticsExpenseTotalEl = document.getElementById("analyticsExpenseTotal");
 const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
+const analyticsSelectedItemBadge = document.getElementById("analyticsSelectedItemBadge");
 const analyticsSaleTypeBreakdownEl = document.getElementById("analyticsSaleTypeBreakdown");
+const analyticsItemChartModule = document.getElementById("analyticsItemChartModule");
+const analyticsItemChartToggle = document.getElementById("analyticsItemChartToggle");
 const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable");
 const analyticsStockAdditionsTable = document.getElementById("analyticsStockAdditionsTable");
 const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview");
@@ -206,8 +210,10 @@ let editSaleId = null;
 let editingOriginalSale = null;
 let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
+let analyticsAllSalesLoaded = false;
 let stockAdditionsForAnalytics = [];
 let stockAdditionsError = null;
+let stockAdditionsLoaded = false;
 let stockMovementsForAnalytics = [];
 let stockMovementsError = null;
 let stockMovementsLoaded = false;
@@ -218,6 +224,7 @@ let expensesForAnalytics = [];
 let expensesError = null;
 let analyticsUnsubscribe = null;
 let stockAdditionsUnsubscribe = null;
+let stockMovementsUnsubscribe = null;
 let expensesUnsubscribe = null;
 let fuelEnergyCategoriesUnsubscribe = null;
 let customFuelEnergyCategories = [];
@@ -370,6 +377,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   analyticsToDate.value = today;
   analyticsToDate.max = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
+  analyticsItemChartToggle.addEventListener("click", openSelectedAnalyticsGraphs);
   analyticsItemSearch.addEventListener("input", handleAnalyticsItemSearch);
   analyticsItemPrevBtn.addEventListener("click", () => changeAnalyticsItemPage(-1));
   analyticsItemNextBtn.addEventListener("click", () => changeAnalyticsItemPage(1));
@@ -426,6 +434,7 @@ export function updateSaleDropdown(currentItems) {
 }
 
 function listenToAnalyticsItems(uid) {
+  if (analyticsItemsUnsubscribe) analyticsItemsUnsubscribe();
   const userItemsQuery = query(itemsRef, where("uid", "==", uid));
   analyticsItemsUnsubscribe = onSnapshot(userItemsQuery, snapshot => {
     const analyticsItems = snapshot.docs.map(itemDoc => ({
@@ -452,8 +461,9 @@ function listenToAnalyticsItems(uid) {
 }
 
 function listenToStockMovements(uid) {
+  if (stockMovementsUnsubscribe) stockMovementsUnsubscribe();
   const userMovementsQuery = query(stockMovementsRef, where("uid", "==", uid));
-  onSnapshot(userMovementsQuery, snapshot => {
+  stockMovementsUnsubscribe = onSnapshot(userMovementsQuery, snapshot => {
     stockMovementsForAnalytics = snapshot.docs.map(movementDoc => ({
       id: movementDoc.id,
       ...movementDoc.data()
@@ -675,6 +685,7 @@ function getAnalyticsItemLabel(item) {
 }
 
 function listenToStockAdditions(uid) {
+  if (stockAdditionsUnsubscribe) stockAdditionsUnsubscribe();
   const userStockAdditionsQuery = query(stockAdditionsRef, where("uid", "==", uid));
   stockAdditionsUnsubscribe = onSnapshot(userStockAdditionsQuery, snapshot => {
     stockAdditionsForAnalytics = snapshot.docs.map(additionDoc => ({
@@ -682,12 +693,16 @@ function listenToStockAdditions(uid) {
       ...additionDoc.data()
     }));
     stockAdditionsError = null;
+    stockAdditionsLoaded = true;
     renderAnalyticsStockAdditions();
+    updateAnalyticsUI();
     renderOverview();
   }, error => {
     console.error("Unable to load stock addition history:", error);
     stockAdditionsError = "Unable to load stock additions. Please try again.";
+    stockAdditionsLoaded = true;
     renderAnalyticsStockAdditions();
+    updateAnalyticsUI();
     renderOverview();
   });
 }
@@ -1023,8 +1038,6 @@ function renderExpensesTable() {
               : ""}
             <option value="gas-refillable"${selectedCategory === "gas-refillable" ? " selected" : ""}>Gas: Refillable</option>
             <option value="gas-nonrefillable"${selectedCategory === "gas-nonrefillable" ? " selected" : ""}>Gas: Non-refillable</option>
-            <option value="soda-300ml"${selectedCategory === "soda-300ml" ? " selected" : ""}>Soda: 300ml</option>
-            <option value="soda-500ml"${selectedCategory === "soda-500ml" ? " selected" : ""}>Soda: 500ml</option>
             <option value="crate-item"${selectedCategory === "crate-item" ? " selected" : ""}>Crate Items</option>
             <option value="accessory-item"${selectedCategory === "accessory-item" ? " selected" : ""}>Accessories</option>
             ${customFuelEnergyCategories.map(category =>
@@ -1724,19 +1737,19 @@ function buildAnalyticsPdf() {
   const tableBottom = footerY - 8;
   let y = 16;
 
-  const drawSectionTitle = title => {
-    if (y + 6 + 8 + 10 > tableBottom) {
+  const drawSectionTitle = (title, minimumContentHeight = 18) => {
+    if (y + 6 + minimumContentHeight > tableBottom) {
       doc.addPage();
       y = 16;
     }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 58, 138);
-    doc.text(title, margin, y);
-    y += 6;
+    doc.text(String(title).toUpperCase(), pageWidth / 2, y, { align: "center" });
+    y += 8;
   };
 
-  const drawTable = (headers, dataRows, columnWidths) => {
+  const drawTable = (headers, dataRows, columnWidths, options = {}) => {
     if (headers.length !== columnWidths.length ||
         dataRows.some(row => row.length !== headers.length) ||
         columnWidths.some(width => !Number.isFinite(width) || width <= 0)) {
@@ -1808,7 +1821,14 @@ function buildAnalyticsPdf() {
           doc.setFont("helvetica", "normal");
           doc.setFontSize(8);
           doc.setTextColor(30, 41, 59);
-          if (lines.length) doc.text(lines, x + 2, y + rowPadding + 3.2);
+          if (lines.length) {
+            const textY = y + rowPadding + 3.2;
+            if (options.rightAlignedColumns?.includes(index)) {
+              doc.text(lines, x + columnWidths[index] - 2, textY, { align: "right" });
+            } else {
+              doc.text(lines, x + 2, textY);
+            }
+          }
           x += columnWidths[index];
         });
         y += rowHeight;
@@ -1823,6 +1843,91 @@ function buildAnalyticsPdf() {
     });
 
     y += 7;
+  };
+
+  const drawSideBySideSummaryTables = (leftRows, rightRows) => {
+    if (leftRows.length !== 4 || rightRows.length !== 4) {
+      throw new Error("Analytics PDF summary must have four rows per table.");
+    }
+    const gap = 6;
+    const tableWidth = (pageWidth - margin * 2 - gap) / 2;
+    const columnWidths = [tableWidth * 0.64, tableWidth * 0.36];
+    const headerHeight = 8;
+    const rowPadding = 2.5;
+    const lineHeight = 4.5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    const leftLines = leftRows.map(row => row.map((cell, index) =>
+      doc.splitTextToSize(String(cell), columnWidths[index] - 4)
+    ));
+    const rightLines = rightRows.map(row => row.map((cell, index) =>
+      doc.splitTextToSize(String(cell), columnWidths[index] - 4)
+    ));
+    const rowHeights = leftLines.map((row, index) => {
+      const lineCount = Math.max(
+        ...row.map(lines => lines.length),
+        ...rightLines[index].map(lines => lines.length),
+        1
+      );
+      return lineCount * lineHeight + rowPadding * 2;
+    });
+    const tableHeight = headerHeight + rowHeights.reduce((total, height) => total + height, 0);
+
+    if (y + tableHeight > tableBottom) {
+      doc.addPage();
+      y = 16;
+    }
+
+    const drawTableAt = (rows, linesByRow, x) => {
+      const headers = ["Metric", "Value"];
+      let columnX = x;
+      headers.forEach((header, index) => {
+        doc.setFillColor(203, 213, 225);
+        doc.setDrawColor(100, 116, 139);
+        doc.rect(columnX, y, columnWidths[index], headerHeight, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        doc.text(header, columnX + 2, y + 4.8);
+        columnX += columnWidths[index];
+      });
+
+      let rowY = y + headerHeight;
+      rows.forEach((row, rowIndex) => {
+        columnX = x;
+        row.forEach((cell, columnIndex) => {
+          const lines = linesByRow[rowIndex][columnIndex];
+          const rowHeight = rowHeights[rowIndex];
+          const alternateRow = rowIndex % 2 === 1;
+          doc.setDrawColor(148, 163, 184);
+          doc.setFillColor(
+            alternateRow ? 226 : 241,
+            alternateRow ? 232 : 245,
+            alternateRow ? 240 : 249
+          );
+          doc.rect(columnX, rowY, columnWidths[columnIndex], rowHeight, "FD");
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(30, 41, 59);
+          if (lines.length) {
+            const textY = rowY + rowPadding + 3.2;
+            if (columnIndex === 1) {
+              doc.text(lines, columnX + columnWidths[columnIndex] - 2, textY, {
+                align: "right"
+              });
+            } else {
+              doc.text(lines, columnX + 2, textY);
+            }
+          }
+          columnX += columnWidths[columnIndex];
+        });
+        rowY += rowHeights[rowIndex];
+      });
+    };
+
+    drawTableAt(leftRows, leftLines, margin);
+    drawTableAt(rightRows, rightLines, margin + tableWidth + gap);
+    y += tableHeight + 7;
   };
 
   const shopName = String(clientBusinessName || "Client Shop").trim();
@@ -1852,30 +1957,29 @@ function buildAnalyticsPdf() {
     [40, pageWidth - margin * 2 - 40]
   );
 
-  drawSectionTitle("Summary");
-  drawTable(
-    ["Metric", "Value"],
-    [
-      ["Gross sales revenue", `KES ${analyticsSalesTotalEl.textContent}`],
-      ["Gross sales profit", `KES ${analyticsGrossProfitTotalEl.textContent}`],
-      ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
-      ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
-      ["Wholesale discounts", `KES ${analyticsDiscountTotalEl.textContent}`],
-      ["Quantity sold", analyticsQuantityTotalEl.textContent],
-      ...getAnalyticsSaleTypeQuantities(rows.flatMap(row => row.dateKeys)).map(({ type, quantities, isCrateSelection }) => [
-        `${type} quantity sold`,
-        formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)
-      ])
-    ],
-    [pageWidth - margin * 2 - 55, 55]
-  );
+  const summaryRows = [
+    ["Gross sales revenue", `KES ${analyticsSalesTotalEl.textContent}`],
+    ["Gross sales profit", `KES ${analyticsGrossProfitTotalEl.textContent}`],
+    ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
+    ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
+    ["Wholesale discounts", `KES ${analyticsDiscountTotalEl.textContent}`],
+    ["Quantity sold", analyticsQuantityTotalEl.textContent],
+    ...getAnalyticsSaleTypeQuantities(rows.flatMap(row => row.dateKeys)).map(({ type, quantities, isCrateSelection }) => [
+      `${type} quantity sold`,
+      formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)
+    ])
+  ];
+  drawSectionTitle("Summary", 90);
+  drawSideBySideSummaryTables(summaryRows.slice(0, 4), summaryRows.slice(4, 8));
 
+  doc.addPage();
+  y = 16;
   drawSectionTitle("Sales breakdown");
   const selectedAnalyticsSales = analyticsItemSales !== null
     ? analyticsItemSales
     : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   drawTable(
-    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", "Quantity sold", "Products and quantities"],
+    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", "Items sold", "Products and quantities"],
     rows.map(row => {
       const salesByItem = new Map();
       selectedAnalyticsSales.forEach(sale => {
@@ -1912,27 +2016,34 @@ function buildAnalyticsPdf() {
       });
       const productsAndQuantities = [...salesByItem.values()]
         .map(item => analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER
-        ? `${item.name}: ${formatNumber(item.crates)} FULL CRATES, ${formatNumber(item.halfCrates)} HALF CRATES, ${formatNumber(item.pieces)} PIECES`
+        ? `${item.name}: ${formatNumber(item.crates)} full, ${formatNumber(item.halfCrates)} half, ${formatNumber(item.pieces)} pcs`
           : `${item.name}: ${formatSaleQuantity({ quantity: item.quantity, quantityUnit: item.unit })}`)
         .join("\n") || "—";
       const rowExpenses = getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0);
       const netRevenue = isAnalyticsNetAvailable() ? row.revenue - rowExpenses : null;
+      const crateQuantity = getAnalyticsQuantityDisplay(row.dateKeys);
 
       return [
         row.label,
-        getAnalyticsStockDisplay(row, "opening"),
-        getAnalyticsStockDisplay(row, "closing"),
+        getAnalyticsStockPdfDisplay(row, "opening"),
+        getAnalyticsStockPdfDisplay(row, "closing"),
         formatNumber(row.revenue),
         formatNumber(row.profit),
         `KES ${formatNumber(rowExpenses)}`,
         netRevenue === null ? "—" : formatNumber(netRevenue),
         `KES ${formatNumber(row.discount || 0)}`,
-        getAnalyticsQuantityDisplay(row.dateKeys) || formatNumber(row.quantity),
+        crateQuantity
+          ? crateQuantity
+            .replace("Full crates: ", "Full: ")
+            .replace(", Half crates: ", "\nHalf: ")
+            .replace(", Pieces: ", "\nPieces: ")
+          : formatNumber(row.quantity),
         productsAndQuantities
       ];
     }),
-    [25, 38, 38, 22, 22, 20, 20, 26, 15, pageWidth - margin * 2 - 226]
+    [22, 42, 42, 19, 19, 18, 20, 24, 25, pageWidth - margin * 2 - 231],
+    { rightAlignedColumns: [3, 4, 5, 6, 7, 8] }
   );
 
   const { start: stockStart, end: stockEnd } = getAnalyticsDateRange(period, selectedDate);
@@ -2125,10 +2236,12 @@ function updateSalesPaginationUI(currentCount, isEmpty = false) {
  * Listens to all sales for real-time global analytics.
  */
 function listenToAnalytics(uid) {
+  if (analyticsUnsubscribe) analyticsUnsubscribe();
   const userSalesQuery = query(salesRef, where("uid", "==", uid));
   analyticsUnsubscribe = onSnapshot(userSalesQuery, snapshot => {
     allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
     analyticsAllSalesError = null;
+    analyticsAllSalesLoaded = true;
     if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
       analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
@@ -2137,9 +2250,37 @@ function listenToAnalytics(uid) {
   }, error => {
     console.error("Analytics listener error:", error);
     analyticsAllSalesError = "Unable to load sales analytics. Please try again.";
+    analyticsAllSalesLoaded = true;
     updateAnalyticsUI();
     renderOverview();
   });
+}
+
+export async function refreshSalesSection(section) {
+  const uid = authInstance?.currentUser?.uid;
+  if (!uid) throw new Error("No signed-in user is available to refresh dashboard data.");
+
+  if (section === "expenses") {
+    listenToExpenses(uid);
+    listenToFuelEnergyCategories(collection(dbInstance, "fuelEnergyCategories"), uid);
+    return;
+  }
+
+  if (section !== "overview" && section !== "analytics") {
+    throw new Error(`Unsupported dashboard section: ${section}`);
+  }
+
+  listenToAnalytics(uid);
+  listenToAnalyticsItems(uid);
+  listenToStockMovements(uid);
+  listenToStockAdditions(uid);
+  listenToExpenses(uid);
+  listenToAccessoryItems(uid);
+
+  if (section === "analytics") {
+    await loadAnalyticsItemPage();
+    handleAnalyticsItemChange();
+  }
 }
 
 /**
@@ -2150,8 +2291,20 @@ function updateAnalyticsUI() {
   const selectedDate = analyticsDateFilter.value;
   if (!selectedDate) return;
 
-  const selectedAnalyticsItem = analyticsItemFilter.value;
-  if (!selectedAnalyticsItem) {
+  const analyticsSelectedItem = analyticsItemFilter.value;
+  const supportsGroupedItemChart = isStaticAnalyticsFilter(analyticsSelectedItem);
+  analyticsItemChartModule.hidden = !supportsGroupedItemChart;
+  analyticsItemChartToggle.disabled = !analyticsAllSalesLoaded || Boolean(analyticsAllSalesError);
+  analyticsItemChartToggle.title = analyticsAllSalesError ||
+    (!analyticsAllSalesLoaded ? "Sales data is still loading." : "");
+  analyticsSelectedItemBadge.textContent = analyticsSelectedItem
+    ? getSelectedAnalyticsItemLabel()
+    : "";
+  analyticsSelectedItemBadge.title = analyticsSelectedItem
+    ? getSelectedAnalyticsItemLabel()
+    : "";
+  analyticsSelectedItemBadge.hidden = !analyticsSelectedItem;
+  if (!analyticsSelectedItem) {
     analyticsSalesTotalEl.textContent = "—";
     analyticsGrossProfitTotalEl.textContent = "—";
     analyticsNetRevenueTotalEl.textContent = "—";
@@ -2166,11 +2319,11 @@ function updateAnalyticsUI() {
     renderPetrolAnalytics();
     return;
   }
-  const requiresAccessoryDefinitions = isGeneralAnalyticsFilter(selectedAnalyticsItem) ||
-    selectedAnalyticsItem === ALL_ACCESSORIES_ANALYTICS_FILTER;
+  const requiresAccessoryDefinitions = isGeneralAnalyticsFilter(analyticsSelectedItem) ||
+    analyticsSelectedItem === ALL_ACCESSORIES_ANALYTICS_FILTER;
   const analyticsError = expensesError ||
     (requiresAccessoryDefinitions ? accessoryItemsError : null) ||
-    (isStaticAnalyticsFilter(selectedAnalyticsItem)
+    (isStaticAnalyticsFilter(analyticsSelectedItem)
       ? analyticsAllSalesError || analyticsItemsError
       : analyticsItemSalesError);
   if (analyticsError) {
@@ -2232,8 +2385,8 @@ function updateAnalyticsUI() {
   analyticsBreakdownTable.innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
-      <td>${escapeQuantity(getAnalyticsStockDisplay(row, "opening")).replace(/\n/g, "<br>")}</td>
-      <td>${escapeQuantity(getAnalyticsStockDisplay(row, "closing")).replace(/\n/g, "<br>")}</td>
+      <td class="analytics-stock-balance-cell">${getAnalyticsStockDisplayHtml(row, "opening")}</td>
+      <td class="analytics-stock-balance-cell">${getAnalyticsStockDisplayHtml(row, "closing")}</td>
       <td>${formatNumber(row.revenue)}</td>
       <td>${formatNumber(row.profit)}</td>
       <td>${formatNumber(getExpensesForCurrentAnalytics(row.dateKeys)
@@ -2252,6 +2405,78 @@ function updateAnalyticsUI() {
 
   updateAnalyticsDateLabel();
 
+}
+
+function openSelectedAnalyticsGraphs() {
+  if (!analyticsAllSalesLoaded || analyticsAllSalesError) {
+    showToast(analyticsAllSalesError || "Sales data is still loading. Try again shortly.", "error");
+    return;
+  }
+
+  const { start, end } = getAnalyticsDateRange(
+    analyticsPeriodFilter.value,
+    analyticsDateFilter.value
+  );
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+    showToast("Choose a valid analytics date range before opening the graphs.", "error");
+    return;
+  }
+  const selectedFilter = analyticsItemFilter.value;
+  const isCrateGroup = selectedFilter === ALL_CRATE_ANALYTICS_FILTER ||
+    selectedFilter === ALL_SODA_ANALYTICS_FILTER;
+  const rankings = getAnalyticsItemSalesRanking({
+    sales: getAnalyticsSalesForFilter(selectedFilter),
+    items: [...analyticsItemsById.values()],
+    isCrateGroup,
+    start,
+    endExclusive: end
+  });
+  const graphPayload = {
+    title: getSelectedAnalyticsItemLabel(),
+    dateRange: formatAnalyticsDateRange(analyticsPeriodFilter.value, analyticsDateFilter.value),
+    periodLabel: getAnalyticsPeriodLabel(analyticsPeriodFilter.value),
+    isCrateGroup,
+    rankings
+  };
+  const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const channelName = `analytics-item-graphs-${token}`;
+  const graphWindowUrl = new URL("analytics-item-graphs", window.location.href);
+  graphWindowUrl.searchParams.set("channel", token);
+  graphWindowUrl.searchParams.set("returnTo", window.location.href);
+
+  if (!("BroadcastChannel" in window)) {
+    showToast("Your browser cannot open item sales graphs. Please use a browser with BroadcastChannel support.", "error");
+    return;
+  }
+
+  let channel;
+  try {
+    channel = new BroadcastChannel(channelName);
+  } catch (error) {
+    console.error("Unable to start the item sales graphs channel:", error);
+    showToast("Could not open the item sales graphs. Please try again.", "error");
+    return;
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    channel.close();
+    showToast("The graphs page did not respond. Please try again.", "error");
+  }, 30000);
+  channel.addEventListener("message", event => {
+    if (event.data?.type !== "analytics-graphs-ready") return;
+    channel.postMessage({ type: "analytics-graphs-data", payload: graphPayload });
+    window.clearTimeout(timeoutId);
+    channel.close();
+  }, { once: true });
+
+  const graphWindow = window.open(graphWindowUrl.href, "_blank");
+  if (!graphWindow) {
+    window.clearTimeout(timeoutId);
+    channel.close();
+    showToast("The graphs tab was blocked. Allow pop-ups and try again.", "error");
+    return;
+  }
+  graphWindow.opener = null;
 }
 
 function renderOverview() {
@@ -2718,6 +2943,10 @@ function dateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function getSelectedAnalyticsItemLabel() {
+  return analyticsItemFilter.selectedOptions[0]?.textContent.trim() || "Selected item";
+}
+
 function getAnalyticsQuantityDisplay(dateKeys) {
   const selectedItemId = analyticsItemFilter.value;
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
@@ -2898,6 +3127,10 @@ function getAnalyticsStockBalance(item, row) {
   const trackedFrom = new Date(`${item.stockLedgerStartDate}T00:00:00`);
   if (start < trackedFrom) return null;
 
+  if (item.stockLedgerHistoryMode === "source-events-v1") {
+    return getBackfilledStockBalance(item, start, end);
+  }
+
   const baselineAt = getStockHistoryDate(item.stockLedgerBaselineAt);
   if (!Number.isFinite(baselineAt.getTime())) return null;
   let opening = Number(item.stockLedgerBaselineUnits) || 0;
@@ -2909,6 +3142,71 @@ function getAnalyticsStockBalance(item, row) {
     if (occurredAt <= baselineAt) return;
     if (!Number.isFinite(occurredAt.getTime())) return;
     const delta = Number(movement.quantityDelta) || 0;
+    if (occurredAt < start) opening += delta;
+    if (occurredAt < end) closing += delta;
+  });
+  return { opening, closing };
+}
+
+function getBackfilledStockBalance(item, start, end) {
+  const unit = String(item.stockLedgerUnit || "").toUpperCase();
+  const trackedFrom = new Date(`${item.stockLedgerStartDate}T00:00:00`);
+  const currentUnits = getItemStockUnits(item);
+  const datedEvents = [];
+  const addDatedEvent = (occurredAt, delta) => {
+    if (!Number.isFinite(occurredAt.getTime()) || occurredAt < trackedFrom) return;
+    datedEvents.push({ occurredAt, delta });
+  };
+
+  allSalesForAnalytics.forEach(sale => {
+    if (sale.itemId !== item.id) return;
+    const occurredAt = getStockHistoryDate(sale.createdAt);
+    const saleUnit = String(sale.quantityUnit || unit).trim().toUpperCase();
+    if (!isCrateItem(item.name) && saleUnit !== unit) return;
+    const quantity = isCrateItem(item.name)
+      ? getCrateSaleStockUnits(sale, item)
+      : Number(sale.quantity);
+    if (Number.isFinite(quantity)) addDatedEvent(occurredAt, -quantity);
+  });
+
+  stockAdditionsForAnalytics.forEach(addition => {
+    if (addition.itemId !== item.id) return;
+    const dateValue = addition.stockDate || addition.createdAt;
+    const occurredAt = typeof dateValue === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+      ? new Date(`${dateValue}T00:00:00`)
+      : getStockHistoryDate(dateValue);
+    const additionUnit = String(addition.quantityUnit || "").trim().toUpperCase();
+    let quantity;
+    if (isCrateItem(item.name)) {
+      const piecesAdded = Number(addition.piecesAdded);
+      if (addition.piecesAdded !== null && addition.piecesAdded !== undefined &&
+          Number.isInteger(piecesAdded) && piecesAdded >= 0) {
+        quantity = piecesAdded;
+      } else if (additionUnit === "CRATES") {
+        quantity = Number(addition.quantity) * getPiecesPerCrate(item);
+      } else if (additionUnit === "PIECES") {
+        quantity = Number(addition.quantity);
+      }
+    } else if (additionUnit === unit) {
+      quantity = Number(addition.quantity);
+    }
+    if (Number.isFinite(quantity)) addDatedEvent(occurredAt, quantity);
+  });
+
+  stockMovementsForAnalytics.forEach(movement => {
+    if (movement.itemId !== item.id || movement.type !== "manual-adjustment" ||
+        String(movement.quantityUnit || "").toUpperCase() !== unit) return;
+    const occurredAt = getStockHistoryDate(movement.occurredAt);
+    const delta = Number(movement.quantityDelta);
+    if (Number.isFinite(delta)) addDatedEvent(occurredAt, delta);
+  });
+
+  const openingBaseline = currentUnits -
+    datedEvents.reduce((total, event) => total + event.delta, 0);
+  let opening = openingBaseline;
+  let closing = openingBaseline;
+  datedEvents.forEach(({ occurredAt, delta }) => {
     if (occurredAt < start) opening += delta;
     if (occurredAt < end) closing += delta;
   });
@@ -2938,10 +3236,12 @@ function getAnalyticsStockDisplay(row, balanceKey) {
   const selectedItem = analyticsItemsById.get(analyticsItemFilter.value) ||
     itemsArray.find(item => item.id === analyticsItemFilter.value);
   if (selectedItem && isPetrolItem(selectedItem)) return "See Petrol Dip Breakdown";
-  if (stockMovementsError || analyticsItemsError || stockLedgerBaselineError) {
+  if (stockMovementsError || stockAdditionsError || analyticsAllSalesError ||
+      analyticsItemsError || stockLedgerBaselineError) {
     return "Stock history unavailable";
   }
   if (!stockMovementsLoaded || !analyticsItemsLoaded ||
+      !analyticsAllSalesLoaded || !stockAdditionsLoaded ||
       stockLedgerBaselineRequests.size) return "Preparing stock history";
   const items = getAnalyticsStockItems();
   if (!items.length) return "—";
@@ -2952,6 +3252,48 @@ function getAnalyticsStockDisplay(row, balanceKey) {
       : "Not tracked";
     return `${item.name}: ${value}`;
   }).join("\n");
+}
+
+function getAnalyticsStockPdfDisplay(row, balanceKey) {
+  return getAnalyticsStockDisplay(row, balanceKey)
+    .split("\n")
+    .map(line => line
+      .replace(/\s+CRATE:/i, ":")
+      .replace(/\bCRATES\b/gi, "crates")
+      .replace(/\bCRATE\b/gi, "crate")
+      .replace(/\bPIECES\b/gi, "pcs")
+      .replace(/\bPIECE\b/gi, "pc"))
+    .join("\n");
+}
+
+function getAnalyticsStockDisplayHtml(row, balanceKey) {
+  const selectedItem = analyticsItemsById.get(analyticsItemFilter.value) ||
+    itemsArray.find(item => item.id === analyticsItemFilter.value);
+  if (selectedItem && isPetrolItem(selectedItem)) {
+    return '<span class="analytics-stock-message">See Petrol Dip Breakdown</span>';
+  }
+  if (stockMovementsError || stockAdditionsError || analyticsAllSalesError ||
+      analyticsItemsError || stockLedgerBaselineError) {
+    return '<span class="analytics-stock-message">Stock history unavailable</span>';
+  }
+  if (!stockMovementsLoaded || !analyticsItemsLoaded ||
+      !analyticsAllSalesLoaded || !stockAdditionsLoaded ||
+      stockLedgerBaselineRequests.size) {
+    return '<span class="analytics-stock-message">Preparing stock history</span>';
+  }
+
+  const items = getAnalyticsStockItems();
+  if (!items.length) return "—";
+  return items.map(item => {
+    const balance = getAnalyticsStockBalance(item, row);
+    const value = balance
+      ? formatAnalyticsStockUnits(item, balance[balanceKey])
+      : "Not tracked";
+    return `<div class="analytics-stock-item">` +
+      `<span class="analytics-stock-item-name">${escapeQuantity(item.name)}</span>` +
+      `<span class="analytics-stock-item-quantity">${escapeQuantity(value)}</span>` +
+      `</div>`;
+  }).join("");
 }
 
 function updateAnalyticsDateLabel() {
