@@ -123,6 +123,13 @@ const analyticsItemPageInfo = document.getElementById("analyticsItemPageInfo");
 const analyticsPeriodFilter = document.getElementById("analyticsPeriodFilter");
 const analyticsDateFilter = document.getElementById("analyticsDateFilter");
 const analyticsDateLabel = document.getElementById("analyticsDateLabel");
+const analyticsBreakdownControl = document.getElementById("analyticsBreakdownControl");
+const analyticsCustomGroupControl = document.getElementById("analyticsCustomGroupControl");
+const analyticsSingleDateControl = document.getElementById("analyticsSingleDateControl");
+const analyticsCustomRange = document.getElementById("analyticsCustomRange");
+const analyticsFromDate = document.getElementById("analyticsFromDate");
+const analyticsToDate = document.getElementById("analyticsToDate");
+const analyticsCustomGroupBy = document.getElementById("analyticsCustomGroupBy");
 const analyticsSalesTotalEl = document.getElementById("analyticsSalesTotal");
 const analyticsGrossProfitTotalEl = document.getElementById("analyticsGrossProfitTotal");
 const analyticsNetRevenueTotalEl = document.getElementById("analyticsNetRevenueTotal");
@@ -347,12 +354,23 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   });
   analyticsDateFilter.value = today;
   analyticsDateFilter.max = today;
+  analyticsFromDate.value = today;
+  analyticsFromDate.max = today;
+  analyticsToDate.value = today;
+  analyticsToDate.max = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
   analyticsItemSearch.addEventListener("input", handleAnalyticsItemSearch);
   analyticsItemPrevBtn.addEventListener("click", () => changeAnalyticsItemPage(-1));
   analyticsItemNextBtn.addEventListener("click", () => changeAnalyticsItemPage(1));
   loadAnalyticsItemPage();
   analyticsDateFilter.addEventListener("change", updateAnalyticsUI);
+  [analyticsFromDate, analyticsToDate, analyticsCustomGroupBy].forEach(control => {
+    control.addEventListener("change", () => {
+      analyticsToDate.min = analyticsFromDate.value;
+      analyticsFromDate.max = analyticsToDate.value || today;
+      updateAnalyticsUI();
+    });
+  });
   overviewPeriodFilter.addEventListener("change", renderOverview);
   document.querySelectorAll("[data-overview-tab]").forEach(button => {
     button.addEventListener("click", () => {
@@ -1456,6 +1474,16 @@ function parseLiterInput(input) {
 }
 
 function getAnalyticsDateRange(period, selectedDate) {
+  if (period === "custom") {
+    if (!analyticsFromDate.value || !analyticsToDate.value ||
+        analyticsFromDate.value > analyticsToDate.value) {
+      return { start: new Date(NaN), end: new Date(NaN) };
+    }
+    const start = new Date(`${analyticsFromDate.value}T00:00:00`);
+    const end = new Date(`${analyticsToDate.value}T00:00:00`);
+    end.setDate(end.getDate() + 1);
+    return { start, end };
+  }
   const end = new Date(`${selectedDate}T00:00:00`);
   end.setDate(end.getDate() + 1);
 
@@ -1468,8 +1496,9 @@ function getAnalyticsDateRange(period, selectedDate) {
   const start = new Date(end);
   if (period === "last-7-days") start.setDate(start.getDate() - 7);
   else if (period === "last-30-days") start.setDate(start.getDate() - 30);
-  else if (period === "last-3-months" || period === "last-6-months") {
-    const months = period === "last-3-months" ? 3 : 6;
+  else if (period === "last-2-months" || period === "last-3-months" ||
+      period === "last-6-months") {
+    const months = period === "last-2-months" ? 2 : period === "last-3-months" ? 3 : 6;
     const dayOfMonth = start.getDate();
     start.setDate(1);
     start.setMonth(start.getMonth() - months);
@@ -1485,17 +1514,25 @@ function getAnalyticsDateRange(period, selectedDate) {
 }
 
 function getAnalyticsPeriodLabel(period) {
+  if (period === "custom") {
+    return `Custom range by ${analyticsCustomGroupBy.value}`;
+  }
   return ({
     daily: "Daily",
     "last-7-days": "Last 7 days",
     "last-30-days": "Last 30 days",
+    "last-2-months": "Last 2 months",
     "last-3-months": "Last 3 months",
-    "last-6-months": "Last 6 months"
+    "last-6-months": "Last 6 months",
+    custom: "Custom range"
   })[period] || "Selected period";
 }
 
 function formatAnalyticsDateRange(period, selectedDate) {
   const { start, end } = getAnalyticsDateRange(period, selectedDate);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+    return "Choose a valid custom date range";
+  }
   const formatDate = date => date.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -1569,6 +1606,14 @@ async function exportAnalyticsPdf() {
 }
 
 function buildAnalyticsPdf() {
+  const { start: reportStart, end: reportEnd } = getAnalyticsDateRange(
+    analyticsPeriodFilter.value,
+    analyticsDateFilter.value
+  );
+  if (!Number.isFinite(reportStart.getTime()) ||
+      !Number.isFinite(reportEnd.getTime()) || reportStart >= reportEnd) {
+    throw new Error("Choose a valid custom date range before exporting.");
+  }
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const itemName = analyticsItemFilter.selectedOptions[0]?.textContent || "No analysis selected";
   const period = analyticsPeriodFilter.value;
@@ -2038,6 +2083,23 @@ function updateAnalyticsUI() {
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML = `<tr><td colspan="7">${escapeQuantity(analyticsError)}</td></tr>`;
+    renderAnalyticsStockAdditions();
+    renderPetrolAnalytics();
+    return;
+  }
+
+  const { start, end } = getAnalyticsDateRange(period, selectedDate);
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+    analyticsSalesTotalEl.textContent = "—";
+    analyticsGrossProfitTotalEl.textContent = "—";
+    analyticsNetRevenueTotalEl.textContent = "—";
+    analyticsDiscountTotalEl.textContent = "—";
+    analyticsExpenseTotalEl.textContent = "—";
+    analyticsQuantityTotalEl.textContent = "—";
+    analyticsSaleTypeBreakdownEl.textContent = "";
+    currentAnalyticsRows = [];
+    analyticsBreakdownTable.innerHTML =
+      `<tr><td colspan="7">Choose a valid custom date range.</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2660,7 +2722,40 @@ function getAnalyticsBreakdownRows(period, selectedDate, dailyTotals) {
   if (period === "daily") return getDailyBreakdown(selectedDate, dailyTotals);
 
   const { start, end } = getAnalyticsDateRange(period, selectedDate);
+  if (period === "custom" &&
+      (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end)) {
+    return [];
+  }
   const rows = [];
+  if (period === "custom" && analyticsCustomGroupBy.value === "month") {
+    const monthDate = new Date(start.getFullYear(), start.getMonth(), 1);
+    while (monthDate < end) {
+      const monthStart = new Date(monthDate);
+      const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
+      const segmentStart = monthStart < start ? start : monthStart;
+      const segmentEnd = monthEnd < end ? monthEnd : end;
+      const dateKeys = [];
+      for (const date = new Date(segmentStart); date < segmentEnd; date.setDate(date.getDate() + 1)) {
+        dateKeys.push(dateKey(date));
+      }
+      const total = dateKeys.reduce((result, key) => {
+        const daily = dailyTotals[key] || emptyDailyTotal();
+        result.revenue += daily.revenue;
+        result.profit += daily.profit;
+        result.discount += daily.discount;
+        result.quantity += daily.quantity;
+        return result;
+      }, emptyDailyTotal());
+      rows.push({
+        label: monthDate.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+        dateKeys,
+        ...total
+      });
+      monthDate.setMonth(monthDate.getMonth() + 1);
+    }
+    return rows;
+  }
+
   for (const date = new Date(start); date < end; date.setDate(date.getDate() + 1)) {
     const key = dateKey(date);
     const total = dailyTotals[key] || emptyDailyTotal();
@@ -2681,7 +2776,10 @@ function getAnalyticsBreakdownRows(period, selectedDate, dailyTotals) {
 function updateAnalyticsDateLabel() {
   const period = analyticsPeriodFilter.value;
   const isDaily = period === "daily";
-  analyticsDateFilter.closest(".analytics-filter-date").hidden = false;
+  const isCustom = period === "custom";
+  analyticsCustomGroupControl.hidden = !isCustom;
+  analyticsSingleDateControl.hidden = isCustom;
+  analyticsCustomRange.hidden = !isCustom;
   analyticsDateFilter.type = "date";
   analyticsDateLabel.textContent = isDaily ? "Date" : "Through date";
 }

@@ -510,19 +510,42 @@
               </div>
               <small id="analyticsItemSearchHint" class="analytics-item-search-hint">Choose an analysis view or search from the start of an item name; an exact unique match is selected automatically. General Items uses the full dataset for its scope; grouped options combine Gas, Soda, Crate, or Accessory items. Petrol can be selected individually below.</small>
             </div>
-            <div class="analytics-filter-control analytics-filter-period">
-              <label for="analyticsPeriodFilter">Breakdown</label>
-              <select id="analyticsPeriodFilter">
-                <option value="daily">Daily</option>
-                <option value="last-7-days">Last 7 days</option>
-                <option value="last-30-days">Last 30 days</option>
-                <option value="last-3-months">Last 3 months</option>
-                <option value="last-6-months">Last 6 months</option>
-              </select>
+            <div class="analytics-filter-period">
+              <div class="analytics-filter-control" id="analyticsCustomGroupControl" hidden>
+                <label for="analyticsCustomGroupBy">Group results by</label>
+                <select id="analyticsCustomGroupBy">
+                  <option value="day">Day</option>
+                  <option value="month">Month</option>
+                </select>
+              </div>
+              <div class="analytics-filter-control" id="analyticsBreakdownControl">
+                <label for="analyticsPeriodFilter">Breakdown</label>
+                <select id="analyticsPeriodFilter">
+                  <option value="daily">Daily</option>
+                  <option value="last-7-days">Last 7 days</option>
+                  <option value="last-30-days">Last 30 days</option>
+                  <option value="last-2-months">Last 2 months</option>
+                  <option value="last-3-months">Last 3 months</option>
+                  <option value="last-6-months">Last 6 months</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </div>
             </div>
-            <div class="analytics-filter-control analytics-filter-date">
-              <label id="analyticsDateLabel" for="analyticsDateFilter">Date</label>
-              <input type="date" id="analyticsDateFilter" />
+            <div class="analytics-filter-date">
+              <div class="analytics-filter-control" id="analyticsSingleDateControl">
+                <label id="analyticsDateLabel" for="analyticsDateFilter">Date</label>
+                <input type="date" id="analyticsDateFilter" />
+              </div>
+              <div class="analytics-filter-custom-range" id="analyticsCustomRange" hidden>
+                <div class="analytics-filter-control">
+                  <label for="analyticsFromDate">From</label>
+                  <input type="date" id="analyticsFromDate" />
+                </div>
+                <div class="analytics-filter-control">
+                  <label for="analyticsToDate">To</label>
+                  <input type="date" id="analyticsToDate" />
+                </div>
+              </div>
             </div>
           </div>
         </div>

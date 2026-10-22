@@ -1113,7 +1113,7 @@ button.loading .btn-text {
 
 .analytics-filters {
   display: grid;
-  grid-template-columns: minmax(300px, 1.8fr) repeat(2, minmax(150px, 0.8fr));
+  grid-template-columns: minmax(280px, 1.8fr) repeat(2, minmax(185px, 0.8fr));
   align-items: start;
   gap: 12px;
   width: 100%;
@@ -1190,10 +1190,42 @@ button.loading .btn-text {
 
 .analytics-filter-period,
 .analytics-filter-date {
+  min-width: 0;
   padding: 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;
+}
+
+.analytics-filter-control[hidden] {
+  display: none;
+}
+
+.analytics-filter-custom-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.analytics-filter-custom-range[hidden] {
+  display: none;
+}
+
+.analytics-filter-custom-range .analytics-filter-control {
+  gap: 4px;
+}
+
+.analytics-filter-custom-range label {
+  font-size: 11px;
+}
+
+.analytics-filter-custom-range input,
+.analytics-filter-period select,
+.analytics-filter-date input {
+  min-height: 36px;
+  padding: 5px 7px;
+  font-size: 12px;
 }
 
 .analytics-filters select,
@@ -2533,6 +2565,11 @@ table tr:hover {
   .analytics-filter-period,
   .analytics-filter-date {
     padding: 10px;
+  }
+
+  .analytics-filter-custom-range {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .analytics-pdf-button {
