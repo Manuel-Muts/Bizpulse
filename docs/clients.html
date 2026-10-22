@@ -524,7 +524,7 @@
         <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Items Sold</h3><p id="analyticsQuantityTotal">0</p></div>
       </div>
-      <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures are limited to the selected scope and eligible purchases. Accessory purchase costs are not separately categorized, so All Accessories does not show a net figure.</p>
+      <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
       <div id="petrolAnalyticsPreview" class="analytics-breakdown-table petrol-analytics-preview" hidden>
         <h3>Petrol Dip Breakdown</h3>
         <table class="compact-data-table">
@@ -589,17 +589,31 @@
               <option value="soda-300ml">300ml</option>
               <option value="soda-500ml">500ml</option>
             </optgroup>
+            <option value="crate-item">Crate Items</option>
+            <option value="accessory-item">Accessories</option>
+          </select>
+        </label>
+        <label id="expenseCrateItemField" for="expenseCrateItem" hidden>
+          Crate item
+          <select id="expenseCrateItem">
+            <option value="">Choose crate item...</option>
+          </select>
+        </label>
+        <label id="expenseAccessoryItemField" for="expenseAccessoryItem" hidden>
+          Accessory
+          <select id="expenseAccessoryItem">
+            <option value="">Choose accessory...</option>
           </select>
         </label>
         <label id="expenseGasTypeField" for="expenseGasType" hidden>
-          Gas type
+          Fuel / energy type
           <select id="expenseGasType">
             <option value="">Choose gas type...</option>
             <option value="refillable">Refillable</option>
             <option value="non-refillable">Non-refillable</option>
           </select>
         </label>
-        <small class="expense-analysis-hint">Purchases categorized as Gas or Soda are deducted only from their matching item analysis, not General Items.</small>
+        <small class="expense-analysis-hint">Purchases categorized as Gas or Soda are deducted only from their matching analysis. Crate Items and Accessories costs are attributed to the selected item rather than General Items. For Soda or Crate Items, a numeric-only description is completed with “CRATES”. Fuel & Energy categories require a refillable or non-refillable type.</small>
         <label for="expenseDescription">Description
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>

@@ -13,7 +13,8 @@ import {
   limitToLast,
   getDocs,
   increment,
-  updateDoc
+  updateDoc,
+  deleteField
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import {
@@ -44,7 +45,9 @@ const EXPENSE_COST_CATEGORIES = new Set([
   "gas-refillable",
   "gas-nonrefillable",
   "soda-300ml",
-  "soda-500ml"
+  "soda-500ml",
+  "crate-item",
+  "accessory-item"
 ]);
 const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
   "petrol",
@@ -52,7 +55,9 @@ const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
   "gas-refillable",
   "gas-nonrefillable",
   "soda-300ml",
-  "soda-500ml"
+  "soda-500ml",
+  "crate-item",
+  "accessory-item"
 ]);
 const isExcludedItemPurchase = expense =>
   String(expense.type || "").toLowerCase() === "purchase" &&
@@ -141,6 +146,10 @@ const expenseForm = document.getElementById("expenseForm");
 const expenseDateInput = document.getElementById("expenseDate");
 const expenseTypeInput = document.getElementById("expenseType");
 const expenseCostCategoryInput = document.getElementById("expenseCostCategory");
+const expenseCrateItemField = document.getElementById("expenseCrateItemField");
+const expenseCrateItemInput = document.getElementById("expenseCrateItem");
+const expenseAccessoryItemField = document.getElementById("expenseAccessoryItemField");
+const expenseAccessoryItemInput = document.getElementById("expenseAccessoryItem");
 const expenseGasTypeField = document.getElementById("expenseGasTypeField");
 const expenseGasTypeInput = document.getElementById("expenseGasType");
 const expenseDescriptionInput = document.getElementById("expenseDescription");
@@ -189,6 +198,7 @@ let fuelEnergyCategoriesUnsubscribe = null;
 let customFuelEnergyCategories = [];
 let accessoryItemsUnsubscribe = null;
 let accessoryNames = new Set();
+let accessoryExpenseItems = [];
 let accessoryItemsError = "Loading accessory categories...";
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
@@ -283,7 +293,29 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   expenseDateInput.max = dateKey(new Date());
   expenseForm.addEventListener("submit", handleExpenseFormSubmit);
   expenseCostCategoryInput.addEventListener("change", updateExpenseGasTypeField);
+  expenseAccessoryItemInput.addEventListener("change", updateExpenseGasTypeField);
+  [expenseDescriptionInput, expenseVendorInput, expenseNotesInput].forEach(input => {
+    input.addEventListener("input", () => uppercaseInput(input));
+  });
+  expenseDescriptionInput.addEventListener("blur", formatCrateExpenseDescription);
+  expensesTable.addEventListener("change", event => {
+    if (event.target.matches("[data-expense-category]")) {
+      const row = event.target.closest("tr");
+      const crateItemField = row?.querySelector("[data-expense-crate-item]");
+      const accessoryItemField = row?.querySelector("[data-expense-accessory-item]");
+      if (crateItemField) {
+        crateItemField.hidden = event.target.value !== "crate-item";
+        crateItemField.required = event.target.value === "crate-item";
+      }
+      if (accessoryItemField) {
+        accessoryItemField.hidden = event.target.value !== "accessory-item";
+        accessoryItemField.required = event.target.value === "accessory-item";
+      }
+    }
+  });
   expensesTable.addEventListener("click", handleExpenseCategorySave);
+  renderCrateExpenseItemOptions(expenseCrateItemInput);
+  renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
   updateExpenseGasTypeField();
   listenToFuelEnergyCategories(fuelEnergyCategoriesRef, authInstance.currentUser.uid);
 
@@ -344,6 +376,9 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
  */
 export function updateSaleDropdown(currentItems) {
   itemsArray = currentItems; // Update local reference
+  renderCrateExpenseItemOptions(expenseCrateItemInput);
+  renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
+  renderExpensesTable();
   renderOverview();
 }
 
@@ -374,9 +409,14 @@ function listenToAccessoryItems(uid) {
   if (accessoryItemsUnsubscribe) accessoryItemsUnsubscribe();
   const userAccessoryItemsQuery = query(accessoryItemsRef, where("uid", "==", uid));
   accessoryItemsUnsubscribe = onSnapshot(userAccessoryItemsQuery, snapshot => {
-    accessoryNames = new Set(snapshot.docs
-      .map(accessoryDoc => String(accessoryDoc.data().name || "").trim().toLowerCase())
-      .filter(Boolean));
+    accessoryExpenseItems = snapshot.docs.map(accessoryDoc => ({
+      id: accessoryDoc.id,
+      name: String(accessoryDoc.data().name || "").trim()
+    })).filter(accessory => accessory.name);
+    accessoryNames = new Set(accessoryExpenseItems
+      .map(accessory => accessory.name.toLowerCase()));
+    renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
+    renderExpensesTable();
     accessoryItemsError = null;
     if (analyticsItemFilter.value === GENERAL_ANALYTICS_FILTER ||
         analyticsItemFilter.value === ALL_ACCESSORIES_ANALYTICS_FILTER) {
@@ -607,15 +647,87 @@ function updateExpenseGasTypeField() {
   const category = expenseCostCategoryInput.value;
   const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"].includes(category) ||
     getSelectedExpenseCategoryName().toLowerCase().includes("gas");
-  expenseGasTypeField.hidden = !isGasCategory;
-  expenseGasTypeInput.required = isGasCategory;
-  if (!isGasCategory) {
+  const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
+    ?.parentElement?.id === "fuelEnergyExpenseOptions";
+  const isCrateItemCategory = category === "crate-item";
+  const isAccessoryItemCategory = category === "accessory-item";
+  expenseCrateItemField.hidden = !isCrateItemCategory;
+  expenseCrateItemInput.required = isCrateItemCategory;
+  expenseAccessoryItemField.hidden = !isAccessoryItemCategory;
+  expenseAccessoryItemInput.required = isAccessoryItemCategory;
+  expenseGasTypeField.hidden = !isFuelEnergyCategory && !isGasCategory;
+  expenseGasTypeInput.required = isFuelEnergyCategory || isGasCategory;
+  if (!isFuelEnergyCategory && !isGasCategory) {
     expenseGasTypeInput.value = "";
   } else if (category === "gas-refillable") {
     expenseGasTypeInput.value = "refillable";
   } else if (category === "gas-nonrefillable") {
     expenseGasTypeInput.value = "non-refillable";
   }
+}
+
+function formatCrateExpenseDescription() {
+  if (!["crate-item", "soda-300ml", "soda-500ml"].includes(expenseCostCategoryInput.value)) return;
+  const description = expenseDescriptionInput.value.trim();
+  if (/^\d+(?:\.\d+)?$/.test(description)) {
+    expenseDescriptionInput.value = `${description} CRATES`;
+  }
+}
+
+function getCrateExpenseItems() {
+  return itemsArray
+    .filter(item => isCrateItem(item.name) || isSodaAnalyticsItem(item))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function renderCrateExpenseItemOptions(select, selectedItemId = select.value) {
+  const options = getCrateExpenseItems();
+  select.innerHTML = `<option value="">Choose crate item...</option>${options.map(item =>
+    `<option value="${escapeQuantity(item.id)}">${escapeQuantity(item.name)}</option>`
+  ).join("")}`;
+  if (selectedItemId && options.some(item => item.id === selectedItemId)) {
+    select.value = selectedItemId;
+  }
+}
+
+function renderAccessoryExpenseItemOptions(select, selectedItemId = select.value) {
+  const options = accessoryExpenseItems.slice()
+    .sort((left, right) => left.name.localeCompare(right.name));
+  select.innerHTML = `<option value="">Choose accessory...</option>${options.map(accessory =>
+    `<option value="${escapeQuantity(accessory.id)}">${escapeQuantity(accessory.name)}</option>`
+  ).join("")}`;
+  if (selectedItemId && options.some(accessory => accessory.id === selectedItemId)) {
+    select.value = selectedItemId;
+  }
+}
+
+function renderCrateExpenseItemSelect(expense) {
+  const selectedItemId = expense.crateItemId || "";
+  const options = getCrateExpenseItems();
+  const hasSelectedItem = options.some(item => item.id === selectedItemId);
+  const selectedName = hasSelectedItem ? "" : expense.crateItemName || "";
+  const isCrateCategory = expense.costCategory === "crate-item";
+  return `<select data-expense-crate-item${isCrateCategory ? " required" : " hidden"} aria-label="Crate inventory item">
+    <option value="">Choose crate item...</option>
+    ${selectedName ? `<option value="${escapeQuantity(selectedItemId)}" selected>${escapeQuantity(selectedName)} (not in inventory)</option>` : ""}
+    ${options.map(item =>
+      `<option value="${escapeQuantity(item.id)}"${item.id === selectedItemId ? " selected" : ""}>${escapeQuantity(item.name)}</option>`
+    ).join("")}
+  </select>`;
+}
+
+function renderAccessoryExpenseItemSelect(expense) {
+  const selectedItemId = expense.accessoryItemId || "";
+  const hasSelectedItem = accessoryExpenseItems.some(accessory => accessory.id === selectedItemId);
+  const selectedName = hasSelectedItem ? "" : expense.accessoryItemName || "";
+  const isAccessoryCategory = expense.costCategory === "accessory-item";
+  return `<select data-expense-accessory-item${isAccessoryCategory ? " required" : " hidden"} aria-label="Accessory item">
+    <option value="">Choose accessory...</option>
+    ${selectedName ? `<option value="${escapeQuantity(selectedItemId)}" selected>${escapeQuantity(selectedName)} (not in accessory list)</option>` : ""}
+    ${accessoryExpenseItems.slice().sort((left, right) => left.name.localeCompare(right.name)).map(accessory =>
+      `<option value="${escapeQuantity(accessory.id)}"${accessory.id === selectedItemId ? " selected" : ""}>${escapeQuantity(accessory.name)}</option>`
+    ).join("")}
+  </select>`;
 }
 
 function getSelectedExpenseCategoryName() {
@@ -651,8 +763,36 @@ function getExpenseGasCategory(expense) {
   return "";
 }
 
+function isCrateExpenseForItem(expense, item) {
+  if (expense.costCategory !== "crate-item" || !item) return false;
+  return expense.crateItemId
+    ? expense.crateItemId === item.id
+    : String(expense.crateItemName || "").trim().toLowerCase() ===
+      String(item.name || "").trim().toLowerCase();
+}
+
+function isAccessoryExpenseForItem(expense, item) {
+  if (expense.costCategory !== "accessory-item" || !isAccessoryAnalyticsItem(item)) return false;
+  const accessory = accessoryExpenseItems.find(candidate =>
+    candidate.id === expense.accessoryItemId);
+  const expenseName = accessory?.name || expense.accessoryItemName || "";
+  return String(expenseName).trim().toLowerCase() ===
+    String(item.name || "").trim().toLowerCase();
+}
+
+function isSodaCrateExpense(expense) {
+  if (expense.costCategory !== "crate-item") return false;
+  const crateItem = analyticsItemsById.get(expense.crateItemId) ||
+    itemsArray.find(item => item.id === expense.crateItemId) ||
+    itemsArray.find(item =>
+      String(item.name || "").trim().toLowerCase() ===
+      String(expense.crateItemName || "").trim().toLowerCase());
+  return isSodaAnalyticsItem(crateItem);
+}
+
 async function handleExpenseFormSubmit(event) {
   event.preventDefault();
+  formatCrateExpenseDescription();
   const user = authInstance.currentUser;
   const date = expenseDateInput.value;
   const today = dateKey(new Date());
@@ -678,11 +818,27 @@ async function handleExpenseFormSubmit(event) {
   const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"]
     .includes(expenseCostCategoryInput.value) ||
     selectedCategoryName.toLowerCase().includes("gas");
-  if (isGasCategory && !expenseGasTypeInput.value) {
-    expenseFormMessage.textContent = "Choose whether this gas cost is refillable or non-refillable.";
+  const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
+    ?.parentElement?.id === "fuelEnergyExpenseOptions";
+  if ((isFuelEnergyCategory || isGasCategory) && !expenseGasTypeInput.value) {
+    expenseFormMessage.textContent = "Choose whether this Fuel & Energy cost is refillable or non-refillable.";
     return;
   }
-  const gasType = isGasCategory ? expenseGasTypeInput.value : "";
+  const crateItem = expenseCostCategoryInput.value === "crate-item"
+    ? itemsArray.find(item => item.id === expenseCrateItemInput.value)
+    : null;
+  if (expenseCostCategoryInput.value === "crate-item" && !crateItem) {
+    expenseFormMessage.textContent = "Choose a crate item from inventory.";
+    return;
+  }
+  const accessoryItem = expenseCostCategoryInput.value === "accessory-item"
+    ? accessoryExpenseItems.find(item => item.id === expenseAccessoryItemInput.value)
+    : null;
+  if (expenseCostCategoryInput.value === "accessory-item" && !accessoryItem) {
+    expenseFormMessage.textContent = "Choose an accessory from the accessory list.";
+    return;
+  }
+  const gasType = isFuelEnergyCategory || isGasCategory ? expenseGasTypeInput.value : "";
   const costCategory = isGasCategory
     ? gasType === "refillable" ? "gas-refillable" : "gas-nonrefillable"
     : expenseCostCategoryInput.value;
@@ -696,6 +852,8 @@ async function handleExpenseFormSubmit(event) {
       date,
       type: expenseTypeInput.value,
       costCategory,
+      ...(crateItem ? { crateItemId: crateItem.id, crateItemName: crateItem.name } : {}),
+      ...(accessoryItem ? { accessoryItemId: accessoryItem.id, accessoryItemName: accessoryItem.name } : {}),
       ...(gasType ? { gasType } : {}),
       description: expenseDescriptionInput.value.trim(),
       paidToSupplier: expensePaidToSupplierInput.value,
@@ -706,6 +864,8 @@ async function handleExpenseFormSubmit(event) {
     });
     expenseForm.reset();
     expenseDateInput.value = today;
+    renderCrateExpenseItemOptions(expenseCrateItemInput, "");
+    renderAccessoryExpenseItemOptions(expenseAccessoryItemInput, "");
     updateExpenseGasTypeField();
     expenseFormMessage.textContent = "Cost recorded.";
   } catch (error) {
@@ -745,10 +905,14 @@ function renderExpensesTable() {
             <option value="gas-nonrefillable"${selectedCategory === "gas-nonrefillable" ? " selected" : ""}>Gas: Non-refillable</option>
             <option value="soda-300ml"${selectedCategory === "soda-300ml" ? " selected" : ""}>Soda: 300ml</option>
             <option value="soda-500ml"${selectedCategory === "soda-500ml" ? " selected" : ""}>Soda: 500ml</option>
+            <option value="crate-item"${selectedCategory === "crate-item" ? " selected" : ""}>Crate Items</option>
+            <option value="accessory-item"${selectedCategory === "accessory-item" ? " selected" : ""}>Accessories</option>
             ${customFuelEnergyCategories.map(category =>
               `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>Fuel & Energy: ${escapeQuantity(category.name)}</option>`
             ).join("")}
           </select>
+          ${renderCrateExpenseItemSelect(expense)}
+          ${renderAccessoryExpenseItemSelect(expense)}
         </td>
         <td>${escapeQuantity(expense.paidToSupplier || "—")}</td>
         <td>${escapeQuantity(expense.vendor || "—")}</td>
@@ -772,11 +936,35 @@ async function handleExpenseCategorySave(event) {
     expenseFormMessage.textContent = "Choose a cost category before saving.";
     return;
   }
+  const crateItemInput = [...expensesTable.querySelectorAll("select[data-expense-crate-item]")]
+    .find(select => select.closest("tr")?.querySelector("[data-expense-category]")?.dataset.expenseCategory === expenseId);
+  const crateItem = category === "crate-item"
+    ? itemsArray.find(item => item.id === crateItemInput?.value)
+    : null;
+  if (category === "crate-item" && !crateItem) {
+    expenseFormMessage.textContent = "Choose a crate item from inventory before saving its category.";
+    return;
+  }
+  const accessoryItemInput = [...expensesTable.querySelectorAll("select[data-expense-accessory-item]")]
+    .find(select => select.closest("tr")?.querySelector("[data-expense-category]")?.dataset.expenseCategory === expenseId);
+  const accessoryItem = category === "accessory-item"
+    ? accessoryExpenseItems.find(item => item.id === accessoryItemInput?.value)
+    : null;
+  if (category === "accessory-item" && !accessoryItem) {
+    expenseFormMessage.textContent = "Choose an accessory from the accessory list before saving its category.";
+    return;
+  }
 
   saveButton.disabled = true;
   expenseFormMessage.textContent = "";
   try {
-    await updateDoc(doc(expensesRef, expenseId), { costCategory: category });
+    await updateDoc(doc(expensesRef, expenseId), {
+      costCategory: category,
+      crateItemId: crateItem ? crateItem.id : deleteField(),
+      crateItemName: crateItem ? crateItem.name : deleteField(),
+      accessoryItemId: accessoryItem ? accessoryItem.id : deleteField(),
+      accessoryItemName: accessoryItem ? accessoryItem.name : deleteField()
+    });
     expenseFormMessage.textContent = "Cost category updated.";
   } catch (error) {
     console.error("Unable to update expense category:", error);
@@ -1930,7 +2118,9 @@ function getExpensesForCurrentAnalytics(dateKeys) {
 function getExpensesForAnalyticsSelection(expenses) {
   const selectedValue = analyticsItemFilter.value;
   if (isGeneralAnalyticsFilter(selectedValue)) {
-    return expenses.filter(expense => !isExcludedItemPurchase(expense));
+    return expenses.filter(expense =>
+      !["crate-item", "accessory-item"].includes(expense.costCategory) &&
+      !isExcludedItemPurchase(expense));
   }
 
   const selectedItem = analyticsItemsById.get(selectedValue) ||
@@ -1948,8 +2138,16 @@ function getExpensesForAnalyticsSelection(expenses) {
       Boolean(getExpenseGasCategory(expense)));
   }
   if (selectedValue === ALL_SODA_ANALYTICS_FILTER) {
-    return expenses.filter(expense => isPurchase(expense) &&
-      ["soda-300ml", "soda-500ml"].includes(expense.costCategory));
+    return expenses.filter(expense =>
+      (isPurchase(expense) && ["soda-300ml", "soda-500ml"].includes(expense.costCategory)) ||
+      isSodaCrateExpense(expense));
+  }
+  if (selectedValue === ALL_CRATE_ANALYTICS_FILTER) {
+    return expenses.filter(expense => expense.costCategory === "crate-item" ||
+      (isPurchase(expense) && ["soda-300ml", "soda-500ml"].includes(expense.costCategory)));
+  }
+  if (selectedValue === ALL_ACCESSORIES_ANALYTICS_FILTER) {
+    return expenses.filter(expense => expense.costCategory === "accessory-item");
   }
   if (isGasAnalyticsItem(selectedItem)) {
     const gasCategory = selectedItem.gasType === "refillable"
@@ -1964,21 +2162,29 @@ function getExpensesForAnalyticsSelection(expenses) {
     const sodaCategory = /\b300\s*ml\b/i.test(selectedItem.name)
       ? "soda-300ml"
       : "soda-500ml";
-    return expenses.filter(expense => isPurchase(expense) &&
-      expense.costCategory === sodaCategory);
+    return expenses.filter(expense =>
+      (isPurchase(expense) && expense.costCategory === sodaCategory) ||
+      isCrateExpenseForItem(expense, selectedItem));
+  }
+  if (isCrateAnalyticsItem(selectedItem)) {
+    return expenses.filter(expense => isCrateExpenseForItem(expense, selectedItem));
+  }
+  if (isAccessoryAnalyticsItem(selectedItem)) {
+    return expenses.filter(expense => isAccessoryExpenseForItem(expense, selectedItem));
   }
   return [];
 }
 
 function isAnalyticsNetAvailable() {
   const selectedValue = analyticsItemFilter.value;
-  if (selectedValue === ALL_ACCESSORIES_ANALYTICS_FILTER) return false;
   if (isGeneralAnalyticsFilter(selectedValue) || isCombinedAnalyticsFilter(selectedValue)) return true;
   const selectedItem = analyticsItemsById.get(selectedValue) ||
     itemsArray.find(item => item.id === selectedValue);
   return isPetrolItem(selectedItem) ||
     isGasAnalyticsItem(selectedItem) ||
-    isSodaAnalyticsItem(selectedItem);
+    isSodaAnalyticsItem(selectedItem) ||
+    isCrateAnalyticsItem(selectedItem) ||
+    isAccessoryAnalyticsItem(selectedItem);
 }
 
 function getExpensesForDateRange(start, end) {

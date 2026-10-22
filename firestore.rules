@@ -43,9 +43,27 @@ service cloud.firestore {
           'gas-refillable',
           'gas-nonrefillable',
           'soda-300ml',
-          'soda-500ml'
+          'soda-500ml',
+          'crate-item',
+          'accessory-item'
         ] ||
         (category is string && category.matches('^fuel:[A-Za-z0-9_-]{20}$'));
+    }
+
+    function hasValidCrateExpenseItem(data) {
+      return data.costCategory != 'crate-item' ||
+        (data.crateItemId is string &&
+          data.crateItemId.size() > 0 &&
+          data.crateItemName is string &&
+          data.crateItemName.size() > 0);
+    }
+
+    function hasValidAccessoryExpenseItem(data) {
+      return data.costCategory != 'accessory-item' ||
+        (data.accessoryItemId is string &&
+          data.accessoryItemId.size() > 0 &&
+          data.accessoryItemName is string &&
+          data.accessoryItemName.size() > 0);
     }
 
     match /users/{userId} {
@@ -105,12 +123,22 @@ service cloud.firestore {
       allow read: if isAdmin() || ownsDocument(resource.data);
       allow create: if isAdmin() ||
         (ownsDocument(request.resource.data) &&
-          isValidFuelCostCategory(request.resource.data.costCategory));
+          isValidFuelCostCategory(request.resource.data.costCategory) &&
+          hasValidCrateExpenseItem(request.resource.data) &&
+          hasValidAccessoryExpenseItem(request.resource.data));
       allow update: if isAdmin() ||
         (ownsDocument(resource.data) &&
           request.resource.data.uid == resource.data.uid &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['costCategory']) &&
-          isValidFuelCostCategory(request.resource.data.costCategory));
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'costCategory',
+            'crateItemId',
+            'crateItemName',
+            'accessoryItemId',
+            'accessoryItemName'
+          ]) &&
+          isValidFuelCostCategory(request.resource.data.costCategory) &&
+          hasValidCrateExpenseItem(request.resource.data) &&
+          hasValidAccessoryExpenseItem(request.resource.data));
       allow delete: if isAdmin();
     }
 
