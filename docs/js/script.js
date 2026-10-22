@@ -41,6 +41,7 @@ import {
   getPiecesPerCrate,
   PIECES_PER_CRATE,
   isExcludedFromAllAnalyticsName,
+  isStrictlyExcludedFromGeneralAnalyticsName,
   isPetrolName,
   parseQuantity,
   formatQuantity,
@@ -218,8 +219,16 @@ fuelEnergyItemNameInput.addEventListener("input", () => uppercaseInput(fuelEnerg
 accessoryItemNameInput.addEventListener("input", () => uppercaseInput(accessoryItemNameInput));
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
+  const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(itemName.value);
+  includeInAllAnalyticsInput.disabled = strictlyExcluded;
+  if (strictlyExcluded) {
+    includeInAllAnalyticsInput.checked = false;
+    analyticsInclusionManuallySet = false;
+  }
   if (!editId && !analyticsInclusionManuallySet) {
-    includeInAllAnalyticsInput.checked = !isExcludedFromAllAnalyticsName(itemName.value);
+    includeInAllAnalyticsInput.checked = !strictlyExcluded &&
+      !isExcludedFromAllAnalyticsName(itemName.value) &&
+      !isAccessoryItemName(itemName.value);
   }
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
   appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
@@ -597,6 +606,13 @@ let customFuelEnergyItems = [];
 let fuelEnergyItemsUnsubscribe = null;
 let customAccessoryItems = [];
 let accessoryItemsUnsubscribe = null;
+
+function isAccessoryItemName(name) {
+  const normalizedName = String(name || "").trim().toLowerCase();
+  return customAccessoryItems.some(accessory =>
+    String(accessory.name || "").trim().toLowerCase() === normalizedName
+  );
+}
 
 const builtInCrateTypes = {
   "soda-300ml": { name: "SODA 300ML CRATE", label: "Soda 300ml", piecesPerCrate: 24 },
@@ -1721,6 +1737,7 @@ form.addEventListener("submit", async e => {
     piecesPerCrate: crateItem ? piecesPerCrate : null,
     pieceSellingPrice: crateItem ? Number(pieceSellingPriceInput.value) : null,
     includeInAllAnalytics: includeInAllAnalyticsInput.checked,
+    includeInAllAnalyticsManuallySet: analyticsInclusionManuallySet,
     uid: user.uid, // ✅ REQUIRED
     createdAt: new Date().toISOString()
   };
@@ -1756,6 +1773,7 @@ form.addEventListener("submit", async e => {
     form.reset();
     crateLoosePiecesInput.value = "0";
     piecesPerCrateInput.value = String(PIECES_PER_CRATE);
+    includeInAllAnalyticsInput.disabled = false;
     updateCrateInventoryFields();
     analyticsInclusionManuallySet = false;
     loadItems(user.uid);
@@ -1776,10 +1794,17 @@ window.editItem = id => {
   if (!item) return;
 
   itemName.value = item.name;
-  includeInAllAnalyticsInput.checked = typeof item.includeInAllAnalytics === "boolean"
-    ? item.includeInAllAnalytics
-    : !isExcludedFromAllAnalyticsName(item.name);
-  analyticsInclusionManuallySet = false;
+  const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(item.name);
+  includeInAllAnalyticsInput.disabled = strictlyExcluded;
+  analyticsInclusionManuallySet = !strictlyExcluded &&
+    item.includeInAllAnalyticsManuallySet === true;
+  includeInAllAnalyticsInput.checked = strictlyExcluded
+    ? false
+    : isAccessoryItemName(item.name) && !analyticsInclusionManuallySet
+      ? false
+      : typeof item.includeInAllAnalytics === "boolean"
+        ? item.includeInAllAnalytics
+        : !isExcludedFromAllAnalyticsName(item.name) && !isAccessoryItemName(item.name);
   incomingPrice.value = item.incoming;
   outgoingPrice.value = item.outgoing;
   quantityInput.value = typeof item.quantity === "string"
@@ -1916,7 +1941,10 @@ importCsvInput.addEventListener("change", (event) => {
         gasType: ["refillable", "non-refillable"].includes(
           String(itemData["gas type"] || "").toLowerCase()
         ) ? String(itemData["gas type"]).toLowerCase() : null,
-        includeInAllAnalytics: !isExcludedFromAllAnalyticsName(itemNameFromCsv),
+        includeInAllAnalytics:
+          !isExcludedFromAllAnalyticsName(itemNameFromCsv) &&
+          !isAccessoryItemName(itemNameFromCsv),
+        includeInAllAnalyticsManuallySet: false,
         uid: user.uid,
         createdAt: new Date().toISOString()
       });

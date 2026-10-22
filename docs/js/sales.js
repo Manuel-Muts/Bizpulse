@@ -29,6 +29,7 @@ import {
   getCrateStockPieces,
   getPiecesPerCrate,
   isExcludedFromAllAnalyticsName,
+  isStrictlyExcludedFromGeneralAnalyticsName,
   isCrateItem,
   isLiterUnit,
   isPetrolName,
@@ -61,6 +62,16 @@ const ALL_GAS_ANALYTICS_FILTER = "__all_gas__";
 const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
 const ALL_CRATE_ANALYTICS_FILTER = "__all_crate_items__";
 const ALL_ACCESSORIES_ANALYTICS_FILTER = "__all_accessories__";
+const GENERAL_ANALYTICS_FILTER = "__general_items__";
+
+function isStaticAnalyticsFilter(filterValue) {
+  return isGeneralAnalyticsFilter(filterValue) ||
+    isCombinedAnalyticsFilter(filterValue);
+}
+
+function isGeneralAnalyticsFilter(filterValue) {
+  return filterValue === GENERAL_ANALYTICS_FILTER;
+}
 
 function isCombinedAnalyticsFilter(filterValue) {
   return filterValue === ALL_GAS_ANALYTICS_FILTER ||
@@ -178,7 +189,7 @@ let fuelEnergyCategoriesUnsubscribe = null;
 let customFuelEnergyCategories = [];
 let accessoryItemsUnsubscribe = null;
 let accessoryNames = new Set();
-let accessoryItemsError = null;
+let accessoryItemsError = "Loading accessory categories...";
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
 let analyticsAllSalesError = null;
@@ -290,6 +301,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
     }
   });
   analyticsDateFilter.value = today;
+  analyticsDateFilter.max = today;
   analyticsItemFilter.addEventListener("change", handleAnalyticsItemChange);
   analyticsItemSearch.addEventListener("input", handleAnalyticsItemSearch);
   analyticsItemPrevBtn.addEventListener("click", () => changeAnalyticsItemPage(-1));
@@ -345,8 +357,8 @@ function listenToAnalyticsItems(uid) {
     analyticsItemsById = new Map(analyticsItems.map(item => [item.id, item]));
     analyticsItemsError = null;
     renderAnalyticsItemPageOptions();
-    if (isCombinedAnalyticsFilter(analyticsItemFilter.value)) {
-      analyticsItemSales = getGroupedAnalyticsSales(analyticsItemFilter.value);
+    if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
+      analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
     updateAnalyticsUI();
     renderOverview();
@@ -366,8 +378,9 @@ function listenToAccessoryItems(uid) {
       .map(accessoryDoc => String(accessoryDoc.data().name || "").trim().toLowerCase())
       .filter(Boolean));
     accessoryItemsError = null;
-    if (analyticsItemFilter.value === ALL_ACCESSORIES_ANALYTICS_FILTER) {
-      analyticsItemSales = getGroupedAnalyticsSales(ALL_ACCESSORIES_ANALYTICS_FILTER);
+    if (analyticsItemFilter.value === GENERAL_ANALYTICS_FILTER ||
+        analyticsItemFilter.value === ALL_ACCESSORIES_ANALYTICS_FILTER) {
+      analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
     updateAnalyticsUI();
     renderOverview();
@@ -438,7 +451,6 @@ async function loadAnalyticsItemPage() {
       ...itemDoc.data()
     }));
     renderAnalyticsItemPageOptions();
-    const search = analyticsItemSearch.value.trim().toLowerCase();
     if (search) {
       const exactMatches = analyticsItemPageItems.filter(item =>
         String(item.name || "").trim().toLowerCase() === search
@@ -470,21 +482,34 @@ function renderAnalyticsItemPageOptions() {
     .find(option => option.value === selectedValue);
   const selectedLabel = selectedOption?.textContent || "";
   [...analyticsItemFilter.options]
-    .filter(option => option.value !== "" && !isCombinedAnalyticsFilter(option.value))
+    .filter(option => option.value !== "" && !isStaticAnalyticsFilter(option.value))
     .forEach(option => option.remove());
+
+  const renderedItemIds = new Set();
+  [...analyticsItemsById.values()]
+    .filter(isPetrolItem)
+    .forEach(item => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.dataset.analyticsPetrolItem = "true";
+      option.textContent = getAnalyticsItemLabel(item);
+      analyticsItemFilter.appendChild(option);
+      renderedItemIds.add(item.id);
+    });
 
   analyticsItemPageItems.forEach(pageItem => {
     const item = analyticsItemsById.get(pageItem.id) || pageItem;
-    if (!item.name) return;
+    if (!item.name || renderedItemIds.has(item.id)) return;
     const option = document.createElement("option");
     option.value = item.id;
     option.dataset.analyticsPageItem = "true";
     option.textContent = getAnalyticsItemLabel(item);
     analyticsItemFilter.appendChild(option);
+    renderedItemIds.add(item.id);
   });
 
-  if (selectedValue && !isCombinedAnalyticsFilter(selectedValue) &&
-      !analyticsItemPageItems.some(item => item.id === selectedValue)) {
+  if (selectedValue && !isStaticAnalyticsFilter(selectedValue) &&
+      !renderedItemIds.has(selectedValue)) {
     const selectedItem = analyticsItemsById.get(selectedValue);
     const option = document.createElement("option");
     option.value = selectedValue;
@@ -769,16 +794,15 @@ function handleAnalyticsItemChange() {
 
   const itemId = analyticsItemFilter.value;
   if (!itemId) {
-    analyticsItemSales = null;
+    analyticsItemSales = [];
     updateAnalyticsUI();
     return;
   }
-  if (isCombinedAnalyticsFilter(itemId)) {
-    analyticsItemSales = getGroupedAnalyticsSales(itemId);
+  if (isStaticAnalyticsFilter(itemId)) {
+    analyticsItemSales = getAnalyticsSalesForFilter(itemId);
     updateAnalyticsUI();
     return;
   }
-
   analyticsItemSales = [];
   updateAnalyticsUI();
   const itemSalesQuery = query(
@@ -967,6 +991,12 @@ function getGroupedAnalyticsSales(filterValue) {
       { name: sale.itemName, gasType: sale.gasType };
     return matchesAnalyticsGroup(item, filterValue);
   });
+}
+
+function getAnalyticsSalesForFilter(filterValue) {
+  return filterValue === GENERAL_ANALYTICS_FILTER
+    ? allSalesForAnalytics.filter(isIncludedInAllAnalytics)
+    : getGroupedAnalyticsSales(filterValue);
 }
 
 function setSaleQuantityUnit(item) {
@@ -1201,19 +1231,50 @@ function getAnalyticsDateRange(period, selectedDate) {
     return { start, end };
   }
 
-  if (period === "weekly") {
-    const start = new Date(`${selectedDate}T00:00:00`);
-    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-    const end = new Date(start);
-    end.setDate(start.getDate() + 7);
-    return { start, end };
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+  const start = new Date(end);
+  if (period === "last-7-days") start.setDate(start.getDate() - 7);
+  else if (period === "last-30-days") start.setDate(start.getDate() - 30);
+  else if (period === "last-3-months" || period === "last-6-months") {
+    const months = period === "last-3-months" ? 3 : 6;
+    const dayOfMonth = start.getDate();
+    start.setDate(1);
+    start.setMonth(start.getMonth() - months);
+    const lastDayOfTargetMonth = new Date(
+      start.getFullYear(),
+      start.getMonth() + 1,
+      0
+    ).getDate();
+    start.setDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
   }
+  else throw new Error(`Unsupported analytics period: ${period}`);
+  return { start, end };
+}
 
-  const [year, month] = selectedDate.split("-").map(Number);
-  return {
-    start: new Date(year, month - 1, 1),
-    end: new Date(year, month, 1)
-  };
+function getAnalyticsPeriodLabel(period) {
+  return ({
+    daily: "Daily",
+    "last-7-days": "Last 7 days",
+    "last-30-days": "Last 30 days",
+    "last-3-months": "Last 3 months",
+    "last-6-months": "Last 6 months"
+  })[period] || "Selected period";
+}
+
+function formatAnalyticsDateRange(period, selectedDate) {
+  const { start, end } = getAnalyticsDateRange(period, selectedDate);
+  const formatDate = date => date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  });
+  if (period === "daily") return formatDate(start);
+
+  const lastDay = new Date(end);
+  lastDay.setDate(lastDay.getDate() - 1);
+  return `${formatDate(start)} - ${formatDate(lastDay)}`;
 }
 
 function renderPetrolAnalytics() {
@@ -1278,9 +1339,7 @@ async function exportAnalyticsPdf() {
 
 function buildAnalyticsPdf() {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const itemName = analyticsItemFilter.value
-    ? analyticsItemFilter.selectedOptions[0]?.textContent || "Selected item"
-    : "All items";
+  const itemName = analyticsItemFilter.selectedOptions[0]?.textContent || "No analysis selected";
   const period = analyticsPeriodFilter.value;
   const selectedDate = analyticsDateFilter.value;
   const rows = currentAnalyticsRows;
@@ -1362,21 +1421,24 @@ function buildAnalyticsPdf() {
   doc.setFontSize(20);
   doc.setTextColor(15, 23, 42);
   const shopNameLines = doc.splitTextToSize(shopName, pageWidth - margin * 2);
-  doc.text(shopNameLines, margin, y);
-  y += shopNameLines.length * 7.5 + 2;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
+  doc.text(shopNameLines, pageWidth / 2, y, { align: "center" });
+  y += shopNameLines.length * 7 + 1;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
   doc.setTextColor(71, 85, 105);
-  doc.text("Sales Analytics", margin, y);
-  y += 7;
+  doc.text("SALES ANALYTICS", pageWidth / 2, y, { align: "center" });
+  y += 4;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 8;
 
-  const selectedPeriod = period === "daily" ? "Date" : period === "weekly" ? "Week of" : "Month";
   drawSectionTitle("Report filters");
   drawTable(
     ["Report filter", "Selection"],
     [
       ["Item", itemName],
-      [selectedPeriod, selectedDate]
+      ["Breakdown", getAnalyticsPeriodLabel(period)],
+      ["Date range", formatAnalyticsDateRange(period, selectedDate)]
     ],
     [40, pageWidth - margin * 2 - 40]
   );
@@ -1468,7 +1530,7 @@ function buildAnalyticsPdf() {
             { name: addition.itemName },
           selectedItemId
         );
-      const matchesItem = !selectedItemId
+      const matchesItem = isGeneralAnalyticsFilter(selectedItemId)
         ? true
         : isCombinedAnalyticsFilter(selectedItemId)
           ? groupedAddition
@@ -1649,8 +1711,8 @@ function listenToAnalytics(uid) {
   analyticsUnsubscribe = onSnapshot(userSalesQuery, snapshot => {
     allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
     analyticsAllSalesError = null;
-    if (isCombinedAnalyticsFilter(analyticsItemFilter.value)) {
-      analyticsItemSales = getGroupedAnalyticsSales(analyticsItemFilter.value);
+    if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
+      analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
     updateAnalyticsUI();
     renderOverview();
@@ -1671,11 +1733,26 @@ function updateAnalyticsUI() {
   if (!selectedDate) return;
 
   const selectedAnalyticsItem = analyticsItemFilter.value;
-  const analyticsError = expensesError || (isCombinedAnalyticsFilter(selectedAnalyticsItem)
-    ? analyticsAllSalesError || analyticsItemsError ||
-      (selectedAnalyticsItem === ALL_ACCESSORIES_ANALYTICS_FILTER ? accessoryItemsError : null)
-    : selectedAnalyticsItem ? analyticsItemSalesError
-      : analyticsAllSalesError || analyticsItemsError);
+  if (!selectedAnalyticsItem) {
+    analyticsSalesTotalEl.textContent = "—";
+    analyticsGrossProfitTotalEl.textContent = "—";
+    analyticsNetRevenueTotalEl.textContent = "—";
+    analyticsExpenseTotalEl.textContent = "—";
+    analyticsQuantityTotalEl.textContent = "—";
+    currentAnalyticsRows = [];
+    analyticsBreakdownTable.innerHTML =
+      `<tr><td colspan="6">Choose an analysis view or select an item.</td></tr>`;
+    renderAnalyticsStockAdditions();
+    renderPetrolAnalytics();
+    return;
+  }
+  const requiresAccessoryDefinitions = isGeneralAnalyticsFilter(selectedAnalyticsItem) ||
+    selectedAnalyticsItem === ALL_ACCESSORIES_ANALYTICS_FILTER;
+  const analyticsError = expensesError ||
+    (requiresAccessoryDefinitions ? accessoryItemsError : null) ||
+    (isStaticAnalyticsFilter(selectedAnalyticsItem)
+      ? analyticsAllSalesError || analyticsItemsError
+      : analyticsItemSalesError);
   if (analyticsError) {
     analyticsSalesTotalEl.textContent = "—";
     analyticsGrossProfitTotalEl.textContent = "—";
@@ -1690,11 +1767,7 @@ function updateAnalyticsUI() {
   }
 
   const dailyTotals = getDailyAnalyticsTotals();
-  const rows = period === "daily"
-    ? getDailyBreakdown(selectedDate, dailyTotals)
-    : period === "weekly"
-      ? getWeeklyBreakdown(selectedDate, dailyTotals)
-      : getMonthlyBreakdown(selectedDate, dailyTotals);
+  const rows = getAnalyticsBreakdownRows(period, selectedDate, dailyTotals);
   const totals = rows.reduce((result, row) => ({
     revenue: result.revenue + row.revenue,
     profit: result.profit + row.profit,
@@ -1857,7 +1930,7 @@ function getExpensesForCurrentAnalytics(dateKeys) {
 
 function getExpensesForAnalyticsSelection(expenses) {
   const selectedValue = analyticsItemFilter.value;
-  if (!selectedValue) {
+  if (isGeneralAnalyticsFilter(selectedValue)) {
     return expenses.filter(expense => !isExcludedItemPurchase(expense));
   }
 
@@ -1900,7 +1973,8 @@ function getExpensesForAnalyticsSelection(expenses) {
 
 function isAnalyticsNetAvailable() {
   const selectedValue = analyticsItemFilter.value;
-  if (!selectedValue || isCombinedAnalyticsFilter(selectedValue)) return true;
+  if (selectedValue === ALL_ACCESSORIES_ANALYTICS_FILTER) return false;
+  if (isGeneralAnalyticsFilter(selectedValue) || isCombinedAnalyticsFilter(selectedValue)) return true;
   const selectedItem = analyticsItemsById.get(selectedValue) ||
     itemsArray.find(item => item.id === selectedValue);
   return isPetrolItem(selectedItem) ||
@@ -1956,7 +2030,7 @@ function renderAnalyticsStockAdditions() {
           selectedItemId
         );
       return dateKeys.has(additionDate) &&
-        (!selectedItemId || (isCombinedAnalyticsFilter(selectedItemId)
+        (isGeneralAnalyticsFilter(selectedItemId) || (isCombinedAnalyticsFilter(selectedItemId)
           ? groupedAddition
           : addition.itemId === selectedItemId));
     })
@@ -2079,7 +2153,7 @@ function renderOverviewTopItems(sales) {
     .sort((left, right) => right.revenue - left.revenue)
     .slice(0, 5);
   if (!topItems.length) {
-    overviewTopItems.innerHTML = `<p class="overview-empty-state">No sales included in All Items analytics for this period.</p>`;
+    overviewTopItems.innerHTML = `<p class="overview-empty-state">No sales included in General Items analytics for this period.</p>`;
     return;
   }
   const maxRevenue = topItems[0].revenue || 1;
@@ -2111,7 +2185,7 @@ function renderOverviewRecentSales(sales) {
         <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
         <td>${formatNumber(sale.revenue)}</td>
       </tr>`).join("")
-    : `<tr><td colspan="4" class="overview-empty-state">No sales included in All Items analytics for this period.</td></tr>`;
+    : `<tr><td colspan="4" class="overview-empty-state">No sales included in General Items analytics for this period.</td></tr>`;
 }
 
 function renderOverviewPetrol(sales) {
@@ -2150,10 +2224,16 @@ function getDailyAnalyticsTotals() {
 
 function isIncludedInAllAnalytics(sale) {
   const item = analyticsItemsById.get(sale.itemId);
+  const itemName = item?.name || sale.itemName;
+  if (isStrictlyExcludedFromGeneralAnalyticsName(itemName)) return false;
+  if (accessoryNames.has(String(itemName || "").trim().toLowerCase()) &&
+      item?.includeInAllAnalyticsManuallySet !== true) {
+    return false;
+  }
   if (typeof item?.includeInAllAnalytics === "boolean") {
     return item.includeInAllAnalytics;
   }
-  return !isExcludedFromAllAnalyticsName(item?.name || sale.itemName);
+  return !isExcludedFromAllAnalyticsName(itemName);
 }
 
 function dateKey(date) {
@@ -2207,72 +2287,34 @@ function getDailyBreakdown(selectedDate, dailyTotals) {
   }];
 }
 
-function getWeeklyBreakdown(selectedDate, dailyTotals) {
-  const selected = new Date(`${selectedDate}T00:00:00`);
-  const mondayOffset = (selected.getDay() + 6) % 7;
-  const start = new Date(selected);
-  start.setDate(selected.getDate() - mondayOffset);
+function getAnalyticsBreakdownRows(period, selectedDate, dailyTotals) {
+  if (period === "daily") return getDailyBreakdown(selectedDate, dailyTotals);
 
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
+  const { start, end } = getAnalyticsDateRange(period, selectedDate);
+  const rows = [];
+  for (const date = new Date(start); date < end; date.setDate(date.getDate() + 1)) {
     const key = dateKey(date);
     const total = dailyTotals[key] || emptyDailyTotal();
-    return {
-      label: date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+    rows.push({
+      label: date.toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      }),
       dateKeys: [key],
       ...total
-    };
-  });
-}
-
-function getMonthlyBreakdown(selectedDate, dailyTotals) {
-  const [year, month] = selectedDate.split("-").map(Number);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const monthStart = new Date(year, month - 1, 1);
-  const monthEnd = new Date(year, month - 1, daysInMonth);
-  const weeks = new Map();
-
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(year, month - 1, day);
-    const mondayOffset = (date.getDay() + 6) % 7;
-    const weekStart = new Date(date);
-    weekStart.setDate(date.getDate() - mondayOffset);
-    const key = dateKey(weekStart);
-    const total = dailyTotals[dateKey(date)] || emptyDailyTotal();
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const labelStart = weekStart < monthStart ? monthStart : weekStart;
-    const labelEnd = weekEnd > monthEnd ? monthEnd : weekEnd;
-    const week = weeks.get(key) || {
-      label: `${labelStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${labelEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
-      dateKeys: [],
-      revenue: 0,
-      profit: 0,
-      quantity: 0
-    };
-    week.revenue += total.revenue;
-    week.profit += total.profit;
-    week.quantity += total.quantity;
-    week.dateKeys.push(dateKey(date));
-    weeks.set(key, week);
+    });
   }
-
-  return [...weeks.values()];
+  return rows;
 }
 
 function updateAnalyticsDateLabel() {
-  const selectedDate = analyticsDateFilter.value;
   const period = analyticsPeriodFilter.value;
-  if (period === "monthly") {
-    analyticsDateFilter.type = "month";
-    if (selectedDate.length === 10) analyticsDateFilter.value = selectedDate.slice(0, 7);
-    analyticsDateLabel.textContent = "Month";
-  } else {
-    analyticsDateFilter.type = "date";
-    if (selectedDate.length === 7) analyticsDateFilter.value = `${selectedDate}-01`;
-    analyticsDateLabel.textContent = period === "daily" ? "Date" : "Week of";
-  }
+  const isDaily = period === "daily";
+  analyticsDateFilter.closest(".analytics-filter-date").hidden = !isDaily;
+  analyticsDateFilter.type = "date";
+  analyticsDateLabel.textContent = "Date";
 }
 
 /**

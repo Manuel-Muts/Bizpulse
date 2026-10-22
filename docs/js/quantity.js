@@ -30,6 +30,13 @@ export function isExcludedFromAllAnalyticsName(name) {
     isCrateItem(normalizedName);
 }
 
+export function isStrictlyExcludedFromGeneralAnalyticsName(name) {
+  const normalizedName = String(name || "");
+  const isExcludedSoda = /\bsoda\b/i.test(normalizedName) &&
+    /\b(?:300|500)\s*ml\b/i.test(normalizedName);
+  return isExcludedSoda || isCrateItem(normalizedName);
+}
+
 export const PIECES_PER_CRATE = 24;
 
 export function isCrateItem(name) {
