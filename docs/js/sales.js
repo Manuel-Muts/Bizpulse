@@ -150,12 +150,7 @@ const petrolAnalyticsTable = document.getElementById("petrolAnalyticsTable");
 const exportAnalyticsPdfBtn = document.getElementById("exportAnalyticsPdfBtn");
 const overviewPeriodFilter = document.getElementById("overviewPeriodFilter");
 const overviewTodayDate = document.getElementById("overviewTodayDate");
-const overviewRevenueEl = document.getElementById("overviewRevenue");
-const overviewGrossProfitEl = document.getElementById("overviewGrossProfit");
-const overviewNetRevenueEl = document.getElementById("overviewNetRevenue");
-const overviewExpenseTotalEl = document.getElementById("overviewExpenseTotal");
 const overviewLowStockEl = document.getElementById("overviewLowStock");
-const overviewRangeLabel = document.getElementById("overviewRangeLabel");
 const overviewSalesChart = document.getElementById("overviewSalesChart");
 const overviewTopItems = document.getElementById("overviewTopItems");
 const overviewPetrolQuantity = document.getElementById("overviewPetrolQuantity");
@@ -2491,16 +2486,9 @@ function renderOverview() {
   end.setDate(today.getDate() + 1);
   const start = new Date(today);
   start.setDate(today.getDate() - days + 1);
-  const periodLabel = isToday ? "Today" : `Last ${days} days`;
-  overviewRangeLabel.textContent = periodLabel;
-
   const overviewError = analyticsAllSalesError || analyticsItemsError || expensesError;
   if (overviewError) {
     const errorMessage = escapeQuantity(overviewError);
-    overviewRevenueEl.textContent = "—";
-    overviewGrossProfitEl.textContent = "—";
-    overviewNetRevenueEl.textContent = "—";
-    overviewExpenseTotalEl.textContent = "—";
     overviewSalesChart.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewTopItems.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewRecentSales.innerHTML = `<tr><td colspan="4">${errorMessage}</td></tr>`;
@@ -2525,22 +2513,12 @@ function renderOverview() {
     isIncludedInAllAnalytics(sale)
   );
 
-  const totals = includedSales.reduce((result, sale) => ({
-    revenue: result.revenue + (Number(sale.revenue) || 0),
-    profit: result.profit + (Number(sale.profit) || 0)
-  }), { revenue: 0, profit: 0 });
   const periodExpenses = getExpensesForDateRange(start, end);
-  const expenseTotal = periodExpenses.reduce((total, expense) =>
-    total + (Number(expense.amount) || 0), 0);
 
-  overviewRevenueEl.textContent = `KES ${formatNumber(totals.revenue)}`;
-  overviewGrossProfitEl.textContent = `KES ${formatNumber(totals.profit)}`;
-  overviewNetRevenueEl.textContent = `KES ${formatNumber(totals.revenue - expenseTotal)}`;
-  overviewExpenseTotalEl.textContent = `KES ${formatNumber(expenseTotal)}`;
   overviewLowStockEl.textContent = String(countLowStockItems());
   renderOverviewSalesChart(start, days, includedSales);
-  renderOverviewTopItems(includedSales);
-  renderOverviewRecentSales(includedSales);
+  renderOverviewTopItems(periodSales);
+  renderOverviewRecentSales(periodSales.filter(sale => !isFuelEnergySale(sale)));
   renderOverviewStockAdditions(start, end);
   renderOverviewExpenses(periodExpenses);
   renderOverviewPetrol(petrolSales);
@@ -2824,40 +2802,57 @@ function renderOverviewSalesChart(start, days, sales) {
 }
 
 function renderOverviewTopItems(sales) {
-  const items = new Map();
+  const itemsByUnit = new Map();
   sales.forEach(sale => {
+    const inventoryItem = analyticsItemsById.get(sale.itemId) ||
+      itemsArray.find(item => item.id === sale.itemId);
+    const itemForSale = inventoryItem || { name: sale.itemName };
+    const isCrateSale = isCrateItem(itemForSale.name);
+    const unit = isCrateSale
+      ? "PIECES"
+      : String(sale.quantityUnit || parseQuantity(inventoryItem?.quantity)?.unit || "UNITS")
+        .trim().toUpperCase();
+    const quantity = isCrateSale
+      ? getCrateSaleStockUnits(sale, itemForSale)
+      : Number(sale.quantity) || 0;
+    const unitItems = itemsByUnit.get(unit) || new Map();
     const key = sale.itemId || sale.itemName || "unknown";
-    const item = items.get(key) || {
-      name: sale.itemName || "Item",
-      revenue: 0,
-      quantities: new Map()
+    const item = unitItems.get(key) || {
+      name: sale.itemName || inventoryItem?.name || "Item",
+      quantity: 0
     };
-    const unit = String(sale.quantityUnit || "").trim().toUpperCase();
-    item.revenue += Number(sale.revenue) || 0;
-    item.quantities.set(unit, (item.quantities.get(unit) || 0) + (Number(sale.quantity) || 0));
-    items.set(key, item);
+    item.quantity += quantity;
+    unitItems.set(key, item);
+    itemsByUnit.set(unit, unitItems);
   });
 
-  const topItems = [...items.values()]
-    .sort((left, right) => right.revenue - left.revenue)
-    .slice(0, 5);
-  if (!topItems.length) {
-    overviewTopItems.innerHTML = `<p class="overview-empty-state">No sales included in General Items analytics for this period.</p>`;
+  const unitGroups = [...itemsByUnit.entries()]
+    .map(([unit, unitItems]) => ({
+      unit,
+      items: [...unitItems.values()]
+        .sort((left, right) => right.quantity - left.quantity)
+        .slice(0, 5)
+    }))
+    .sort((left, right) => left.unit.localeCompare(right.unit));
+  if (!unitGroups.length) {
+    overviewTopItems.innerHTML = `<p class="overview-empty-state">No inventory sales in this period.</p>`;
     return;
   }
-  const maxRevenue = topItems[0].revenue || 1;
-  overviewTopItems.innerHTML = topItems.map(item => {
-    const quantity = [...item.quantities.entries()]
-      .map(([unit, amount]) => formatSaleQuantity({ quantity: amount, quantityUnit: unit }))
-      .join(" + ");
-    const width = Math.max(4, (item.revenue / maxRevenue) * 100);
-    return `<div class="overview-top-item">
-      <div class="overview-top-item-label">
-        <strong>${escapeQuantity(item.name)}</strong>
-        <span>${escapeQuantity(quantity)} · KES ${formatNumber(item.revenue)}</span>
-      </div>
-      <div class="overview-top-item-track" aria-hidden="true"><span style="width: ${width}%"></span></div>
-    </div>`;
+  overviewTopItems.innerHTML = unitGroups.map(group => {
+    const maxQuantity = group.items[0].quantity || 1;
+    return `<section class="overview-top-unit-group">
+      <h4>${escapeQuantity(group.unit)}</h4>
+      ${group.items.map(item => {
+        const width = Math.max(4, (item.quantity / maxQuantity) * 100);
+        return `<div class="overview-top-item">
+          <div class="overview-top-item-label">
+            <strong>${escapeQuantity(item.name)}</strong>
+            <span>${formatNumber(item.quantity)} ${escapeQuantity(group.unit)}</span>
+          </div>
+          <div class="overview-top-item-track" aria-hidden="true"><span style="width: ${width}%"></span></div>
+        </div>`;
+      }).join("")}
+    </section>`;
   }).join("");
 }
 
@@ -2874,7 +2869,19 @@ function renderOverviewRecentSales(sales) {
         <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
         <td>${formatNumber(sale.revenue)}</td>
       </tr>`).join("")
-    : `<tr><td colspan="4" class="overview-empty-state">No sales included in General Items analytics for this period.</td></tr>`;
+    : `<tr><td colspan="4" class="overview-empty-state">No non-fuel sales in this period.</td></tr>`;
+}
+
+function isFuelEnergySale(sale) {
+  const item = analyticsItemsById.get(sale.itemId) ||
+    itemsArray.find(candidate => candidate.id === sale.itemId) ||
+    { name: sale.itemName, gasType: sale.gasType };
+  const normalizedName = String(item.name || sale.itemName || "").trim().toLowerCase();
+  return isPetrolItem(item) ||
+    isGasAnalyticsItem(item) ||
+    customFuelEnergyCategories.some(category =>
+      String(category.name || "").trim().toLowerCase() === normalizedName
+    );
 }
 
 function renderOverviewPetrol(sales) {

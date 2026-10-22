@@ -977,7 +977,7 @@ button.loading .btn-text {
 
 .overview-stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 320px);
   gap: 14px;
   margin-bottom: 20px;
 }
@@ -1111,6 +1111,19 @@ button.loading .btn-text {
 .overview-top-items {
   display: grid;
   gap: 15px;
+}
+
+.overview-top-unit-group {
+  display: grid;
+  gap: 12px;
+}
+
+.overview-top-unit-group h4 {
+  margin: 0;
+  color: #475569;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .overview-top-item-label {
@@ -2928,7 +2941,7 @@ table tr:hover {
   }
 
   .overview-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 320px);
     gap: 9px;
   }
 
@@ -3120,7 +3133,7 @@ table tr:hover {
   }
 
   .overview-stat-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 320px);
   }
 
   .controls {
