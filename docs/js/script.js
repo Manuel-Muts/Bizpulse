@@ -93,6 +93,7 @@ const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
 const customCrateTypesRef = collection(db, "customCrateTypes");
 const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
+const accessoryItemsRef = collection(db, "accessoryItems");
 const usersRef = collection(db, "users");
 const paymentsRef = collection(db, "payments");
 
@@ -124,6 +125,13 @@ const addFuelEnergyItemForm = document.getElementById("addFuelEnergyItemForm");
 const fuelEnergyItemNameInput = document.getElementById("fuelEnergyItemName");
 const saveFuelEnergyItemBtn = document.getElementById("saveFuelEnergyItemBtn");
 const cancelFuelEnergyItemBtn = document.getElementById("cancelFuelEnergyItemBtn");
+const accessoryItemSelect = document.getElementById("accessoryItemSelect");
+const openAddAccessoryItemBtn = document.getElementById("openAddAccessoryItemBtn");
+const addAccessoryItemModal = document.getElementById("addAccessoryItemModal");
+const addAccessoryItemForm = document.getElementById("addAccessoryItemForm");
+const accessoryItemNameInput = document.getElementById("accessoryItemName");
+const saveAccessoryItemBtn = document.getElementById("saveAccessoryItemBtn");
+const cancelAccessoryItemBtn = document.getElementById("cancelAccessoryItemBtn");
 const openAddCrateTypeBtn = document.getElementById("openAddCrateTypeBtn");
 const addCrateTypeModal = document.getElementById("addCrateTypeModal");
 const addCrateTypeForm = document.getElementById("addCrateTypeForm");
@@ -207,6 +215,7 @@ includeInAllAnalyticsInput.addEventListener("change", () => {
 });
 crateTypeNameInput.addEventListener("input", () => uppercaseInput(crateTypeNameInput));
 fuelEnergyItemNameInput.addEventListener("input", () => uppercaseInput(fuelEnergyItemNameInput));
+accessoryItemNameInput.addEventListener("input", () => uppercaseInput(accessoryItemNameInput));
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
   if (!editId && !analyticsInclusionManuallySet) {
@@ -326,6 +335,97 @@ addFuelEnergyItemForm.addEventListener("submit", async event => {
   } finally {
     saveFuelEnergyItemBtn.disabled = false;
     saveFuelEnergyItemBtn.classList.remove("loading");
+  }
+});
+
+accessoryItemSelect.addEventListener("change", () => {
+  const selectedAccessory = customAccessoryItems.find(item => item.id === accessoryItemSelect.value) || null;
+  if (!selectedAccessory) return;
+
+  itemName.value = selectedAccessory.name;
+  itemName.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+function renderAccessoryItemOptions() {
+  if (!accessoryItemSelect) return;
+  accessoryItemSelect.querySelectorAll("option[data-custom-accessory-item]").forEach(option => option.remove());
+  customAccessoryItems
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(accessory => {
+      const option = document.createElement("option");
+      option.value = accessory.id;
+      option.dataset.customAccessoryItem = "true";
+      option.textContent = accessory.name;
+      accessoryItemSelect.appendChild(option);
+    });
+}
+
+function listenToAccessoryItems(uid) {
+  if (accessoryItemsUnsubscribe) accessoryItemsUnsubscribe();
+  const userAccessoryItemsQuery = query(accessoryItemsRef, where("uid", "==", uid));
+  accessoryItemsUnsubscribe = onSnapshot(userAccessoryItemsQuery, snapshot => {
+    customAccessoryItems = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    renderAccessoryItemOptions();
+  }, error => {
+    console.error("Unable to load accessories:", error);
+    alert(`Unable to load accessories: ${error.message}`);
+  });
+}
+
+openAddAccessoryItemBtn.addEventListener("click", () => {
+  addAccessoryItemForm.reset();
+  addAccessoryItemModal.style.display = "flex";
+  accessoryItemNameInput.focus();
+});
+cancelAccessoryItemBtn.addEventListener("click", () => {
+  addAccessoryItemModal.style.display = "none";
+});
+addAccessoryItemModal.addEventListener("click", event => {
+  if (event.target === addAccessoryItemModal) addAccessoryItemModal.style.display = "none";
+});
+addAccessoryItemForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const name = accessoryItemNameInput.value.trim().replace(/\s+/g, " ");
+  if (!user || !name) {
+    alert("Enter an accessory name.");
+    return;
+  }
+
+  const duplicateNames = customAccessoryItems.map(accessory => accessory.name);
+  if (duplicateNames.some(existingName => existingName.trim().toLowerCase() === name.toLowerCase())) {
+    alert("That accessory already exists.");
+    return;
+  }
+
+  saveAccessoryItemBtn.disabled = true;
+  saveAccessoryItemBtn.classList.add("loading");
+  try {
+    const accessoryRef = await addDoc(accessoryItemsRef, {
+      uid: user.uid,
+      name,
+      createdAt: new Date().toISOString()
+    });
+    const accessory = { id: accessoryRef.id, uid: user.uid, name };
+    customAccessoryItems = [
+      ...customAccessoryItems.filter(existing => existing.id !== accessory.id),
+      accessory
+    ];
+    renderAccessoryItemOptions();
+    accessoryItemSelect.value = accessory.id;
+    accessoryItemSelect.dispatchEvent(new Event("change"));
+    addAccessoryItemModal.style.display = "none";
+    addAccessoryItemForm.reset();
+  } catch (error) {
+    console.error("Unable to save accessory:", error);
+    alert(`Unable to save accessory: ${error.message}`);
+  } finally {
+    saveAccessoryItemBtn.disabled = false;
+    saveAccessoryItemBtn.classList.remove("loading");
   }
 });
 
@@ -495,6 +595,8 @@ let customCrateTypes = [];
 let customCrateTypesUnsubscribe = null;
 let customFuelEnergyItems = [];
 let fuelEnergyItemsUnsubscribe = null;
+let customAccessoryItems = [];
+let accessoryItemsUnsubscribe = null;
 
 const builtInCrateTypes = {
   "soda-300ml": { name: "SODA 300ML CRATE", label: "Soda 300ml", piecesPerCrate: 24 },
@@ -804,6 +906,7 @@ onAuthStateChanged(auth, async (user) => {
         if (bizContainer) bizContainer.style.display = "block";
         listenToCustomCrateTypes(user.uid);
         listenToFuelEnergyItems(user.uid);
+        listenToAccessoryItems(user.uid);
         
         // Display Business Name in the title
         const bizTitle = document.getElementById("bizTitle");
@@ -858,6 +961,12 @@ onAuthStateChanged(auth, async (user) => {
     }
     customFuelEnergyItems = [];
     renderFuelEnergyItemOptions();
+    if (accessoryItemsUnsubscribe) {
+      accessoryItemsUnsubscribe();
+      accessoryItemsUnsubscribe = null;
+    }
+    customAccessoryItems = [];
+    renderAccessoryItemOptions();
     if (bizContainer) bizContainer.style.display = "none";
     if (suspendedSection) suspendedSection.style.display = "none";
     if (passwordChangeModal) passwordChangeModal.style.display = "none";

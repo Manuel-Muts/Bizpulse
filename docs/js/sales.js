@@ -59,10 +59,14 @@ const isExcludedItemPurchase = expense =>
     getCustomFuelCategoryName(expense.costCategory).toLowerCase().includes("gas"));
 const ALL_GAS_ANALYTICS_FILTER = "__all_gas__";
 const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
+const ALL_CRATE_ANALYTICS_FILTER = "__all_crate_items__";
+const ALL_ACCESSORIES_ANALYTICS_FILTER = "__all_accessories__";
 
 function isCombinedAnalyticsFilter(filterValue) {
   return filterValue === ALL_GAS_ANALYTICS_FILTER ||
-    filterValue === ALL_SODA_ANALYTICS_FILTER;
+    filterValue === ALL_SODA_ANALYTICS_FILTER ||
+    filterValue === ALL_CRATE_ANALYTICS_FILTER ||
+    filterValue === ALL_ACCESSORIES_ANALYTICS_FILTER;
 }
 
 // DOM Elements (Sales & Analytics)
@@ -75,6 +79,8 @@ const saleCrateStockStatus = document.getElementById("saleCrateStockStatus");
 const saleQuantityUnitField = document.getElementById("saleQuantityUnitField");
 const saleQuantityUnit = document.getElementById("saleQuantityUnit");
 const saleCrateOption = document.getElementById("saleCrateOption");
+const saleCrateSizeField = document.getElementById("saleCrateSizeField");
+const saleCrateSize = document.getElementById("saleCrateSize");
 const recordSaleBtn = document.getElementById("recordSaleBtn");
 const salesTableBody = document.getElementById("salesTable"); // Renamed to avoid conflict with global sales array
 const salesDateFilter = document.getElementById("salesDateFilter");
@@ -143,6 +149,7 @@ let salesRef;
 let stockAdditionsRef;
 let expensesRef;
 let itemsRef; // Need itemsRef for batch updates
+let accessoryItemsRef;
 let analyticsItemsUid = null;
 let analyticsItemPageItems = [];
 let analyticsItemPageDocs = [];
@@ -169,6 +176,9 @@ let stockAdditionsUnsubscribe = null;
 let expensesUnsubscribe = null;
 let fuelEnergyCategoriesUnsubscribe = null;
 let customFuelEnergyCategories = [];
+let accessoryItemsUnsubscribe = null;
+let accessoryNames = new Set();
+let accessoryItemsError = null;
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
 let analyticsAllSalesError = null;
@@ -209,6 +219,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
   expensesRef = collection(dbInstance, "expenses");
   const fuelEnergyCategoriesRef = collection(dbInstance, "fuelEnergyCategories");
+  accessoryItemsRef = collection(dbInstance, "accessoryItems");
   ordersCollectionRef = ordersRef;
   salesSummaryRef = doc(dbInstance, "salesSummaries", authInstance.currentUser.uid);
   clientBusinessName = businessName;
@@ -221,11 +232,8 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   saleQuantityInput.addEventListener("input", () => {
     const selectedItem = itemsArray.find(item => item.id === selectedItemId);
     if (isCrateItem(selectedItem?.name)) {
-      appendQuantityUnit(
-        saleQuantityInput,
-        saleQuantityUnit.value === "crate" ? "CRATES" : "PIECES",
-        true
-      );
+      const selectedUnit = getCrateSaleQuantityUnit(selectedItem);
+      if (selectedUnit) appendQuantityUnit(saleQuantityInput, selectedUnit, true);
     } else {
       appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(selectedItem));
     }
@@ -234,9 +242,20 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
     updatePetrolSalePreview();
   });
   saleQuantityUnit.addEventListener("change", () => {
-    syncSaleQuantityUnit(selectedItemId
+    const selectedItem = selectedItemId
       ? itemsArray.find(item => item.id === selectedItemId)
-      : null);
+      : null;
+    if (saleQuantityUnit.value !== "crate") saleCrateSize.value = "full";
+    updateSaleCrateSizeField(selectedItem);
+    syncSaleQuantityUnit(selectedItem);
+    updateCrateSaleStockPreview();
+    updateSaleUnitPrice();
+  });
+  saleCrateSize.addEventListener("change", () => {
+    const selectedItem = selectedItemId
+      ? itemsArray.find(item => item.id === selectedItemId)
+      : null;
+    syncSaleQuantityUnit(selectedItem);
     updateCrateSaleStockPreview();
     updateSaleUnitPrice();
   });
@@ -289,6 +308,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   });
   updateAnalyticsDateLabel();
   listenToAnalyticsItems(authInstance.currentUser.uid);
+  listenToAccessoryItems(authInstance.currentUser.uid);
   listenToStockAdditions(authInstance.currentUser.uid);
   listenToExpenses(authInstance.currentUser.uid);
   salesPrevPageBtn.addEventListener("click", () => {
@@ -333,6 +353,27 @@ function listenToAnalyticsItems(uid) {
   }, error => {
     console.error("Unable to load analytics item settings:", error);
     analyticsItemsError = "Unable to load item analytics settings. Please try again.";
+    updateAnalyticsUI();
+    renderOverview();
+  });
+}
+
+function listenToAccessoryItems(uid) {
+  if (accessoryItemsUnsubscribe) accessoryItemsUnsubscribe();
+  const userAccessoryItemsQuery = query(accessoryItemsRef, where("uid", "==", uid));
+  accessoryItemsUnsubscribe = onSnapshot(userAccessoryItemsQuery, snapshot => {
+    accessoryNames = new Set(snapshot.docs
+      .map(accessoryDoc => String(accessoryDoc.data().name || "").trim().toLowerCase())
+      .filter(Boolean));
+    accessoryItemsError = null;
+    if (analyticsItemFilter.value === ALL_ACCESSORIES_ANALYTICS_FILTER) {
+      analyticsItemSales = getGroupedAnalyticsSales(ALL_ACCESSORIES_ANALYTICS_FILTER);
+    }
+    updateAnalyticsUI();
+    renderOverview();
+  }, error => {
+    console.error("Unable to load accessory analytics items:", error);
+    accessoryItemsError = "Unable to load accessories for analytics. Please try again.";
     updateAnalyticsUI();
     renderOverview();
   });
@@ -397,6 +438,18 @@ async function loadAnalyticsItemPage() {
       ...itemDoc.data()
     }));
     renderAnalyticsItemPageOptions();
+    const search = analyticsItemSearch.value.trim().toLowerCase();
+    if (search) {
+      const exactMatches = analyticsItemPageItems.filter(item =>
+        String(item.name || "").trim().toLowerCase() === search
+      );
+      if (exactMatches.length === 1) {
+        const exactMatch = exactMatches[0];
+        analyticsItemFilter.value = exactMatch.id;
+        analyticsItemSearch.value = exactMatch.name;
+        handleAnalyticsItemChange();
+      }
+    }
     analyticsItemPageInfo.textContent = analyticsItemPageDocs.length
       ? `Page ${analyticsItemPageIndex + 1} · ${analyticsItemPageSize} per page`
       : search ? "No matching items" : "No items available";
@@ -802,8 +855,7 @@ window.selectSaleItem = (id, name) => {
     prefillPetrolDipFromPreviousDay(selectedItem);
   }
 
-  // Auto-fill price if preferred
-  if (selectedItem) salePriceInput.value = selectedItem.outgoing;
+  updateSaleUnitPrice();
   saleQuantityInput.focus();
 }
 
@@ -881,9 +933,19 @@ function isSodaAnalyticsItem(item) {
   return /\bsoda\b/i.test(name) && /\b(?:300|500)\s*ml\b/i.test(name);
 }
 
+function isCrateAnalyticsItem(item) {
+  return Boolean(item && isCrateItem(item.name));
+}
+
+function isAccessoryAnalyticsItem(item) {
+  return Boolean(item && accessoryNames.has(String(item.name || "").trim().toLowerCase()));
+}
+
 function matchesAnalyticsGroup(item, filterValue) {
   if (filterValue === ALL_GAS_ANALYTICS_FILTER) return isGasAnalyticsItem(item);
   if (filterValue === ALL_SODA_ANALYTICS_FILTER) return isSodaAnalyticsItem(item);
+  if (filterValue === ALL_CRATE_ANALYTICS_FILTER) return isCrateAnalyticsItem(item);
+  if (filterValue === ALL_ACCESSORIES_ANALYTICS_FILTER) return isAccessoryAnalyticsItem(item);
   return false;
 }
 
@@ -913,11 +975,36 @@ function setSaleQuantityUnit(item) {
   saleCrateStockStatus.hidden = !crateItem;
   saleQuantityInput.placeholder = crateItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
   salePriceInput.placeholder = crateItem ? "Selling price per crate" : "Price Sold";
-  saleQuantityUnit.value = "crate";
+  saleQuantityUnit.value = "";
+  saleCrateSize.value = "full";
   const piecesPerCrate = crateItem ? getPiecesPerCrate(item) : 24;
   saleCrateOption.textContent = `Crate (${formatNumber(piecesPerCrate)} pieces)`;
+  updateSaleCrateSizeField(item);
   syncSaleQuantityUnit(item);
+  updateSaleUnitPrice();
   updateCrateSaleStockPreview();
+}
+
+function supportsHalfCrate(item) {
+  if (!isCrateItem(item?.name)) return false;
+  const name = String(item.name);
+  const isWaterCrate = /\bwater\b/i.test(name);
+  const isTargetSodaCrate = /\bsoda\b/i.test(name) && /\b(?:300|500)\s*ml\b/i.test(name);
+  return (isWaterCrate || isTargetSodaCrate) &&
+    getPiecesPerCrate(item) % 2 === 0;
+}
+
+function updateSaleCrateSizeField(item) {
+  saleCrateSizeField.hidden = !supportsHalfCrate(item) ||
+    saleQuantityUnit.value !== "crate";
+}
+
+function getCrateSaleQuantityUnit(item) {
+  if (!saleQuantityUnit.value) return "";
+  if (saleQuantityUnit.value === "piece") return "PIECES";
+  return supportsHalfCrate(item) && saleCrateSize.value === "half"
+    ? "HALF CRATES"
+    : "CRATES";
 }
 
 function updateCrateSaleStockPreview() {
@@ -948,9 +1035,13 @@ function updateCrateSaleStockPreview() {
 
   const lines = [`Available: ${formatStock(availablePieces)}`];
   const saleQuantity = parseQuantity(saleQuantityInput.value);
-  if (saleQuantity && Number.isInteger(saleQuantity.amount) && saleQuantity.amount > 0) {
+  if (!saleQuantityUnit.value) {
+    lines.push("Choose how to sell this item.");
+  } else if (saleQuantity && Number.isInteger(saleQuantity.amount) && saleQuantity.amount > 0) {
+    const packSize = getCrateSaleQuantityUnit(item);
     const piecesToSell = saleQuantity.amount *
-      (saleQuantityUnit.value === "crate" ? piecesPerCrate : 1);
+      (packSize === "HALF CRATES" ? piecesPerCrate / 2 :
+        packSize === "CRATES" ? piecesPerCrate : 1);
     if (piecesToSell <= availablePieces) {
       lines.push(`After sale: ${formatStock(availablePieces - piecesToSell)}`);
     } else {
@@ -965,9 +1056,9 @@ function syncSaleQuantityUnit(item) {
   if (!quantity) return;
 
   if (isCrateItem(item?.name)) {
-    if (!quantity.unit || /^(crates?|pieces?)$/i.test(quantity.unit)) {
-      const unit = saleQuantityUnit.value === "crate" ? "CRATES" : "PIECES";
-      saleQuantityInput.value = formatQuantity(quantity.amount, unit);
+    if (!quantity.unit || /^(?:half\s+)?crates?$|^pieces?$/i.test(quantity.unit)) {
+      const unit = getCrateSaleQuantityUnit(item);
+      if (unit) saleQuantityInput.value = formatQuantity(quantity.amount, unit);
     }
     return;
   }
@@ -981,23 +1072,61 @@ function syncSaleQuantityUnit(item) {
 
 function updateSaleUnitPrice() {
   const item = itemsArray.find(candidate => candidate.id === selectedItemId);
-  if (!isCrateItem(item?.name)) return;
-  salePriceInput.placeholder = saleQuantityUnit.value === "piece"
+  if (!item) {
+    salePriceInput.readOnly = false;
+    return;
+  }
+  if (!isCrateItem(item.name)) {
+    salePriceInput.placeholder = "Price Sold";
+    salePriceInput.readOnly = false;
+    salePriceInput.value = item.outgoing;
+    return;
+  }
+
+  if (!saleQuantityUnit.value) {
+    salePriceInput.placeholder = "Select how to sell";
+    salePriceInput.readOnly = false;
+    salePriceInput.value = "";
+    return;
+  }
+
+  const isPieceSale = saleQuantityUnit.value === "piece";
+  const isHalfCrateSale = !isPieceSale &&
+    supportsHalfCrate(item) &&
+    saleCrateSize.value === "half";
+  salePriceInput.readOnly = isHalfCrateSale;
+  salePriceInput.placeholder = isPieceSale
     ? "Selling price per piece"
-    : "Selling price per crate";
-  salePriceInput.value = saleQuantityUnit.value === "piece"
+    : isHalfCrateSale ? "Selling price per half crate" : "Selling price per crate";
+  salePriceInput.value = isPieceSale
     ? Number(item.pieceSellingPrice) || ""
-    : item.outgoing;
+    : isHalfCrateSale ? Number(item.outgoing) / 2 : item.outgoing;
 }
 
 function getCrateSaleStockUnits(sale, item) {
   const quantity = Number(sale.quantity) || 0;
   const unit = String(sale.quantityUnit || "").toLowerCase();
-  return isCrateItem(item?.name)
-    ? quantity * (!unit || unit.startsWith("crate")
-      ? Number(sale.piecesPerCrate) || getPiecesPerCrate(item)
-      : 1)
-    : quantity;
+  if (!isCrateItem(item?.name)) return quantity;
+  const piecesPerCrate = Number(sale.piecesPerCrate) || getPiecesPerCrate(item);
+  if (sale.crateSize === "half" || unit.startsWith("half crate")) {
+    return quantity * piecesPerCrate / 2;
+  }
+  return quantity * (!unit || unit.startsWith("crate") ? piecesPerCrate : 1);
+}
+
+function formatSaleQuantity(sale) {
+  const quantity = Number(sale.quantity) || 0;
+  const unit = String(sale.quantityUnit || "").trim().toUpperCase();
+  if (unit === "HALF CRATES") {
+    return `${formatNumber(quantity)} HALF ${quantity === 1 ? "CRATE" : "CRATES"}`;
+  }
+  if (unit === "CRATES") {
+    return `${formatNumber(quantity)} ${quantity === 1 ? "CRATE" : "CRATES"}`;
+  }
+  if (unit === "PIECES") {
+    return `${formatNumber(quantity)} ${quantity === 1 ? "PIECE" : "PIECES"}`;
+  }
+  return formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || ""));
 }
 
 function getItemStockUnits(item) {
@@ -1279,18 +1408,35 @@ function buildAnalyticsPdf() {
         const unit = sale.quantityUnit || "";
         const itemName = sale.itemName || "Item";
         const gasType = getGasTypeForSale(sale);
-        const itemKey = `${sale.itemId || sale.itemName}|${gasType.toLowerCase()}|${unit.toLowerCase()}`;
+        const isGroupedCrate = analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER;
+        const itemKey = `${sale.itemId || sale.itemName}|${isGroupedCrate ? "" : gasType.toLowerCase()}|${isGroupedCrate ? "" : unit.toLowerCase()}`;
         const productLabel = gasType ? `${itemName} (${gasType})` : itemName;
         const existing = salesByItem.get(itemKey) || {
           name: productLabel,
           quantity: 0,
-          unit
+          unit,
+          crates: 0,
+          halfCrates: 0,
+          pieces: 0
         };
-        existing.quantity += Number(sale.quantity) || 0;
+        if (isGroupedCrate) {
+          const quantityUnit = String(sale.quantityUnit || "CRATES").toLowerCase();
+          if (sale.crateSize === "half" || quantityUnit.startsWith("half crate")) {
+            existing.halfCrates += Number(sale.quantity) || 0;
+          } else if (quantityUnit.startsWith("piece")) {
+            existing.pieces += Number(sale.quantity) || 0;
+          } else {
+            existing.crates += Number(sale.quantity) || 0;
+          }
+        } else {
+          existing.quantity += Number(sale.quantity) || 0;
+        }
         salesByItem.set(itemKey, existing);
       });
       const productsAndQuantities = [...salesByItem.values()]
-        .map(item => `${item.name}: ${formatDisplayQuantity(formatQuantity(item.quantity, item.unit))}`)
+        .map(item => analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER
+          ? `${item.name}: ${formatNumber(item.crates)} CRATES, ${formatNumber(item.halfCrates)} HALF CRATES, ${formatNumber(item.pieces)} PIECES`
+          : `${item.name}: ${formatSaleQuantity({ quantity: item.quantity, quantityUnit: item.unit })}`)
         .join("\n") || "—";
       const rowExpenses = getExpensesForCurrentAnalytics(row.dateKeys)
         .reduce((total, expense) => total + (Number(expense.amount) || 0), 0);
@@ -1526,7 +1672,8 @@ function updateAnalyticsUI() {
 
   const selectedAnalyticsItem = analyticsItemFilter.value;
   const analyticsError = expensesError || (isCombinedAnalyticsFilter(selectedAnalyticsItem)
-    ? analyticsAllSalesError || analyticsItemsError
+    ? analyticsAllSalesError || analyticsItemsError ||
+      (selectedAnalyticsItem === ALL_ACCESSORIES_ANALYTICS_FILTER ? accessoryItemsError : null)
     : selectedAnalyticsItem ? analyticsItemSalesError
       : analyticsAllSalesError || analyticsItemsError);
   if (analyticsError) {
@@ -1938,7 +2085,7 @@ function renderOverviewTopItems(sales) {
   const maxRevenue = topItems[0].revenue || 1;
   overviewTopItems.innerHTML = topItems.map(item => {
     const quantity = [...item.quantities.entries()]
-      .map(([unit, amount]) => `${formatNumber(amount)}${unit ? ` ${unit}` : ""}`)
+      .map(([unit, amount]) => formatSaleQuantity({ quantity: amount, quantityUnit: unit }))
       .join(" + ");
     const width = Math.max(4, (item.revenue / maxRevenue) * 100);
     return `<div class="overview-top-item">
@@ -1961,7 +2108,7 @@ function renderOverviewRecentSales(sales) {
         <td>${escapeQuantity(sale.itemName || "Item")}${getSaleGasType(sale)
           ? `<br><small class="sale-gas-type">${escapeQuantity(getGasTypeLabel(getSaleGasType(sale)))}</small>`
           : ""}</td>
-        <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
+        <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
         <td>${formatNumber(sale.revenue)}</td>
       </tr>`).join("")
     : `<tr><td colspan="4" class="overview-empty-state">No sales included in All Items analytics for this period.</td></tr>`;
@@ -2017,23 +2164,29 @@ function getAnalyticsQuantityDisplay(dateKeys) {
   const selectedItemId = analyticsItemFilter.value;
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
     itemsArray.find(item => item.id === selectedItemId);
-  if (!selectedItemId || !isCrateItem(selectedItem?.name)) return null;
+  const isAllCratesSelected = selectedItemId === ALL_CRATE_ANALYTICS_FILTER;
+  if (!isAllCratesSelected && !isCrateItem(selectedItem?.name)) return null;
 
   const selectedDates = new Set(dateKeys);
-  const quantities = { crates: 0, pieces: 0 };
+  const quantities = { crates: 0, halfCrates: 0, pieces: 0 };
   (analyticsItemSales || []).forEach(sale => {
     if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
 
     const quantity = Number(sale.quantity) || 0;
     const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
-    if (unit.startsWith("piece")) {
+    if (isAllCratesSelected) {
+      if (!isCrateItem(sale.itemName || "")) return;
+    }
+    if (sale.crateSize === "half" || unit.startsWith("half crate")) {
+      quantities.halfCrates += quantity;
+    } else if (unit.startsWith("piece")) {
       quantities.pieces += quantity;
     } else {
       quantities.crates += quantity;
     }
   });
 
-  return `Crates: ${formatNumber(quantities.crates)}, Pieces: ${formatNumber(quantities.pieces)}`;
+  return `Crates: ${formatNumber(quantities.crates)}, Half crates: ${formatNumber(quantities.halfCrates)}, Pieces: ${formatNumber(quantities.pieces)}`;
 }
 
 function emptyDailyTotal() {
@@ -2140,7 +2293,7 @@ function renderSalesTable() {
         <td>${sale.itemName}${getSaleGasType(sale)
           ? `<br><small class="sale-gas-type">${getGasTypeLabel(getSaleGasType(sale))}</small>`
           : ""}</td>
-        <td>${escapeQuantity(formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || "")))}</td>
+        <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
         <td>${formatNumber(sale.unitPriceSold)}</td>
         <td>${formatNumber(sale.revenue)}</td>
         <td style="color: green; font-weight: bold;">${formatNumber(sale.profit)}</td>
@@ -2192,14 +2345,35 @@ async function handleSaleFormSubmit(e) {
   const petrolItem = isPetrolItem(item);
   const crateItem = isCrateItem(item.name);
   const saleUnit = crateItem ? saleQuantityUnit.value : "";
+  if (crateItem && saleUnit !== "crate" && saleUnit !== "piece") {
+    alert("Choose how to sell this crate item before entering the sale.");
+    window.showLoadingIndicator(false);
+    saleQuantityUnit.focus();
+    return;
+  }
+  const crateSize = crateItem && saleUnit === "crate" &&
+    supportsHalfCrate(item) && saleCrateSize.value === "half"
+    ? "half"
+    : "full";
   if (crateItem && !Number.isInteger(saleQuantity.amount)) {
     alert("Crates and pieces must be sold as whole numbers.");
     window.showLoadingIndicator(false);
     return;
   }
+  const expectedSaleUnit = crateItem
+    ? crateSize === "half" ? "HALF CRATES" : saleUnit === "crate" ? "CRATES" : "PIECES"
+    : "";
   if (crateItem && saleQuantity.unit &&
-      !new RegExp(`^${saleUnit}s?$`, "i").test(saleQuantity.unit)) {
+      saleQuantity.unit.toLowerCase() !== expectedSaleUnit.toLowerCase() &&
+      !(saleUnit === "crate" && crateSize === "full" &&
+        /^crates?$/i.test(saleQuantity.unit)) &&
+      !(saleUnit === "piece" && /^pieces?$/i.test(saleQuantity.unit))) {
     alert(`Select ${saleUnit} in the Sell as menu or remove the unit from the quantity.`);
+    window.showLoadingIndicator(false);
+    return;
+  }
+  if (crateItem && crateSize === "half" && !supportsHalfCrate(item)) {
+    alert("Half crates are available only for water crates and Soda 300ml/500ml crates with an even piece count.");
     window.showLoadingIndicator(false);
     return;
   }
@@ -2219,10 +2393,12 @@ async function handleSaleFormSubmit(e) {
   }
   const qtySold = saleQuantity.amount;
   const stockUnitsSold = crateItem
-    ? qtySold * (saleUnit === "crate" ? getPiecesPerCrate(item) : 1)
+    ? qtySold * (saleUnit === "piece"
+      ? 1
+      : getPiecesPerCrate(item) * (crateSize === "half" ? 0.5 : 1))
     : qtySold;
   const quantityUnit = crateItem
-    ? saleUnit === "crate" ? "CRATES" : "PIECES"
+    ? saleUnit === "piece" ? "PIECES" : crateSize === "half" ? "HALF CRATES" : "CRATES"
     : petrolItem ? "L" : (itemUnit || saleQuantity.unit);
   let petrolDip = null;
   if (petrolItem) {
@@ -2285,7 +2461,10 @@ async function handleSaleFormSubmit(e) {
     unitPriceSold,
     quantity: qtySold,
     quantityUnit,
-    ...(crateItem ? { piecesPerCrate: getPiecesPerCrate(item) } : {}),
+    ...(crateItem ? {
+      piecesPerCrate: getPiecesPerCrate(item),
+      crateSize: saleUnit === "crate" ? crateSize : null
+    } : {}),
     ...(petrolDip ? { petrolDip } : {}),
     revenue,
     profit,
@@ -2447,11 +2626,15 @@ window.editSale = (id) => {
   const item = itemsArray.find(candidate => candidate.id === sale.itemId);
   setSaleQuantityUnit(item);
   if (isCrateItem(item?.name)) {
-    saleQuantityUnit.value = String(sale.quantityUnit || "").toLowerCase().startsWith("crate")
-      ? "crate"
-      : "piece";
+    const unit = String(sale.quantityUnit || "").toLowerCase();
+    saleQuantityUnit.value = unit.includes("crate") ? "crate" : "piece";
+    saleCrateSize.value = sale.crateSize === "half" || unit.startsWith("half crate")
+      ? "half"
+      : "full";
   }
+  updateSaleCrateSizeField(item);
   syncSaleQuantityUnit(item);
+  if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
   updateCrateSaleStockPreview();
   setPetrolDipFieldsVisible(isPetrolItem(item));
   if (sale.petrolDip) {

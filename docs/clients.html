@@ -189,6 +189,24 @@
     </div>
   </div>
 
+  <div id="addAccessoryItemModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="addAccessoryItemTitle">
+    <div class="modal-content stock-top-up-modal">
+      <h2 id="addAccessoryItemTitle">Add Accessory</h2>
+      <p>This accessory will be available in the inventory dropdown.</p>
+      <form id="addAccessoryItemForm" class="stock-top-up-form">
+        <label for="accessoryItemName">Accessory name</label>
+        <input type="text" id="accessoryItemName" maxlength="60" placeholder="e.g. Phone charger" required />
+        <div class="stock-top-up-actions">
+          <button type="submit" id="saveAccessoryItemBtn" class="action-btn" style="background:#7c3aed;">
+            <span class="btn-text">Save accessory</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="cancelAccessoryItemBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- PAYMENT CONFIRMATION MODAL -->
   <div id="paymentConfirmModal" class="modal" style="display:none;">
     <div class="modal-content" style="max-width: 400px;">
@@ -404,17 +422,25 @@
           <div id="saleSearchResults" class="search-results-dropdown" style="display: none;"></div>
         </div>
         <input type="number" id="salePrice" placeholder="Price Sold" required />
-        <div class="sale-quantity-field">
-          <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
-          <small id="saleCrateStockStatus" class="sale-crate-stock-status" hidden></small>
-        </div>
         <label id="saleQuantityUnitField" class="sale-quantity-unit-field" hidden>
           Sell as
           <select id="saleQuantityUnit">
+            <option value="" disabled selected>-- Select --</option>
             <option id="saleCrateOption" value="crate">Crate (24 pieces)</option>
             <option value="piece">Piece</option>
           </select>
         </label>
+        <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
+          Crate size
+          <select id="saleCrateSize">
+            <option value="full">Full crate</option>
+            <option value="half">Half crate</option>
+          </select>
+        </label>
+        <div class="sale-quantity-field">
+          <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
+          <small id="saleCrateStockStatus" class="sale-crate-stock-status" hidden></small>
+        </div>
         <fieldset id="petrolDipFields" class="petrol-dip-fields" hidden>
           <legend>Petrol Dip Record (Liters)</legend>
           <p class="petrol-dip-formula">Total Available = Opening Dip + Fuel Received. Expected Closing = Total Available - Pump Sales. Variance = Actual Closing - Expected Closing.</p>
@@ -462,6 +488,8 @@
                   <option value="">All items</option>
                   <option value="__all_gas__">All Gas (Refillable + Non-refillable)</option>
                   <option value="__all_soda_300_500__">All Soda (300ml + 500ml)</option>
+                  <option value="__all_crate_items__">All Crate Items (crates + pieces)</option>
+                  <option value="__all_accessories__">All Accessories</option>
                 </select>
                 <div class="analytics-item-pagination">
                   <button type="button" id="analyticsItemPrevBtn" aria-label="Previous item page" disabled>Previous</button>
@@ -469,7 +497,7 @@
                   <button type="button" id="analyticsItemNextBtn" aria-label="Next item page" disabled>Next</button>
                 </div>
               </div>
-              <small id="analyticsItemSearchHint" class="analytics-item-search-hint">Search from the start of a name. All Items uses the full dataset; All Gas and All Soda combine excluded items.</small>
+              <small id="analyticsItemSearchHint" class="analytics-item-search-hint">Search from the start of a name; an exact unique match is selected automatically. All Items uses the full dataset; grouped options combine Gas, Soda, Crate, or Accessory items.</small>
             </div>
             <div class="analytics-filter-control analytics-filter-period">
               <label for="analyticsPeriodFilter">Breakdown</label>
@@ -636,20 +664,28 @@
       <div class="section-divider"><h2>Inventory Management</h2></div>
       <div class="inventory-stock-tools">
         <button id="openStockHealthModalBtn" class="action-btn" style="background: #047857;">Open Stock Health</button>
-        <label for="fuelEnergyItemSelect">
-          Fuel & Energy
+        <div class="inventory-stock-tool-group">
+          <div class="inventory-stock-tool-heading">
+            <label for="fuelEnergyItemSelect">Fuel & Energy</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddFuelEnergyItemBtn" class="action-btn inventory-stock-tool-add" style="background:#b18f43;" aria-describedby="fuelItemCreateTooltip">Add fuel item</button>
+              <span id="fuelItemCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom Fuel & Energy item. It will appear in this dropdown and in expense cost categories.</span>
+            </span>
+          </div>
           <select id="fuelEnergyItemSelect">
             <option value="">Choose fuel or energy item...</option>
             <option value="petrol">Petrol</option>
             <option value="gas-cylinder">Gas Cylinder</option>
           </select>
-        </label>
-        <span class="inventory-create-tooltip">
-          <button type="button" id="openAddFuelEnergyItemBtn" class="action-btn" style="background:#b18f43;" aria-describedby="fuelItemCreateTooltip">Add fuel item</button>
-          <span id="fuelItemCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom Fuel & Energy item. It will appear in this dropdown and in expense cost categories.</span>
-        </span>
-        <label for="crateTypeSelect">
-          Choose crate
+        </div>
+        <div class="inventory-stock-tool-group">
+          <div class="inventory-stock-tool-heading">
+            <label for="crateTypeSelect">Choose crate</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddCrateTypeBtn" class="action-btn inventory-stock-tool-add" style="background:#2563eb;" aria-describedby="crateTypeCreateTooltip">Add crate</button>
+              <span id="crateTypeCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom crate preset with its pieces-per-crate setting for inventory entry.</span>
+            </span>
+          </div>
           <select id="crateTypeSelect">
             <option value="">Choose crate type...</option>
             <option value="soda-300ml">Soda 300ml (24 pieces)</option>
@@ -665,11 +701,19 @@
             <option value="yoghurt-500ml">Yoghurt 500ml (10 pieces)</option>
             <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
           </select>
-        </label>
-        <span class="inventory-create-tooltip">
-          <button type="button" id="openAddCrateTypeBtn" class="action-btn" style="background:#2563eb;" aria-describedby="crateTypeCreateTooltip">Add crate</button>
-          <span id="crateTypeCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom crate preset with its pieces-per-crate setting for inventory entry.</span>
-        </span>
+        </div>
+        <div class="inventory-stock-tool-group">
+          <div class="inventory-stock-tool-heading">
+            <label for="accessoryItemSelect">Accessories</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddAccessoryItemBtn" class="action-btn inventory-stock-tool-add" style="background:#7c3aed;" aria-describedby="accessoryItemCreateTooltip">Add accessory</button>
+              <span id="accessoryItemCreateTooltip" class="inventory-tooltip" role="tooltip">Create a custom accessory item. It will appear here and in the inventory list.</span>
+            </span>
+          </div>
+          <select id="accessoryItemSelect">
+            <option value="">Choose accessory...</option>
+          </select>
+        </div>
       </div>
       <form id="itemForm">
         <input type="text" id="itemName" placeholder="Item Name" required />
@@ -712,7 +756,7 @@
             <span>Include this item in the All Items analysis section</span>
             <small>When checked, its sales are included in the combined analysis. You can analyze this item individually either way.</small>
             <span id="analyticsInclusionTooltip" class="analytics-inclusion-tooltip" role="tooltip">
-              Petrol, Soda 300ml and 500ml, and items with “Gas” in the name are excluded from the All Items analysis by default, but remain available for individual analysis. Check this box to include this item in the combined analysis.
+              Petrol, Soda 300ml and 500ml, items with “Gas” in the name, and crate items are excluded from the All Items analysis by default, but remain available for individual analysis. Check this box to include this item in the combined analysis.
             </span>
           </span>
         </label>

@@ -124,6 +124,18 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /accessoryItems/{accessoryId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() ||
+        (ownsDocument(request.resource.data) &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.name.size() <= 60);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin() || ownsDocument(resource.data);
+    }
+
     match /salesSummaries/{userId} {
       allow read, create, update: if isAdmin() ||
         (isActiveClient() && request.auth.uid == userId);

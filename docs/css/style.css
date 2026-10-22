@@ -932,6 +932,31 @@ button.loading .btn-text {
   margin-bottom: 20px;
 }
 
+.inventory-stock-tool-group {
+  display: grid;
+  gap: 5px;
+}
+
+.inventory-stock-tool-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.inventory-stock-tool-heading > label {
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inventory-stock-tool-add {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .inventory-create-tooltip {
   position: relative;
   display: inline-flex;
@@ -968,15 +993,7 @@ button.loading .btn-text {
   transform: translate(-50%, 0);
 }
 
-.inventory-stock-tools > label {
-  display: grid;
-  gap: 5px;
-  color: #475569;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.inventory-stock-tools select {
+.inventory-stock-tool-group select {
   min-height: 40px;
   min-width: 220px;
   padding: 8px 10px;
@@ -2207,8 +2224,12 @@ table tr:hover {
   }
 
   .inventory-stock-tools > button,
-  .inventory-stock-tools > label,
-  .inventory-stock-tools select {
+  .inventory-stock-tool-group {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .inventory-stock-tool-group select {
     width: 100%;
     min-width: 0;
   }
