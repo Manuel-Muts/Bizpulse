@@ -25,7 +25,8 @@ import {
   orderBy,
   limitToLast,
   onSnapshotsInSync,
-  runTransaction
+  runTransaction,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import { initSalesModule, loadSales, updateSaleDropdown } from "./sales.js";
@@ -92,6 +93,7 @@ onSnapshotsInSync(db, () => {
 const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
+const stockMovementsRef = collection(db, "stockMovements");
 const customCrateTypesRef = collection(db, "customCrateTypes");
 const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
 const accessoryItemsRef = collection(db, "accessoryItems");
@@ -742,7 +744,7 @@ stockTopUpForm?.addEventListener("submit", async event => {
   try {
     const itemRef = doc(db, "items", item.id);
     const additionRef = doc(stockAdditionsRef);
-    const createdAt = new Date().toISOString();
+    const movementRef = doc(stockMovementsRef);
     await runTransaction(db, async transaction => {
       const latestItemSnapshot = await transaction.get(itemRef);
       if (!latestItemSnapshot.exists()) {
@@ -761,6 +763,7 @@ stockTopUpForm?.addEventListener("submit", async event => {
       const latestUnit = latestCrateItem
         ? unit
         : parseQuantity(latestItem.quantity)?.unit || "";
+      const createdAt = new Date().toISOString();
       const piecesAdded = latestCrateItem
         ? amount * (unit === "crate" ? latestPiecesPerCrate : 1)
         : null;
@@ -783,6 +786,17 @@ stockTopUpForm?.addEventListener("submit", async event => {
       };
       transaction.update(itemRef, quantityUpdate);
       transaction.set(additionRef, stockAddition);
+      if (!isPetrolName(latestItem.name)) {
+        transaction.set(movementRef, {
+          uid: user.uid,
+          itemId: latestItem.id,
+          itemName: latestItem.name,
+          quantityDelta: latestCrateItem ? piecesAdded : amount,
+          quantityUnit: latestCrateItem ? "PIECES" : latestUnit.toUpperCase(),
+          type: "stock-addition",
+          occurredAt: serverTimestamp()
+        });
+      }
     });
 
     stockTopUpModal.style.display = "none";
@@ -1341,6 +1355,12 @@ function getInventoryStockAmount(item) {
     : parseQuantity(item.quantity)?.amount ?? 0;
 }
 
+function getInventoryStockUnit(item) {
+  return isCrateItem(item.name)
+    ? "PIECES"
+    : String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
+}
+
 function localDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -1728,6 +1748,9 @@ form.addEventListener("submit", async e => {
     return;
   }
   const quantityUnit = isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" : quantity.unit;
+  const createdAt = new Date();
+  const stockLedgerStartDate = new Date(createdAt);
+  stockLedgerStartDate.setDate(stockLedgerStartDate.getDate() + 1);
 
   const data = {
     name: nameVal,
@@ -1742,7 +1765,16 @@ form.addEventListener("submit", async e => {
     includeInAllAnalytics: includeInAllAnalyticsInput.checked,
     includeInAllAnalyticsManuallySet: analyticsInclusionManuallySet,
     uid: user.uid, // ✅ REQUIRED
-    createdAt: new Date().toISOString()
+    createdAt: createdAt.toISOString(),
+    ...(!isPetrolName(nameVal) ? {
+      stockLedgerBaselineUnits: crateItem
+        ? quantity.amount * piecesPerCrate + loosePieces
+        : quantity.amount,
+      stockLedgerUnit: crateItem ? "PIECES" : quantityUnit.toUpperCase(),
+      stockLedgerBaselineAt: createdAt.toISOString(),
+      stockLedgerStartDate: localDateKey(stockLedgerStartDate),
+      stockLedgerValid: true
+    } : {})
   };
 
   saveItemBtn.disabled = true;
@@ -1767,7 +1799,61 @@ form.addEventListener("submit", async e => {
     }
 
     if (editId) {
-      await updateDoc(doc(db, "items", editId), data);
+      const itemId = editId;
+      const itemRef = doc(db, "items", itemId);
+      const movementRef = doc(stockMovementsRef);
+      await runTransaction(db, async transaction => {
+        const snapshot = await transaction.get(itemRef);
+        if (!snapshot.exists()) throw new Error("This inventory item no longer exists.");
+        const currentItem = { id: snapshot.id, ...snapshot.data() };
+        const oldStockUnit = getInventoryStockUnit(currentItem);
+        const newItem = { ...data, id: itemId };
+        const newStockUnit = getInventoryStockUnit(newItem);
+        const oldItemIsPetrol = isPetrolName(currentItem.name);
+        const newItemIsPetrol = isPetrolName(newItem.name);
+        const compatibleStockUnit = oldStockUnit === newStockUnit &&
+          !oldItemIsPetrol && !newItemIsPetrol;
+        const update = { ...data };
+        delete update.stockLedgerBaselineUnits;
+        delete update.stockLedgerUnit;
+        delete update.stockLedgerBaselineAt;
+        delete update.stockLedgerStartDate;
+        delete update.stockLedgerValid;
+        const baselineAt = new Date();
+        const baselineStartDate = new Date(baselineAt);
+        baselineStartDate.setDate(baselineStartDate.getDate() + 1);
+        if (!newItemIsPetrol &&
+            (!currentItem.stockLedgerBaselineAt || oldItemIsPetrol ||
+              currentItem.stockLedgerValid === false)) {
+          Object.assign(update, {
+            stockLedgerBaselineUnits: oldItemIsPetrol
+              ? getInventoryStockAmount(newItem)
+              : getInventoryStockAmount(currentItem),
+            stockLedgerUnit: newStockUnit,
+            stockLedgerBaselineAt: baselineAt.toISOString(),
+            stockLedgerStartDate: localDateKey(baselineStartDate),
+            stockLedgerValid: true
+          });
+        }
+        if (newItemIsPetrol) update.stockLedgerValid = false;
+        else if (!oldItemIsPetrol && !compatibleStockUnit) update.stockLedgerValid = false;
+
+        transaction.update(itemRef, update);
+        const quantityDelta =
+          getInventoryStockAmount(newItem) - getInventoryStockAmount(currentItem);
+        if (compatibleStockUnit && quantityDelta !== 0 &&
+            currentItem.stockLedgerValid !== false) {
+          transaction.set(movementRef, {
+            uid: user.uid,
+            itemId,
+            itemName: nameVal,
+            quantityDelta,
+            quantityUnit: newStockUnit,
+            type: "manual-adjustment",
+            occurredAt: serverTimestamp()
+          });
+        }
+      });
       editId = null;
     } else {
       await addDoc(itemsRef, data);

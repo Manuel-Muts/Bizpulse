@@ -521,7 +521,7 @@
               <div class="analytics-filter-control" id="analyticsBreakdownControl">
                 <label for="analyticsPeriodFilter">Breakdown</label>
                 <select id="analyticsPeriodFilter">
-                  <option value="daily">Daily</option>
+                  <option value="daily">Today</option>
                   <option value="last-7-days">Last 7 days</option>
                   <option value="last-30-days">Last 30 days</option>
                   <option value="last-2-months">Last 2 months</option>
@@ -579,7 +579,7 @@
       <div class="analytics-breakdown-table">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Wholesale discounts</th><th>Items sold</th></tr>
+            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th>Gross sales</th><th>Gross profit</th><th>Expenses</th><th>Net revenue</th><th>Wholesale discounts</th><th>Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>

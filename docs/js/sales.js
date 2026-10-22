@@ -14,7 +14,9 @@ import {
   getDocs,
   increment,
   updateDoc,
-  deleteField
+  deleteField,
+  runTransaction,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import {
@@ -183,6 +185,7 @@ let itemsArray = []; // Reference to the items array from script.js
 let salesArray = []; // Local sales array for this module
 let salesRef;
 let stockAdditionsRef;
+let stockMovementsRef;
 let expensesRef;
 let itemsRef; // Need itemsRef for batch updates
 let accessoryItemsRef;
@@ -205,6 +208,12 @@ let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
 let stockAdditionsForAnalytics = [];
 let stockAdditionsError = null;
+let stockMovementsForAnalytics = [];
+let stockMovementsError = null;
+let stockMovementsLoaded = false;
+let stockLedgerBaselineError = null;
+const stockLedgerBaselineRequests = new Set();
+const stockLedgerBaselineFailures = new Set();
 let expensesForAnalytics = [];
 let expensesError = null;
 let analyticsUnsubscribe = null;
@@ -218,6 +227,7 @@ let accessoryExpenseItems = [];
 let accessoryItemsError = "Loading accessory categories...";
 let analyticsItemsUnsubscribe = null;
 let analyticsItemsById = new Map();
+let analyticsItemsLoaded = false;
 let analyticsAllSalesError = null;
 let analyticsItemsError = null;
 let analyticsItemSalesUnsubscribe = null;
@@ -254,6 +264,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   analyticsItemsUid = authInstance.currentUser.uid;
   salesRef = collection(dbInstance, "sales");
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
+  stockMovementsRef = collection(dbInstance, "stockMovements");
   expensesRef = collection(dbInstance, "expenses");
   const fuelEnergyCategoriesRef = collection(dbInstance, "fuelEnergyCategories");
   accessoryItemsRef = collection(dbInstance, "accessoryItems");
@@ -384,6 +395,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   updateAnalyticsDateLabel();
   listenToAnalyticsItems(authInstance.currentUser.uid);
   listenToAccessoryItems(authInstance.currentUser.uid);
+  listenToStockMovements(authInstance.currentUser.uid);
   listenToStockAdditions(authInstance.currentUser.uid);
   listenToExpenses(authInstance.currentUser.uid);
   salesPrevPageBtn.addEventListener("click", () => {
@@ -421,7 +433,9 @@ function listenToAnalyticsItems(uid) {
       ...itemDoc.data()
     }));
     analyticsItemsById = new Map(analyticsItems.map(item => [item.id, item]));
+    analyticsItemsLoaded = true;
     analyticsItemsError = null;
+    ensureStockLedgerBaselines(analyticsItems);
     renderAnalyticsItemPageOptions();
     if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
       analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
@@ -430,9 +444,72 @@ function listenToAnalyticsItems(uid) {
     renderOverview();
   }, error => {
     console.error("Unable to load analytics item settings:", error);
+    analyticsItemsLoaded = true;
     analyticsItemsError = "Unable to load item analytics settings. Please try again.";
     updateAnalyticsUI();
     renderOverview();
+  });
+}
+
+function listenToStockMovements(uid) {
+  const userMovementsQuery = query(stockMovementsRef, where("uid", "==", uid));
+  onSnapshot(userMovementsQuery, snapshot => {
+    stockMovementsForAnalytics = snapshot.docs.map(movementDoc => ({
+      id: movementDoc.id,
+      ...movementDoc.data()
+    }));
+    stockMovementsError = null;
+    stockMovementsLoaded = true;
+    updateAnalyticsUI();
+  }, error => {
+    console.error("Unable to load stock movement history:", error);
+    stockMovementsError = "Unable to load stock movement history. Please try again.";
+    stockMovementsLoaded = true;
+    updateAnalyticsUI();
+  });
+}
+
+function ensureStockLedgerBaselines(items) {
+  items.forEach(item => {
+    if (isPetrolItem(item)) return;
+    if (item.stockLedgerBaselineAt || stockLedgerBaselineRequests.has(item.id)) return;
+    stockLedgerBaselineRequests.add(item.id);
+    stockLedgerBaselineFailures.delete(item.id);
+    stockLedgerBaselineError = stockLedgerBaselineFailures.size
+      ? "Unable to prepare stock history. Please try again."
+      : null;
+    runTransaction(dbInstance, async transaction => {
+      const itemRef = doc(dbInstance, "items", item.id);
+      const snapshot = await transaction.get(itemRef);
+      if (!snapshot.exists()) return null;
+      const latestItem = { id: snapshot.id, ...snapshot.data() };
+      if (latestItem.stockLedgerBaselineAt) return latestItem;
+
+      const baselineAt = new Date();
+      const startDate = new Date(baselineAt);
+      startDate.setDate(startDate.getDate() + 1);
+      const baseline = {
+        stockLedgerBaselineUnits: getItemStockUnits(latestItem),
+        stockLedgerUnit: getItemStockUnit(latestItem),
+        stockLedgerBaselineAt: serverTimestamp(),
+        stockLedgerStartDate: dateKey(startDate),
+        stockLedgerValid: true
+      };
+      transaction.update(itemRef, baseline);
+      return null;
+    }).then(baselineItem => {
+      if (baselineItem) analyticsItemsById.set(item.id, baselineItem);
+      stockLedgerBaselineError = stockLedgerBaselineFailures.size
+        ? "Unable to prepare stock history. Please try again."
+        : null;
+    }).catch(error => {
+      console.error("Unable to establish stock history baseline:", error);
+      stockLedgerBaselineFailures.add(item.id);
+      stockLedgerBaselineError = "Unable to prepare stock history. Please try again.";
+    }).finally(() => {
+      stockLedgerBaselineRequests.delete(item.id);
+      updateAnalyticsUI();
+    });
   });
 }
 
@@ -1415,6 +1492,24 @@ function getItemStockUnits(item) {
     : parseQuantity(item.quantity)?.amount ?? 0;
 }
 
+function getItemStockUnit(item) {
+  return isCrateItem(item.name)
+    ? "PIECES"
+    : String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
+}
+
+function createStockMovement(item, quantityDelta, type) {
+  return {
+    uid: item.uid || authInstance.currentUser.uid,
+    itemId: item.id,
+    itemName: item.name,
+    quantityDelta,
+    quantityUnit: getItemStockUnit(item),
+    type,
+    occurredAt: serverTimestamp()
+  };
+}
+
 function getItemStockUpdate(item, unitAdjustment) {
   if (isCrateItem(item.name)) {
     return adjustCrateStock(item, unitAdjustment);
@@ -1518,7 +1613,7 @@ function getAnalyticsPeriodLabel(period) {
     return `Custom range by ${analyticsCustomGroupBy.value}`;
   }
   return ({
-    daily: "Daily",
+    daily: "Today",
     "last-7-days": "Last 7 days",
     "last-30-days": "Last 30 days",
     "last-2-months": "Last 2 months",
@@ -1584,8 +1679,11 @@ function renderPetrolAnalytics() {
 }
 
 async function exportAnalyticsPdf() {
-  if (stockAdditionsError || expensesError) {
-    alert("Stock additions or expense history could not be loaded, so the report was not exported.");
+  if (stockAdditionsError || expensesError || stockMovementsError ||
+      !stockMovementsLoaded || !analyticsItemsLoaded || analyticsItemsError ||
+      stockLedgerBaselineError ||
+      stockLedgerBaselineRequests.size) {
+    alert("Stock or expense history could not be prepared, so the report was not exported.");
     return;
   }
   exportAnalyticsPdfBtn.disabled = true;
@@ -1777,7 +1875,7 @@ function buildAnalyticsPdf() {
     ? analyticsItemSales
     : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   drawTable(
-    ["Period", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", "Quantity sold", "Products and quantities"],
+    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", "Quantity sold", "Products and quantities"],
     rows.map(row => {
       const salesByItem = new Map();
       selectedAnalyticsSales.forEach(sale => {
@@ -1823,6 +1921,8 @@ function buildAnalyticsPdf() {
 
       return [
         row.label,
+        getAnalyticsStockDisplay(row, "opening"),
+        getAnalyticsStockDisplay(row, "closing"),
         formatNumber(row.revenue),
         formatNumber(row.profit),
         `KES ${formatNumber(rowExpenses)}`,
@@ -1832,7 +1932,7 @@ function buildAnalyticsPdf() {
         productsAndQuantities
       ];
     }),
-    [32, 27, 27, 27, 27, 40, 22, pageWidth - margin * 2 - 202]
+    [25, 38, 38, 22, 22, 20, 20, 26, 15, pageWidth - margin * 2 - 226]
   );
 
   const { start: stockStart, end: stockEnd } = getAnalyticsDateRange(period, selectedDate);
@@ -2061,7 +2161,7 @@ function updateAnalyticsUI() {
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML =
-      `<tr><td colspan="7">Choose an analysis view or select an item.</td></tr>`;
+      `<tr><td colspan="9">Choose an analysis view or select an item.</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2082,7 +2182,7 @@ function updateAnalyticsUI() {
     analyticsQuantityTotalEl.textContent = "—";
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
-    analyticsBreakdownTable.innerHTML = `<tr><td colspan="7">${escapeQuantity(analyticsError)}</td></tr>`;
+    analyticsBreakdownTable.innerHTML = `<tr><td colspan="9">${escapeQuantity(analyticsError)}</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2099,7 +2199,7 @@ function updateAnalyticsUI() {
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML =
-      `<tr><td colspan="7">Choose a valid custom date range.</td></tr>`;
+      `<tr><td colspan="9">Choose a valid custom date range.</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2132,6 +2232,8 @@ function updateAnalyticsUI() {
   analyticsBreakdownTable.innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
+      <td>${escapeQuantity(getAnalyticsStockDisplay(row, "opening")).replace(/\n/g, "<br>")}</td>
+      <td>${escapeQuantity(getAnalyticsStockDisplay(row, "closing")).replace(/\n/g, "<br>")}</td>
       <td>${formatNumber(row.revenue)}</td>
       <td>${formatNumber(row.profit)}</td>
       <td>${formatNumber(getExpensesForCurrentAnalytics(row.dateKeys)
@@ -2773,6 +2875,85 @@ function getAnalyticsBreakdownRows(period, selectedDate, dailyTotals) {
   return rows;
 }
 
+function getAnalyticsStockItems() {
+  const selectedItemId = analyticsItemFilter.value;
+  return [...analyticsItemsById.values()].filter(item => {
+    if (isPetrolItem(item)) return false;
+    if (isGeneralAnalyticsFilter(selectedItemId)) {
+      return isIncludedInAllAnalytics({ itemId: item.id, itemName: item.name });
+    }
+    if (isCombinedAnalyticsFilter(selectedItemId)) {
+      return matchesAnalyticsGroup(item, selectedItemId);
+    }
+    return item.id === selectedItemId;
+  });
+}
+
+function getAnalyticsStockBalance(item, row) {
+  if (!item.stockLedgerBaselineAt || !item.stockLedgerStartDate ||
+      item.stockLedgerValid === false) return null;
+  const start = new Date(`${row.dateKeys[0]}T00:00:00`);
+  const end = new Date(`${row.dateKeys[row.dateKeys.length - 1]}T00:00:00`);
+  end.setDate(end.getDate() + 1);
+  const trackedFrom = new Date(`${item.stockLedgerStartDate}T00:00:00`);
+  if (start < trackedFrom) return null;
+
+  const baselineAt = getStockHistoryDate(item.stockLedgerBaselineAt);
+  if (!Number.isFinite(baselineAt.getTime())) return null;
+  let opening = Number(item.stockLedgerBaselineUnits) || 0;
+  let closing = opening;
+  stockMovementsForAnalytics.forEach(movement => {
+    if (movement.itemId !== item.id ||
+        String(movement.quantityUnit || "").toUpperCase() !== item.stockLedgerUnit) return;
+    const occurredAt = getStockHistoryDate(movement.occurredAt);
+    if (occurredAt <= baselineAt) return;
+    if (!Number.isFinite(occurredAt.getTime())) return;
+    const delta = Number(movement.quantityDelta) || 0;
+    if (occurredAt < start) opening += delta;
+    if (occurredAt < end) closing += delta;
+  });
+  return { opening, closing };
+}
+
+function getStockHistoryDate(value) {
+  return value && typeof value.toDate === "function"
+    ? value.toDate()
+    : new Date(value);
+}
+
+function formatAnalyticsStockUnits(item, units) {
+  if (isCrateItem(item.name)) {
+    const piecesPerCrate = getPiecesPerCrate(item);
+    return formatCrateStock({
+      quantity: formatQuantity(Math.floor(units / piecesPerCrate), "CRATES"),
+      loosePieces: units % piecesPerCrate,
+      piecesPerCrate
+    });
+  }
+  const quantityUnit = item.stockLedgerUnit || getItemStockUnit(item);
+  return formatDisplayQuantity(formatQuantity(units, quantityUnit));
+}
+
+function getAnalyticsStockDisplay(row, balanceKey) {
+  const selectedItem = analyticsItemsById.get(analyticsItemFilter.value) ||
+    itemsArray.find(item => item.id === analyticsItemFilter.value);
+  if (selectedItem && isPetrolItem(selectedItem)) return "See Petrol Dip Breakdown";
+  if (stockMovementsError || analyticsItemsError || stockLedgerBaselineError) {
+    return "Stock history unavailable";
+  }
+  if (!stockMovementsLoaded || !analyticsItemsLoaded ||
+      stockLedgerBaselineRequests.size) return "Preparing stock history";
+  const items = getAnalyticsStockItems();
+  if (!items.length) return "—";
+  return items.map(item => {
+    const balance = getAnalyticsStockBalance(item, row);
+    const value = balance
+      ? formatAnalyticsStockUnits(item, balance[balanceKey])
+      : "Not tracked";
+    return `${item.name}: ${value}`;
+  }).join("\n");
+}
+
 function updateAnalyticsDateLabel() {
   const period = analyticsPeriodFilter.value;
   const isDaily = period === "daily";
@@ -3015,12 +3196,12 @@ async function handleSaleFormSubmit(e) {
 
     if (editSaleId) {
       const originalSale = editingOriginalSale || salesArray.find(s => s.id === editSaleId);
-      const originalItem = itemsArray.find(candidate => candidate.id === originalSale.itemId);
+      const originalItem = itemsArray.find(candidate => candidate.id === originalSale.itemId) ||
+        analyticsItemsById.get(originalSale.itemId);
       const originalStockUnits = getCrateSaleStockUnits(
         originalSale,
         originalItem || { name: originalSale.itemName }
       );
-
       if (originalSale.itemId !== selectedItemId) {
         if (originalItem) {
           batch.update(
@@ -3031,6 +3212,32 @@ async function handleSaleFormSubmit(e) {
         batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
       } else {
         batch.update(itemRef, getItemStockUpdate(item, originalStockUnits - stockUnitsSold));
+      }
+
+      if (originalSale.itemId === selectedItemId && !isPetrolItem(item)) {
+        const stockDelta = originalStockUnits - stockUnitsSold;
+        if (stockDelta !== 0) {
+          batch.set(doc(stockMovementsRef), createStockMovement(
+            item,
+            stockDelta,
+            "sale-edit"
+          ));
+        }
+      } else if (originalSale.itemId !== selectedItemId) {
+        if (originalItem && !isPetrolItem(originalItem)) {
+          batch.set(doc(stockMovementsRef), createStockMovement(
+            originalItem,
+            originalStockUnits,
+            "sale-edit"
+          ));
+        }
+        if (!isPetrolItem(item)) {
+          batch.set(doc(stockMovementsRef), createStockMovement(
+            item,
+            -stockUnitsSold,
+            "sale-edit"
+          ));
+        }
       }
       
       batch.update(doc(salesRef, editSaleId), saleData);
@@ -3074,6 +3281,13 @@ async function handleSaleFormSubmit(e) {
     } else {
       batch.set(newSaleRef, saleData);
       batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
+      if (!isPetrolItem(item)) {
+        batch.set(doc(stockMovementsRef), createStockMovement(
+          item,
+          -stockUnitsSold,
+          "sale"
+        ));
+      }
 
       const currentDate = selectedSaleDate;
       const currentMonth = currentDate.slice(0, 7);
