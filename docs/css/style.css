@@ -615,6 +615,26 @@ button.loading .btn-text {
   overflow-wrap: anywhere;
 }
 
+.analytics-sale-type-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  margin-top: 8px;
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.analytics-sale-type-quantity {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.analytics-sale-type-quantity strong {
+  color: #1e3a8a;
+}
+
 .analytics-expense-note {
   margin: -8px 0 18px;
   color: #64748b;
@@ -2360,6 +2380,11 @@ table tr:hover {
   .sales-analytics-grid .stat-card p {
     font-size: 18px;
     overflow-wrap: anywhere;
+  }
+
+  .analytics-sale-type-breakdown {
+    gap: 3px 6px;
+    font-size: 10px;
   }
 
   .overview-heading,

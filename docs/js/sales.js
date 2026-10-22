@@ -129,6 +129,7 @@ const analyticsNetRevenueTotalEl = document.getElementById("analyticsNetRevenueT
 const analyticsDiscountTotalEl = document.getElementById("analyticsDiscountTotal");
 const analyticsExpenseTotalEl = document.getElementById("analyticsExpenseTotal");
 const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
+const analyticsSaleTypeBreakdownEl = document.getElementById("analyticsSaleTypeBreakdown");
 const analyticsBreakdownTable = document.getElementById("analyticsBreakdownTable");
 const analyticsStockAdditionsTable = document.getElementById("analyticsStockAdditionsTable");
 const petrolAnalyticsPreview = document.getElementById("petrolAnalyticsPreview");
@@ -1577,10 +1578,11 @@ function buildAnalyticsPdf() {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 10;
   const footerY = pageHeight - 8;
+  const tableBottom = footerY - 8;
   let y = 16;
 
   const drawSectionTitle = title => {
-    if (y + 10 > footerY - 8) {
+    if (y + 6 + 8 + 10 > tableBottom) {
       doc.addPage();
       y = 16;
     }
@@ -1599,19 +1601,32 @@ function buildAnalyticsPdf() {
     }
     const rowPadding = 2.5;
     const lineHeight = 4.5;
+    const headerFontSize = 8;
+    const headerLineHeight = 4.5;
     const drawHeader = () => {
-      let x = margin;
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
+      doc.setFontSize(headerFontSize);
+      const headerLines = headers.map((header, index) =>
+        doc.splitTextToSize(String(header), columnWidths[index] - 4)
+      );
+      const headerHeight = Math.max(
+        8,
+        Math.max(...headerLines.map(lines => lines.length), 1) * headerLineHeight + 3
+      );
+      if (y + headerHeight > tableBottom) {
+        doc.addPage();
+        y = 16;
+      }
+      let x = margin;
       headers.forEach((header, index) => {
-        doc.setFillColor(226, 232, 240);
-        doc.setDrawColor(203, 213, 225);
-        doc.rect(x, y, columnWidths[index], 8, "FD");
-        doc.setTextColor(30, 41, 59);
-        doc.text(doc.splitTextToSize(String(header), columnWidths[index] - 4), x + 2, y + 5.2);
+        doc.setFillColor(203, 213, 225);
+        doc.setDrawColor(100, 116, 139);
+        doc.rect(x, y, columnWidths[index], headerHeight, "FD");
+        doc.setTextColor(15, 23, 42);
+        doc.text(headerLines[index], x + 2, y + 4.5);
         x += columnWidths[index];
       });
-      y += 8;
+      y += headerHeight;
     };
 
     drawHeader();
@@ -1620,27 +1635,48 @@ function buildAnalyticsPdf() {
         doc.splitTextToSize(String(cell), columnWidths[index] - 4)
       );
       const lineCount = Math.max(...cellLines.map(lines => lines.length), 1);
-      const rowHeight = lineCount * lineHeight + rowPadding * 2;
+      let lineOffset = 0;
 
-      if (y + rowHeight > footerY - 4) {
-        doc.addPage();
-        y = 16;
-        drawHeader();
+      while (lineOffset < lineCount) {
+        const availableHeight = tableBottom - y;
+        const maxLines = Math.floor((availableHeight - rowPadding * 2) / lineHeight);
+        if (maxLines < 1) {
+          doc.addPage();
+          y = 16;
+          drawHeader();
+          continue;
+        }
+
+        const segmentLineCount = Math.min(maxLines, lineCount - lineOffset);
+        const rowHeight = segmentLineCount * lineHeight + rowPadding * 2;
+        const segmentLines = cellLines.map(lines =>
+          lines.slice(lineOffset, lineOffset + segmentLineCount)
+        );
+        if (lineOffset > 0 && segmentLines[0].length === 0) {
+          segmentLines[0] = ["(continued)"];
+        }
+
+        let x = margin;
+        segmentLines.forEach((lines, index) => {
+          doc.setDrawColor(148, 163, 184);
+          const alternateRow = rowIndex % 2 === 1;
+          doc.setFillColor(alternateRow ? 226 : 241, alternateRow ? 232 : 245, alternateRow ? 240 : 249);
+          doc.rect(x, y, columnWidths[index], rowHeight, "FD");
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(30, 41, 59);
+          if (lines.length) doc.text(lines, x + 2, y + rowPadding + 3.2);
+          x += columnWidths[index];
+        });
+        y += rowHeight;
+        lineOffset += segmentLineCount;
+
+        if (lineOffset < lineCount) {
+          doc.addPage();
+          y = 16;
+          drawHeader();
+        }
       }
-
-      let x = margin;
-      cellLines.forEach((lines, index) => {
-        doc.setDrawColor(203, 213, 225);
-        const alternateRow = rowIndex % 2 === 1;
-        doc.setFillColor(alternateRow ? 248 : 255, alternateRow ? 250 : 255, alternateRow ? 252 : 255);
-        doc.rect(x, y, columnWidths[index], rowHeight, "FD");
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(51, 65, 85);
-        doc.text(lines, x + 2, y + rowPadding + 3.2);
-        x += columnWidths[index];
-      });
-      y += rowHeight;
     });
 
     y += 7;
@@ -1682,7 +1718,11 @@ function buildAnalyticsPdf() {
       ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
       ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
       ["Wholesale discounts", `KES ${analyticsDiscountTotalEl.textContent}`],
-      ["Quantity sold", analyticsQuantityTotalEl.textContent]
+      ["Quantity sold", analyticsQuantityTotalEl.textContent],
+      ...getAnalyticsSaleTypeQuantities(rows.flatMap(row => row.dateKeys)).map(({ type, quantities, isCrateSelection }) => [
+        `${type} quantity sold`,
+        formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)
+      ])
     ],
     [pageWidth - margin * 2 - 55, 55]
   );
@@ -1747,7 +1787,7 @@ function buildAnalyticsPdf() {
         productsAndQuantities
       ];
     }),
-    [32, 27, 27, 27, 27, 31, 22, pageWidth - margin * 2 - 193]
+    [32, 27, 27, 27, 27, 40, 22, pageWidth - margin * 2 - 202]
   );
 
   const { start: stockStart, end: stockEnd } = getAnalyticsDateRange(period, selectedDate);
@@ -1973,6 +2013,7 @@ function updateAnalyticsUI() {
     analyticsDiscountTotalEl.textContent = "—";
     analyticsExpenseTotalEl.textContent = "—";
     analyticsQuantityTotalEl.textContent = "—";
+    analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML =
       `<tr><td colspan="7">Choose an analysis view or select an item.</td></tr>`;
@@ -1994,6 +2035,7 @@ function updateAnalyticsUI() {
     analyticsDiscountTotalEl.textContent = "—";
     analyticsExpenseTotalEl.textContent = "—";
     analyticsQuantityTotalEl.textContent = "—";
+    analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML = `<tr><td colspan="7">${escapeQuantity(analyticsError)}</td></tr>`;
     renderAnalyticsStockAdditions();
@@ -2023,6 +2065,8 @@ function updateAnalyticsUI() {
   analyticsExpenseTotalEl.textContent = formatNumber(expenseTotal);
   analyticsQuantityTotalEl.textContent =
     getAnalyticsQuantityDisplay(rows.flatMap(row => row.dateKeys)) || formatNumber(totals.quantity);
+  analyticsSaleTypeBreakdownEl.innerHTML =
+    getAnalyticsSaleTypeBreakdown(rows.flatMap(row => row.dateKeys));
   analyticsBreakdownTable.innerHTML = rows.map(row => `
     <tr>
       <td>${row.label}</td>
@@ -2537,6 +2581,61 @@ function getAnalyticsQuantityDisplay(dateKeys) {
   });
 
   return `Full crates: ${formatNumber(quantities.crates)}, Half crates: ${formatNumber(quantities.halfCrates)}, Pieces: ${formatNumber(quantities.pieces)}`;
+}
+
+function getAnalyticsSaleTypeBreakdown(dateKeys) {
+  return getAnalyticsSaleTypeQuantities(dateKeys)
+    .map(({ type, quantities, isCrateSelection }) => `
+      <span class="analytics-sale-type-quantity"><strong>${type}</strong> ${formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)}</span>`)
+    .join("");
+}
+
+function getAnalyticsSaleTypeQuantities(dateKeys) {
+  const selectedItemId = analyticsItemFilter.value;
+  const selectedItem = analyticsItemsById.get(selectedItemId) ||
+    itemsArray.find(item => item.id === selectedItemId);
+  const isCrateSelection = selectedItemId === ALL_CRATE_ANALYTICS_FILTER ||
+    isCrateItem(selectedItem?.name);
+  const selectedDates = new Set(dateKeys);
+  const quantities = new Map([
+    ["retail", { total: 0, crates: 0, halfCrates: 0, pieces: 0 }],
+    ["wholesale", { total: 0, crates: 0, halfCrates: 0, pieces: 0 }]
+  ]);
+  const sales = analyticsItemSales !== null
+    ? analyticsItemSales
+    : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
+
+  sales.forEach(sale => {
+    if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
+    if (selectedItemId === ALL_CRATE_ANALYTICS_FILTER && !isCrateItem(sale.itemName || "")) return;
+
+    const saleType = sale.saleType === "wholesale" ? "wholesale" : "retail";
+    const quantity = Number(sale.quantity) || 0;
+    const typeQuantities = quantities.get(saleType);
+    typeQuantities.total += quantity;
+    if (isCrateSelection) {
+      const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
+      if (sale.crateSize === "half" || unit.startsWith("half crate")) {
+        typeQuantities.halfCrates += quantity;
+      } else if (unit.startsWith("piece")) {
+        typeQuantities.pieces += quantity;
+      } else {
+        typeQuantities.crates += quantity;
+      }
+    }
+  });
+
+  return [...quantities.entries()].map(([type, typeQuantities]) => ({
+    type: type === "retail" ? "Retail" : "Wholesale",
+    quantities: typeQuantities,
+    isCrateSelection
+  }));
+}
+
+function formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection = false) {
+  return isCrateSelection
+    ? `${formatNumber(quantities.crates)} FULL CRATES, ${formatNumber(quantities.halfCrates)} HALF CRATES, ${formatNumber(quantities.pieces)} PIECES`
+    : formatNumber(quantities.total);
 }
 
 function emptyDailyTotal() {

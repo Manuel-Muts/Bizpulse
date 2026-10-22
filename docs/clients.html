@@ -533,7 +533,11 @@
         <div class="stat-card"><h3>Expenses & Purchases</h3><p>KES <span id="analyticsExpenseTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Wholesale Discounts</h3><p>KES <span id="analyticsDiscountTotal">0.00</span></p></div>
-        <div class="stat-card"><h3>Items Sold</h3><p id="analyticsQuantityTotal">0</p></div>
+        <div class="stat-card analytics-items-sold-card">
+          <h3>Items Sold</h3>
+          <p id="analyticsQuantityTotal">0</p>
+          <div id="analyticsSaleTypeBreakdown" class="analytics-sale-type-breakdown" aria-live="polite"></div>
+        </div>
       </div>
       <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
       <div id="petrolAnalyticsPreview" class="analytics-breakdown-table petrol-analytics-preview" hidden>
