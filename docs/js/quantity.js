@@ -43,6 +43,51 @@ export function isCrateItem(name) {
   return /\bcrates?\b/i.test(name || "");
 }
 
+export function isBoxItem(itemOrName) {
+  if (itemOrName && typeof itemOrName === "object") {
+    return Object.prototype.hasOwnProperty.call(itemOrName, "packagingType")
+      ? itemOrName.packagingType === "box"
+      : /\bbox(?:es)?\b/i.test(itemOrName.name || "");
+  }
+  return /\bbox(?:es)?\b/i.test(itemOrName || "");
+}
+
+export function getUnitsPerBox(item) {
+  const unitsPerBox = Number(item.unitsPerBox);
+  return Number.isInteger(unitsPerBox) && unitsPerBox > 0 ? unitsPerBox : 1;
+}
+
+export function getBoxStockUnits(item) {
+  const boxes = parseQuantity(item.quantity)?.amount ?? 0;
+  const looseUnits = Number(item.looseUnits) || 0;
+  return boxes * getUnitsPerBox(item) + looseUnits;
+}
+
+export function adjustBoxStock(item, unitAdjustment) {
+  const totalUnits = getBoxStockUnits(item) + unitAdjustment;
+  if (totalUnits < 0 || !Number.isInteger(totalUnits)) {
+    throw new Error("Box stock must remain a non-negative whole number of pieces.");
+  }
+  const unitsPerBox = getUnitsPerBox(item);
+  return {
+    quantity: formatQuantity(Math.floor(totalUnits / unitsPerBox), "BOXES"),
+    looseUnits: totalUnits % unitsPerBox
+  };
+}
+
+export function formatBoxStock(item) {
+  const boxes = parseQuantity(item.quantity)?.amount ?? 0;
+  const looseUnits = Number(item.looseUnits) || 0;
+  const parts = [];
+  if (boxes > 0 || looseUnits === 0) {
+    parts.push(`${formatNumber(boxes)} ${boxes === 1 ? "BOX" : "BOXES"}`);
+  }
+  if (looseUnits > 0) {
+    parts.push(`${formatNumber(looseUnits)} ${looseUnits === 1 ? "PIECE" : "PIECES"}`);
+  }
+  return parts.join(" + ");
+}
+
 export function getPiecesPerCrate(item) {
   const piecesPerCrate = Number(item.piecesPerCrate);
   return Number.isInteger(piecesPerCrate) && piecesPerCrate > 0

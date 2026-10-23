@@ -42,9 +42,13 @@ import {
   formatNumber,
   isLiterUnit,
   isCrateItem,
+  isBoxItem,
   formatCrateStock,
+  formatBoxStock,
   getCrateStockPieces,
+  getBoxStockUnits,
   getPiecesPerCrate,
+  getUnitsPerBox,
   PIECES_PER_CRATE,
   isExcludedFromAllAnalyticsName,
   isStrictlyExcludedFromGeneralAnalyticsName,
@@ -53,6 +57,7 @@ import {
   formatQuantity,
   adjustQuantity,
   adjustCrateStock,
+  adjustBoxStock,
   uppercaseInput
 } from "./quantity.js";
 
@@ -100,6 +105,7 @@ const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
 const stockMovementsRef = collection(db, "stockMovements");
 const customCrateTypesRef = collection(db, "customCrateTypes");
+const customBoxTypesRef = collection(db, "customBoxTypes");
 const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
 const accessoryItemsRef = collection(db, "accessoryItems");
 const usersRef = collection(db, "users");
@@ -115,8 +121,20 @@ const outgoingPrice = document.getElementById("outgoingPrice");
 const quantityInput = document.getElementById("quantity");
 const crateLoosePiecesField = document.getElementById("crateLoosePiecesField");
 const crateLoosePiecesInput = document.getElementById("crateLoosePieces");
+const crateLoosePiecesLabel = crateLoosePiecesField?.querySelector("label") ||
+  crateLoosePiecesField?.firstChild;
 const piecesPerCrateField = document.getElementById("piecesPerCrateField");
 const piecesPerCrateInput = document.getElementById("piecesPerCrate");
+const itemPackagingTypeInput = document.getElementById("itemPackagingType");
+const boxUnitsField = document.getElementById("boxUnitsField");
+const boxUnitsInput = document.getElementById("boxUnits");
+const openAddBoxTypeBtn = document.getElementById("openAddBoxTypeBtn");
+const addBoxTypeModal = document.getElementById("addBoxTypeModal");
+const addBoxTypeForm = document.getElementById("addBoxTypeForm");
+const boxTypeNameInput = document.getElementById("boxTypeName");
+const boxTypeUnitsInput = document.getElementById("boxTypeUnits");
+const saveBoxTypeBtn = document.getElementById("saveBoxTypeBtn");
+const cancelBoxTypeBtn = document.getElementById("cancelBoxTypeBtn");
 const gasTypeField = document.getElementById("gasTypeField");
 const gasTypeSelect = document.getElementById("gasType");
 const incomingPriceLabel = document.getElementById("incomingPriceLabel");
@@ -126,7 +144,13 @@ const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
 const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
 const pieceSellingPriceInput = document.getElementById("pieceSellingPrice");
 const crateTypeSelect = document.getElementById("crateTypeSelect");
+const boxTypeSelect = document.getElementById("boxTypeSelect");
 const fuelEnergyItemSelect = document.getElementById("fuelEnergyItemSelect");
+const fuelEnergyInventoryFeature = document.getElementById("fuelEnergyInventoryFeature");
+const crateItemsInventoryFeature = document.getElementById("crateItemsInventoryFeature");
+const boxItemsInventoryFeature = document.getElementById("boxItemsInventoryFeature");
+const accessoriesInventoryFeature = document.getElementById("accessoriesInventoryFeature");
+const inventoryFeatureStatus = document.getElementById("inventoryFeatureStatus");
 const openAddFuelEnergyItemBtn = document.getElementById("openAddFuelEnergyItemBtn");
 const addFuelEnergyItemModal = document.getElementById("addFuelEnergyItemModal");
 const addFuelEnergyItemForm = document.getElementById("addFuelEnergyItemForm");
@@ -224,6 +248,7 @@ includeInAllAnalyticsInput.addEventListener("change", () => {
 crateTypeNameInput.addEventListener("input", () => uppercaseInput(crateTypeNameInput));
 fuelEnergyItemNameInput.addEventListener("input", () => uppercaseInput(fuelEnergyItemNameInput));
 accessoryItemNameInput.addEventListener("input", () => uppercaseInput(accessoryItemNameInput));
+boxTypeNameInput.addEventListener("input", () => uppercaseInput(boxTypeNameInput));
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
   const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(itemName.value);
@@ -238,13 +263,15 @@ itemName.addEventListener("input", () => {
       !isAccessoryItemName(itemName.value);
   }
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
-  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
+  appendQuantityUnit(quantityInput, itemPackagingTypeInput.value === "box" ? "BOXES" : "CRATES",
+    itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
   updateCrateInventoryFields();
 });
 crateTypeSelect.addEventListener("change", () => {
   const crateType = getCrateType(crateTypeSelect.value);
   if (!crateType) return;
 
+  itemPackagingTypeInput.value = "";
   itemName.value = crateType.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
   quantityInput.value = "0 CRATES";
@@ -253,17 +280,31 @@ crateTypeSelect.addEventListener("change", () => {
   updateCrateInventoryFields();
   crateLoosePiecesInput.max = String(crateType.piecesPerCrate - 1);
 });
+boxTypeSelect.addEventListener("change", () => {
+  const boxType = customBoxTypes.find(candidate => candidate.id === boxTypeSelect.value);
+  if (!boxType) return;
+
+  editId = null;
+  itemPackagingTypeInput.value = "box";
+  itemName.value = boxType.name;
+  itemName.dispatchEvent(new Event("input", { bubbles: true }));
+  quantityInput.value = "0 BOXES";
+  crateLoosePiecesInput.value = "0";
+  boxUnitsInput.value = String(boxType.unitsPerBox);
+  updateCrateInventoryFields();
+  crateLoosePiecesInput.max = String(boxType.unitsPerBox - 1);
+});
 
 fuelEnergyItemSelect.addEventListener("change", () => {
   const selectedFuelItem = getFuelEnergyItem(fuelEnergyItemSelect.value);
   if (!selectedFuelItem) return;
 
+  itemPackagingTypeInput.value = "";
   itemName.value = selectedFuelItem.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
 });
 
 function getFuelEnergyItem(categoryId) {
-  if (categoryId === "petrol") return { name: "PETROL" };
   if (categoryId === "k-gas") return { name: "K GAS" };
   if (categoryId === "total-gas") return { name: "TOTAL GAS" };
   if (categoryId === "pro-gas") return { name: "PRO GAS" };
@@ -361,6 +402,7 @@ accessoryItemSelect.addEventListener("change", () => {
   const selectedAccessory = customAccessoryItems.find(item => item.id === accessoryItemSelect.value) || null;
   if (!selectedAccessory) return;
 
+  itemPackagingTypeInput.value = "";
   itemName.value = selectedAccessory.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
 });
@@ -483,6 +525,93 @@ function listenToCustomCrateTypes(uid) {
   });
 }
 
+function renderBoxTypeOptions() {
+  boxTypeSelect.querySelectorAll("option[data-custom-box-type]").forEach(option => option.remove());
+  customBoxTypes
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(boxType => {
+      const option = document.createElement("option");
+      option.value = boxType.id;
+      option.dataset.customBoxType = "true";
+      option.textContent = `${boxType.name} (${formatNumber(boxType.unitsPerBox)} pieces)`;
+      boxTypeSelect.appendChild(option);
+    });
+}
+
+function listenToCustomBoxTypes(uid) {
+  if (customBoxTypesUnsubscribe) customBoxTypesUnsubscribe();
+  const userBoxTypesQuery = query(customBoxTypesRef, where("uid", "==", uid));
+  customBoxTypesUnsubscribe = onSnapshot(userBoxTypesQuery, snapshot => {
+    customBoxTypes = snapshot.docs.map(boxTypeDoc => ({
+      id: boxTypeDoc.id,
+      ...boxTypeDoc.data()
+    }));
+    renderBoxTypeOptions();
+  }, error => {
+    console.error("Unable to load custom box types:", error);
+    alert(`Unable to load saved box items: ${error.message}`);
+  });
+}
+
+openAddBoxTypeBtn.addEventListener("click", () => {
+  addBoxTypeForm.reset();
+  addBoxTypeModal.style.display = "flex";
+  boxTypeNameInput.focus();
+});
+cancelBoxTypeBtn.addEventListener("click", () => {
+  addBoxTypeModal.style.display = "none";
+});
+addBoxTypeModal.addEventListener("click", event => {
+  if (event.target === addBoxTypeModal) addBoxTypeModal.style.display = "none";
+});
+addBoxTypeForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const name = boxTypeNameInput.value.trim();
+  const unitsPerBox = Number(boxTypeUnitsInput.value);
+  if (!user || !name) {
+    alert("Enter a box item name.");
+    return;
+  }
+  if (!Number.isInteger(unitsPerBox) || unitsPerBox < 1) {
+    alert("Pieces per box must be a positive whole number.");
+    return;
+  }
+  if (customBoxTypes.some(boxType =>
+    boxType.name.trim().toLowerCase() === name.toLowerCase())) {
+    alert("That box item already exists in the dropdown.");
+    return;
+  }
+
+  saveBoxTypeBtn.disabled = true;
+  saveBoxTypeBtn.classList.add("loading");
+  try {
+    const boxTypeRef = await addDoc(customBoxTypesRef, {
+      uid: user.uid,
+      name,
+      unitsPerBox,
+      createdAt: new Date().toISOString()
+    });
+    const boxType = { id: boxTypeRef.id, uid: user.uid, name, unitsPerBox };
+    customBoxTypes = [
+      ...customBoxTypes.filter(existing => existing.id !== boxType.id),
+      boxType
+    ];
+    renderBoxTypeOptions();
+    boxTypeSelect.value = boxType.id;
+    boxTypeSelect.dispatchEvent(new Event("change"));
+    addBoxTypeModal.style.display = "none";
+    addBoxTypeForm.reset();
+  } catch (error) {
+    console.error("Unable to save box item:", error);
+    alert(`Unable to save box item: ${error.message}`);
+  } finally {
+    saveBoxTypeBtn.disabled = false;
+    saveBoxTypeBtn.classList.remove("loading");
+  }
+});
+
 openAddCrateTypeBtn.addEventListener("click", () => {
   addCrateTypeForm.reset();
   addCrateTypeModal.style.display = "flex";
@@ -558,10 +687,12 @@ addCrateTypeForm.addEventListener("submit", async event => {
 });
 quantityInput.addEventListener("input", () => {
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
-  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(itemName.value));
+  appendQuantityUnit(quantityInput, itemPackagingTypeInput.value === "box" ? "BOXES" : "CRATES",
+    itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
   uppercaseInput(quantityInput);
 });
 piecesPerCrateInput.addEventListener("input", () => updateCrateInventoryFields());
+boxUnitsInput.addEventListener("input", () => updateCrateInventoryFields());
 incomingPrice.addEventListener("input", updateBuyingCostPerPiece);
 orderedItem.addEventListener("input", () => {
   uppercaseInput(orderedItem);
@@ -612,10 +743,34 @@ let ordersUnsubscribe = null;
 let stockTopUpItemId = null;
 let customCrateTypes = [];
 let customCrateTypesUnsubscribe = null;
+let customBoxTypes = [];
+let customBoxTypesUnsubscribe = null;
 let customFuelEnergyItems = [];
 let fuelEnergyItemsUnsubscribe = null;
 let customAccessoryItems = [];
 let accessoryItemsUnsubscribe = null;
+let inventoryFeaturesUnsubscribe = null;
+
+function applyInventoryFeatures(features = {}) {
+  fuelEnergyInventoryFeature.hidden = features.fuelEnergy === false;
+  crateItemsInventoryFeature.hidden = features.crateItems === false;
+  boxItemsInventoryFeature.hidden = features.boxItems === false;
+  accessoriesInventoryFeature.hidden = features.accessories === false;
+}
+
+function listenToInventoryFeatures(uid) {
+  if (inventoryFeaturesUnsubscribe) inventoryFeaturesUnsubscribe();
+  inventoryFeaturesUnsubscribe = onSnapshot(doc(db, "users", uid), snapshot => {
+    applyInventoryFeatures(snapshot.exists() ? snapshot.data().inventoryFeatures || {} : {});
+    inventoryFeatureStatus.hidden = true;
+  }, error => {
+    console.error("Unable to load inventory feature settings:", error);
+    inventoryFeatureStatus.textContent =
+      "Unable to load inventory feature settings. Category shortcuts remain visible.";
+    inventoryFeatureStatus.hidden = false;
+    applyInventoryFeatures();
+  });
+}
 
 function isAccessoryItemName(name) {
   const normalizedName = String(name || "").trim().toLowerCase();
@@ -693,11 +848,19 @@ window.openStockTopUp = itemId => {
   stockTopUpDate.value = today;
   stockTopUpDate.max = today;
   stockTopUpQuantity.value = "";
-  const crateItem = isCrateItem(item.name);
-  stockTopUpUnitField.hidden = !crateItem;
-  stockTopUpUnit.hidden = !crateItem;
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item.name);
+  stockTopUpUnitField.hidden = !crateItem && !boxItem;
+  stockTopUpUnit.hidden = !crateItem && !boxItem;
+  stockTopUpUnit.options[0].value = boxItem ? "box" : "crate";
+  stockTopUpUnit.options[0].textContent = boxItem ? "Boxes" : "Crates";
+  stockTopUpUnit.options[1].value = boxItem ? "unit" : "piece";
+  stockTopUpUnit.options[1].textContent = "Pieces";
+  stockTopUpUnit.value = stockTopUpUnit.options[0].value;
   stockTopUpUnitDescription.textContent = crateItem
     ? `${formatNumber(getPiecesPerCrate(item))} pieces per crate`
+    : boxItem
+    ? `${formatNumber(getUnitsPerBox(item))} pieces per box`
     : `Quantity will be added in ${parseQuantity(item.quantity)?.unit || "the item's current unit"}.`;
   stockTopUpModal.style.display = "flex";
   stockTopUpQuantity.focus();
@@ -736,11 +899,14 @@ stockTopUpForm?.addEventListener("submit", async event => {
     return;
   }
 
-  const crateItem = isCrateItem(item.name);
-  const unit = crateItem ? stockTopUpUnit.value : parseQuantity(item.quantity)?.unit || "";
-  if (crateItem && (!Number.isInteger(amount) ||
-      (unit !== "crate" && unit !== "piece"))) {
-    alert("Crate and piece stock additions must be whole numbers.");
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item.name);
+  const packagedItem = crateItem || boxItem;
+  const unit = packagedItem ? stockTopUpUnit.value : parseQuantity(item.quantity)?.unit || "";
+  if (packagedItem && (!Number.isInteger(amount) ||
+      (crateItem && unit !== "crate" && unit !== "piece") ||
+      (boxItem && unit !== "box" && unit !== "unit"))) {
+    alert(`${boxItem ? "Box and piece" : "Crate and piece"} stock additions must be whole numbers.`);
     return;
   }
 
@@ -760,20 +926,27 @@ stockTopUpForm?.addEventListener("submit", async event => {
         throw new Error("You do not have permission to update this inventory item.");
       }
 
-      const latestCrateItem = isCrateItem(latestItem.name);
-      if (latestCrateItem !== crateItem) {
+      const latestBoxItem = isBoxItem(latestItem);
+      const latestCrateItem = !latestBoxItem && isCrateItem(latestItem.name);
+      if (latestCrateItem !== crateItem || latestBoxItem !== boxItem) {
         throw new Error("The item's stock type changed. Close this form and try again.");
       }
       const latestPiecesPerCrate = latestCrateItem ? getPiecesPerCrate(latestItem) : null;
-      const latestUnit = latestCrateItem
+      const latestUnitsPerBox = latestBoxItem ? getUnitsPerBox(latestItem) : null;
+      const latestUnit = packagedItem
         ? unit
         : parseQuantity(latestItem.quantity)?.unit || "";
       const createdAt = new Date().toISOString();
       const piecesAdded = latestCrateItem
         ? amount * (unit === "crate" ? latestPiecesPerCrate : 1)
         : null;
+      const unitsAdded = latestBoxItem
+        ? amount * (unit === "box" ? latestUnitsPerBox : 1)
+        : null;
       const quantityUpdate = latestCrateItem
         ? adjustCrateStock(latestItem, piecesAdded)
+        : latestBoxItem
+        ? adjustBoxStock(latestItem, unitsAdded)
         : { quantity: adjustQuantity(latestItem.quantity, amount) };
       const stockAddition = {
         uid: user.uid,
@@ -782,10 +955,14 @@ stockTopUpForm?.addEventListener("submit", async event => {
         quantity: amount,
         quantityUnit: latestCrateItem
           ? unit === "crate" ? "CRATES" : "PIECES"
+          : latestBoxItem
+          ? unit === "box" ? "BOXES" : "PIECES"
           : latestUnit,
         stockDate: selectedDate,
         piecesPerCrate: latestPiecesPerCrate,
+        unitsPerBox: latestUnitsPerBox,
         piecesAdded,
+        unitsAdded,
         buyingPricePerUnit: Number(latestItem.incoming) || 0,
         createdAt
       };
@@ -796,8 +973,8 @@ stockTopUpForm?.addEventListener("submit", async event => {
           uid: user.uid,
           itemId: latestItem.id,
           itemName: latestItem.name,
-          quantityDelta: latestCrateItem ? piecesAdded : amount,
-          quantityUnit: latestCrateItem ? "PIECES" : latestUnit.toUpperCase(),
+          quantityDelta: latestCrateItem ? piecesAdded : latestBoxItem ? unitsAdded : amount,
+          quantityUnit: latestCrateItem ? "PIECES" : latestBoxItem ? "UNITS" : latestUnit.toUpperCase(),
           type: "stock-addition",
           occurredAt: serverTimestamp()
         });
@@ -943,8 +1120,11 @@ onAuthStateChanged(auth, async (user) => {
       } else {
         if (bizContainer) bizContainer.style.display = "block";
         listenToCustomCrateTypes(user.uid);
+        listenToCustomBoxTypes(user.uid);
         listenToFuelEnergyItems(user.uid);
         listenToAccessoryItems(user.uid);
+        applyInventoryFeatures(userData.inventoryFeatures || {});
+        listenToInventoryFeatures(user.uid);
         
         // Display Business Name in the title
         const bizTitle = document.getElementById("bizTitle");
@@ -987,12 +1167,24 @@ onAuthStateChanged(auth, async (user) => {
       showLoadingIndicator(false);
     }
   } else {
+    if (inventoryFeaturesUnsubscribe) {
+      inventoryFeaturesUnsubscribe();
+      inventoryFeaturesUnsubscribe = null;
+    }
+    applyInventoryFeatures();
+    inventoryFeatureStatus.hidden = true;
     if (customCrateTypesUnsubscribe) {
       customCrateTypesUnsubscribe();
       customCrateTypesUnsubscribe = null;
     }
     customCrateTypes = [];
     renderCrateTypeOptions();
+    if (customBoxTypesUnsubscribe) {
+      customBoxTypesUnsubscribe();
+      customBoxTypesUnsubscribe = null;
+    }
+    customBoxTypes = [];
+    renderBoxTypeOptions();
     if (fuelEnergyItemsUnsubscribe) {
       fuelEnergyItemsUnsubscribe();
       fuelEnergyItemsUnsubscribe = null;
@@ -1318,6 +1510,13 @@ function calculateSingleItemProfit(item) {
 }
 
 function calculateProfit(item) {
+  if (isBoxItem(item)) {
+    const boxes = parseQuantity(item.quantity)?.amount ?? 0;
+    const looseUnits = Number(item.looseUnits) || 0;
+    const unitProfit = (Number(item.pieceSellingPrice) || 0) -
+      item.incoming / getUnitsPerBox(item);
+    return boxes * calculateSingleItemProfit(item) + looseUnits * unitProfit;
+  }
   if (isCrateItem(item.name)) {
     const crates = parseQuantity(item.quantity)?.amount ?? 0;
     const loosePieces = Number(item.loosePieces) || 0;
@@ -1328,7 +1527,9 @@ function calculateProfit(item) {
 }
 
 function updateCrateInventoryFields(item = null) {
-  const showCrateFields = isCrateItem(item?.name || itemName.value);
+  const boxItem = item ? isBoxItem(item) : itemPackagingTypeInput.value === "box";
+  const crateItem = !boxItem && isCrateItem(item?.name || itemName.value);
+  const showCrateFields = boxItem || crateItem;
   const itemNameValue = item?.name || itemName.value;
   const showGasFields = itemNameValue.toLowerCase().includes("gas");
   if (item) {
@@ -1339,21 +1540,31 @@ function updateCrateInventoryFields(item = null) {
   gasTypeField.hidden = !showGasFields;
   gasTypeSelect.required = showGasFields;
   const isRefillableGas = showGasFields && gasTypeSelect.value === "refillable";
-  incomingPriceLabel.textContent = showCrateFields ? "Buying Price per Crate" : "Buying Price";
+  const packageLabel = boxItem ? "Box" : "Crate";
+  incomingPriceLabel.textContent = showCrateFields ? `Buying Price per ${packageLabel}` : "Buying Price";
   outgoingPriceLabel.textContent = isRefillableGas
     ? "Refilling Cost (Selling Price)"
-    : showCrateFields ? "Selling Price per Crate" : "Selling Price";
+    : showCrateFields ? `Selling Price per ${packageLabel}` : "Selling Price";
   crateLoosePiecesField.hidden = !showCrateFields;
-  piecesPerCrateField.hidden = !showCrateFields;
+  if (crateLoosePiecesLabel) crateLoosePiecesLabel.textContent = "Loose pieces";
+  piecesPerCrateField.hidden = !crateItem;
+  boxUnitsField.hidden = !boxItem;
   buyingCostPerPieceField.hidden = !showCrateFields;
   pieceSellingPriceField.hidden = !showCrateFields;
+  if (buyingCostPerPieceField.firstChild) {
+    buyingCostPerPieceField.firstChild.textContent = "Buying cost per piece (calculated)";
+  }
+  if (pieceSellingPriceField.firstChild) {
+    pieceSellingPriceField.firstChild.textContent = "Selling price per piece";
+  }
   incomingPrice.placeholder = incomingPriceLabel.textContent;
   outgoingPrice.placeholder = outgoingPriceLabel.textContent;
   quantityInput.placeholder = showCrateFields
-    ? "Crates in stock (e.g. 5 crates)"
+    ? boxItem ? "Boxes in stock (e.g. 5 boxes)" : "Crates in stock (e.g. 5 crates)"
     : "Quantity (e.g. 5 L, 3 kg, 5 cartons)";
-  crateLoosePiecesInput.required = showCrateFields;
-  piecesPerCrateInput.required = showCrateFields;
+  crateLoosePiecesInput.required = crateItem;
+  piecesPerCrateInput.required = crateItem;
+  boxUnitsInput.required = boxItem;
   pieceSellingPriceInput.required = showCrateFields;
   if (!showCrateFields && !item) {
     crateLoosePiecesInput.value = "0";
@@ -1361,7 +1572,10 @@ function updateCrateInventoryFields(item = null) {
     pieceSellingPriceInput.value = "";
     crateTypeSelect.value = "";
   }
-  const piecesPerCrate = Number(piecesPerCrateInput.value);
+  if (!boxItem && !item) {
+    boxUnitsInput.value = "1";
+  }
+  const piecesPerCrate = Number(boxItem ? boxUnitsInput.value : piecesPerCrateInput.value);
   crateLoosePiecesInput.max = String(
     Number.isInteger(piecesPerCrate) && piecesPerCrate > 0
       ? piecesPerCrate - 1
@@ -1371,33 +1585,39 @@ function updateCrateInventoryFields(item = null) {
 }
 
 gasTypeSelect.addEventListener("change", () => updateCrateInventoryFields());
-
 function updateBuyingCostPerPiece() {
   const crateBuyingPrice = Number(incomingPrice.value);
-  const piecesPerCrate = Number(piecesPerCrateInput.value);
+  const boxItem = itemPackagingTypeInput.value === "box";
+  const piecesPerCrate = Number(boxItem ? boxUnitsInput.value : piecesPerCrateInput.value);
   if (!incomingPrice.value.trim() || !Number.isFinite(crateBuyingPrice) ||
       !Number.isInteger(piecesPerCrate) || piecesPerCrate < 1) {
-    buyingCostPerPieceOutput.textContent = "Enter crate buying price";
+    buyingCostPerPieceOutput.textContent = `Enter ${boxItem ? "box" : "crate"} buying price`;
     return;
   }
   buyingCostPerPieceOutput.textContent =
-    `KES ${formatNumber(crateBuyingPrice / piecesPerCrate)} per piece`;
+    `KES ${formatNumber(crateBuyingPrice / piecesPerCrate)} per ${boxItem ? "unit" : "piece"}`;
 }
 
 function formatInventoryStock(item) {
-  return isCrateItem(item.name)
+  return isBoxItem(item)
+    ? formatBoxStock(item)
+    : isCrateItem(item.name)
     ? formatCrateStock(item)
     : formatDisplayQuantity(item.quantity);
 }
 
 function getInventoryStockAmount(item) {
-  return isCrateItem(item.name)
+  return isBoxItem(item)
+    ? getBoxStockUnits(item)
+    : isCrateItem(item.name)
     ? getCrateStockPieces(item)
     : parseQuantity(item.quantity)?.amount ?? 0;
 }
 
 function getInventoryStockUnit(item) {
-  return isCrateItem(item.name)
+  return isBoxItem(item)
+    ? "UNITS"
+    : isCrateItem(item.name)
     ? "PIECES"
     : String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
 }
@@ -1518,11 +1738,11 @@ function renderItems(filter = "") {
       <td>${item.name}${item.gasType
         ? `<br><small>${item.gasType === "refillable" ? "Refillable" : "Non-refillable"}</small>`
         : ""}</td>
-      <td>${isCrateItem(item.name)
-        ? `KES ${formatNumber(item.incoming)} / crate`
+      <td>${isBoxItem(item) || isCrateItem(item.name)
+        ? `KES ${formatNumber(item.incoming)} / ${isBoxItem(item) ? "box" : "crate"}`
         : formatNumber(item.incoming)}</td>
-      <td>${isCrateItem(item.name)
-        ? `KES ${formatNumber(item.outgoing)} / crate<br>KES ${formatCratePiecePrice(item)} / piece`
+      <td>${isBoxItem(item) || isCrateItem(item.name)
+        ? `KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"}<br>KES ${formatCratePiecePrice(item)} / ${isBoxItem(item) ? "unit" : "piece"}`
         : formatNumber(item.outgoing)}</td>
       <td>${escapeQuantity(formatInventoryStock(item))}</td>
       <td>${formatNumber(singleItemProfit)}</td>
@@ -1564,11 +1784,11 @@ function renderLowStockAlerts(page = 1) {
       <td>${item.name}${item.gasType
         ? `<br><small>${item.gasType === "refillable" ? "Refillable" : "Non-refillable"}</small>`
         : ""}</td>
-      <td>${isCrateItem(item.name)
-        ? `KES ${formatNumber(item.incoming)} / crate`
+      <td>${isBoxItem(item) || isCrateItem(item.name)
+        ? `KES ${formatNumber(item.incoming)} / ${isBoxItem(item) ? "box" : "crate"}`
         : formatNumber(item.incoming)}</td>
-      <td>${isCrateItem(item.name)
-        ? `KES ${formatNumber(item.outgoing)} / crate<br>KES ${formatCratePiecePrice(item)} / piece`
+      <td>${isBoxItem(item) || isCrateItem(item.name)
+        ? `KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"}<br>KES ${formatCratePiecePrice(item)} / ${isBoxItem(item) ? "unit" : "piece"}`
         : formatNumber(item.outgoing)}</td>
       <td>${escapeQuantity(formatInventoryStock(item))}</td>
     </tr>
@@ -1746,7 +1966,8 @@ form.addEventListener("submit", async e => {
 
   const nameVal = itemName.value.trim();
   const quantity = parseQuantity(quantityInput.value);
-  const crateItem = isCrateItem(nameVal);
+  const boxItem = itemPackagingTypeInput.value === "box";
+  const crateItem = !boxItem && isCrateItem(nameVal);
   const gasItem = nameVal.toLowerCase().includes("gas");
   if (gasItem && !gasTypeSelect.value) {
     alert("Choose whether this gas item is refillable or non-refillable.");
@@ -1758,14 +1979,17 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  if (crateItem && (!Number.isInteger(quantity.amount) ||
-      (quantity.unit && !/^crates?$/i.test(quantity.unit)))) {
-    alert("Crate stock must be a whole number of crates.");
+  if ((crateItem || boxItem) && (!Number.isInteger(quantity.amount) ||
+      (quantity.unit && !(boxItem ? /^boxes?$/i : /^crates?$/i).test(quantity.unit)))) {
+    alert(boxItem
+      ? "Box stock must be a whole number of boxes."
+      : "Crate stock must be a whole number of crates.");
     showLoadingIndicator(false);
     return;
   }
   const loosePieces = Number(crateLoosePiecesInput.value);
   const piecesPerCrate = Number(piecesPerCrateInput.value);
+  const unitsPerBox = Number(boxUnitsInput.value);
   if (crateItem && (!Number.isInteger(piecesPerCrate) || piecesPerCrate < 1)) {
     alert("Pieces per crate must be a positive whole number.");
     showLoadingIndicator(false);
@@ -1777,9 +2001,21 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  if (crateItem && (!Number.isFinite(Number(pieceSellingPriceInput.value)) ||
+  if (boxItem && (!Number.isInteger(unitsPerBox) || unitsPerBox < 1)) {
+    alert("Pieces per box must be a positive whole number.");
+    showLoadingIndicator(false);
+    return;
+  }
+  if ((crateItem || boxItem) && (!Number.isInteger(loosePieces) || loosePieces < 0 ||
+      loosePieces >= (boxItem ? unitsPerBox : piecesPerCrate))) {
+    const maxLoose = (boxItem ? unitsPerBox : piecesPerCrate) - 1;
+    alert(`Loose pieces must be a whole number between 0 and ${maxLoose}.`);
+    showLoadingIndicator(false);
+    return;
+  }
+  if ((crateItem || boxItem) && (!Number.isFinite(Number(pieceSellingPriceInput.value)) ||
       Number(pieceSellingPriceInput.value) < 0)) {
-    alert("Enter a valid selling price per piece.");
+    alert(`Enter a valid selling price per ${boxItem ? "unit" : "piece"}.`);
     showLoadingIndicator(false);
     return;
   }
@@ -1788,7 +2024,8 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  const quantityUnit = isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" : quantity.unit;
+  const quantityUnit = isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" :
+    boxItem ? "BOXES" : quantity.unit;
   const createdAt = new Date();
   const stockLedgerStartDate = new Date(createdAt);
   stockLedgerStartDate.setDate(stockLedgerStartDate.getDate() + 1);
@@ -1799,10 +2036,13 @@ form.addEventListener("submit", async e => {
     incoming: Number(incomingPrice.value),
     outgoing: Number(outgoingPrice.value),
     quantity: formatQuantity(quantity.amount, quantityUnit),
+    packagingType: boxItem ? "box" : null,
     gasType: gasItem ? gasTypeSelect.value : null,
     loosePieces: crateItem ? loosePieces : null,
     piecesPerCrate: crateItem ? piecesPerCrate : null,
-    pieceSellingPrice: crateItem ? Number(pieceSellingPriceInput.value) : null,
+    unitsPerBox: boxItem ? unitsPerBox : null,
+    looseUnits: boxItem ? loosePieces : null,
+    pieceSellingPrice: crateItem || boxItem ? Number(pieceSellingPriceInput.value) : null,
     includeInAllAnalytics: includeInAllAnalyticsInput.checked,
     includeInAllAnalyticsManuallySet: analyticsInclusionManuallySet,
     uid: user.uid, // ✅ REQUIRED
@@ -1810,8 +2050,10 @@ form.addEventListener("submit", async e => {
     ...(!isPetrolName(nameVal) ? {
       stockLedgerBaselineUnits: crateItem
         ? quantity.amount * piecesPerCrate + loosePieces
+        : boxItem
+        ? quantity.amount * unitsPerBox + loosePieces
         : quantity.amount,
-      stockLedgerUnit: crateItem ? "PIECES" : quantityUnit.toUpperCase(),
+      stockLedgerUnit: crateItem ? "PIECES" : boxItem ? "UNITS" : quantityUnit.toUpperCase(),
       stockLedgerBaselineAt: createdAt.toISOString(),
       stockLedgerStartDate: localDateKey(stockLedgerStartDate),
       stockLedgerValid: true
@@ -1903,6 +2145,8 @@ form.addEventListener("submit", async e => {
     form.reset();
     crateLoosePiecesInput.value = "0";
     piecesPerCrateInput.value = String(PIECES_PER_CRATE);
+    boxUnitsInput.value = "1";
+    itemPackagingTypeInput.value = "";
     includeInAllAnalyticsInput.disabled = false;
     updateCrateInventoryFields();
     analyticsInclusionManuallySet = false;
@@ -1924,6 +2168,7 @@ window.editItem = id => {
   if (!item) return;
 
   itemName.value = item.name;
+  itemPackagingTypeInput.value = isBoxItem(item) ? "box" : "";
   const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(item.name);
   includeInAllAnalyticsInput.disabled = strictlyExcluded;
   analyticsInclusionManuallySet = !strictlyExcluded &&
@@ -1941,9 +2186,12 @@ window.editItem = id => {
     ? item.quantity
     : String(item.quantity);
   appendQuantityUnit(quantityInput, "L", isPetrolName(item.name));
-  appendQuantityUnit(quantityInput, "CRATES", isCrateItem(item.name));
+  appendQuantityUnit(quantityInput, isBoxItem(item) ? "BOXES" : "CRATES",
+    isBoxItem(item) || isCrateItem(item.name));
   crateLoosePiecesInput.value = String(Number(item.loosePieces) || 0);
+  if (isBoxItem(item)) crateLoosePiecesInput.value = String(Number(item.looseUnits) || 0);
   piecesPerCrateInput.value = String(getPiecesPerCrate(item));
+  boxUnitsInput.value = String(getUnitsPerBox(item));
   pieceSellingPriceInput.value = item.pieceSellingPrice ?? "";
   updateCrateInventoryFields(item);
   crateTypeSelect.value = "";
@@ -1973,13 +2221,17 @@ window.deleteItem = async (id) => {
    EXPORT TO EXCEL
    ========================= */
 exportBtn.addEventListener("click", () => {
-  let csv = "Item,Gas Type,Buying Price,Selling / Refilling Price,Selling Price Per Piece,Pieces Per Crate,Quantity,Single Item Profit,Profit\n";
+  let csv = "Item,Gas Type,Packaging Type,Buying Price,Selling / Refilling Price,Selling Price Per Item,Contents Per Package,Quantity,Single Item Profit,Profit\n";
   items.forEach(item => {
     const piecePrice = item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
         item.pieceSellingPrice === ""
       ? ""
       : formatNumber(item.pieceSellingPrice);
-    csv += `${item.name},${item.gasType || ""},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${isCrateItem(item.name) ? getPiecesPerCrate(item) : ""},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
+    const boxItem = isBoxItem(item);
+    const crateItem = !boxItem && isCrateItem(item.name);
+    const unitsPerPackage = boxItem ? getUnitsPerBox(item) :
+      crateItem ? getPiecesPerCrate(item) : "";
+    csv += `${item.name},${item.gasType || ""},${boxItem ? "BOX" : crateItem ? "CRATE" : ""},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${unitsPerPackage},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });

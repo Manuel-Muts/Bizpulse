@@ -128,6 +128,14 @@ service cloud.firestore {
       allow delete: if isAdmin() || ownsDocument(resource.data);
     }
 
+    match /customBoxTypes/{boxTypeId} {
+      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow create: if isAdmin() || ownsDocument(request.resource.data);
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
+      allow delete: if isAdmin() || ownsDocument(resource.data);
+    }
+
     match /expenses/{expenseId} {
       allow read: if isAdmin() || ownsDocument(resource.data);
       allow create: if isAdmin() ||

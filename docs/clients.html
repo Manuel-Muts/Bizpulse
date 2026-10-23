@@ -134,7 +134,7 @@
         <input type="date" id="stockTopUpDate" required />
         <label for="stockTopUpQuantity">Quantity to add</label>
         <input type="number" id="stockTopUpQuantity" min="0.01" step="any" required />
-        <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Unit</label>
+        <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Add stock as</label>
         <select id="stockTopUpUnit" hidden>
           <option value="crate">Crates</option>
           <option value="piece">Pieces</option>
@@ -166,6 +166,26 @@
             <span class="spinner" aria-hidden="true"></span>
           </button>
           <button type="button" id="cancelCrateTypeBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="addBoxTypeModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="addBoxTypeTitle">
+    <div class="modal-content stock-top-up-modal">
+      <h2 id="addBoxTypeTitle">Add Box Item</h2>
+      <p>Add a box item preset to this business's inventory dropdown.</p>
+      <form id="addBoxTypeForm" class="stock-top-up-form">
+        <label for="boxTypeName">Box item name</label>
+        <input type="text" id="boxTypeName" maxlength="60" placeholder="e.g. Biscuits" required />
+        <label for="boxTypeUnits">Pieces per box</label>
+        <input type="number" id="boxTypeUnits" min="1" step="1" required />
+        <div class="stock-top-up-actions">
+          <button type="submit" id="saveBoxTypeBtn" class="action-btn" style="background:#059669;">
+            <span class="btn-text">Save box item</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="cancelBoxTypeBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
         </div>
       </form>
     </div>
@@ -420,7 +440,7 @@
           <select id="saleQuantityUnit">
             <option value="" disabled selected>-- Select --</option>
             <option id="saleCrateOption" value="crate">Crate (24 pieces)</option>
-            <option value="piece">Piece</option>
+            <option id="salePieceOption" value="piece">Piece</option>
           </select>
         </label>
         <label class="sale-form-field" for="saleType">Sale type
@@ -433,10 +453,10 @@
           <input type="number" id="salePrice" placeholder="Price Sold" required />
         </label>
         <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
-          Crate size
+          Pack size
           <select id="saleCrateSize">
-            <option value="full">Full crate</option>
-            <option value="half">Half crate</option>
+            <option id="saleFullPackOption" value="full">Full crate</option>
+            <option id="saleHalfPackOption" value="half">Half crate</option>
           </select>
         </label>
         <label class="sale-quantity-field sale-form-field" for="saleQuantity">Quantity
@@ -482,7 +502,7 @@
             <div class="analytics-item-filter">
               <div class="analytics-filter-control">
                 <label for="analyticsItemSearch">Search items</label>
-                <input type="search" id="analyticsItemSearch" placeholder="Search item names..." autocomplete="off" aria-describedby="analyticsItemSearchHint" />
+                <input type="search" id="analyticsItemSearch" placeholder="Search item names..." autocomplete="off" />
               </div>
               <div class="analytics-filter-control">
                 <label for="analyticsItemFilter">Item</label>
@@ -500,7 +520,6 @@
                   <button type="button" id="analyticsItemNextBtn" aria-label="Next item page" disabled>Next</button>
                 </div>
               </div>
-              <small id="analyticsItemSearchHint" class="analytics-item-search-hint">Choose an analysis view or search from the start of an item name; an exact unique match is selected automatically. General Items uses the full dataset for its scope; grouped options combine Gas, Soda, Crate, or Accessory items. Petrol can be selected individually below.</small>
             </div>
             <div class="analytics-filter-period">
               <div class="analytics-filter-control" id="analyticsCustomGroupControl" hidden>
@@ -580,7 +599,7 @@
       <div class="analytics-breakdown-table analytics-sales-breakdown">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per unit.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail unit price − wholesale unit price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th>Items sold</th></tr>
+            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per item.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail item price − wholesale item price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th>Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -617,7 +636,6 @@
           <select id="expenseCostCategory" required>
             <option value="general">General</option>
             <optgroup id="fuelEnergyExpenseOptions" label="Fuel & Energy">
-              <option value="petrol">PETROL</option>
               <option value="k-gas">K GAS</option>
               <option value="total-gas">TOTAL GAS</option>
               <option value="pro-gas">PRO GAS</option>
@@ -646,7 +664,6 @@
             <option value="non-refillable">Non-refillable</option>
           </select>
         </label>
-        <small class="expense-analysis-hint">Purchases categorized as Gas are deducted only from their matching analysis. Crate Items and Accessories costs are attributed to the selected item rather than General Items. For Crate Items, a numeric-only description is completed with “CRATES”. Fuel & Energy categories require a refillable or non-refillable type.</small>
         <label for="expenseDescription">Description
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>
@@ -671,10 +688,32 @@
         </button>
       </form>
       <p id="expenseFormMessage" role="status" aria-live="polite"></p>
-      <table class="compact-data-table">
-        <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Cost category</th><th>Paid to supplier?</th><th>Supplier</th><th>Amount (KES)</th><th>Notes</th><th>Action</th></tr></thead>
-        <tbody id="expensesTable"></tbody>
-      </table>
+      <div class="expense-table-controls">
+        <label class="expense-table-filter" for="expensePeriodFilter">
+          Show records
+          <select id="expensePeriodFilter">
+            <option value="today" selected>Today</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="custom">Custom range</option>
+          </select>
+        </label>
+        <div id="expenseCustomDateRange" class="expense-custom-date-range" hidden>
+          <label for="expenseFromDate">From
+            <input type="date" id="expenseFromDate" />
+          </label>
+          <label for="expenseToDate">To
+            <input type="date" id="expenseToDate" />
+          </label>
+        </div>
+      </div>
+      <div class="expense-table-wrap">
+        <table class="compact-data-table expenses-table">
+          <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Cost category</th><th>Paid to supplier?</th><th>Supplier</th><th>Amount (KES)</th><th>Notes</th><th>Action</th></tr></thead>
+          <tbody id="expensesTable"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ORDERS SECTION -->
@@ -712,9 +751,10 @@
     <!-- INVENTORY SECTION -->
     <div id="inventorySection" class="tab-content">
       <div class="section-divider"><h2>Inventory Management</h2></div>
+      <p id="inventoryFeatureStatus" class="inventory-feature-status" role="status" hidden></p>
       <div class="inventory-stock-tools">
         <button id="openStockHealthModalBtn" class="action-btn" style="background: #047857;">Open Stock Health</button>
-        <div class="inventory-stock-tool-group">
+        <div id="fuelEnergyInventoryFeature" class="inventory-stock-tool-group">
           <div class="inventory-stock-tool-heading">
             <label for="fuelEnergyItemSelect">Fuel & Energy</label>
             <span class="inventory-create-tooltip">
@@ -724,13 +764,12 @@
           </div>
           <select id="fuelEnergyItemSelect">
             <option value="">Choose fuel or energy item...</option>
-            <option value="petrol">PETROL</option>
             <option value="k-gas">K GAS</option>
             <option value="total-gas">TOTAL GAS</option>
             <option value="pro-gas">PRO GAS</option>
           </select>
         </div>
-        <div class="inventory-stock-tool-group">
+        <div id="crateItemsInventoryFeature" class="inventory-stock-tool-group">
           <div class="inventory-stock-tool-heading">
             <label for="crateTypeSelect">Choose crate</label>
             <span class="inventory-create-tooltip">
@@ -754,7 +793,19 @@
             <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
           </select>
         </div>
-        <div class="inventory-stock-tool-group">
+        <div id="boxItemsInventoryFeature" class="inventory-stock-tool-group">
+          <div class="inventory-stock-tool-heading">
+            <label for="boxTypeSelect">Choose box item</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddBoxTypeBtn" class="action-btn inventory-stock-tool-add" style="background:#0f766e;" aria-describedby="boxTypeCreateTooltip">Add box item</button>
+              <span id="boxTypeCreateTooltip" class="inventory-tooltip" role="tooltip">Create a box item preset with its pieces-per-box setting for inventory entry.</span>
+            </span>
+          </div>
+          <select id="boxTypeSelect">
+            <option value="">Choose box item...</option>
+          </select>
+        </div>
+        <div id="accessoriesInventoryFeature" class="inventory-stock-tool-group">
           <div class="inventory-stock-tool-heading">
             <label for="accessoryItemSelect">Accessories</label>
             <span class="inventory-create-tooltip">
@@ -768,6 +819,7 @@
         </div>
       </div>
       <form id="itemForm">
+        <input type="hidden" id="itemPackagingType" value="" />
         <input type="text" id="itemName" placeholder="Item Name" required />
         <label id="gasTypeField" class="inventory-crate-field" hidden>
           Gas type
@@ -793,6 +845,10 @@
         <label id="piecesPerCrateField" class="inventory-crate-field" hidden>
           Pieces per crate
           <input type="number" id="piecesPerCrate" min="1" step="1" value="24" required />
+        </label>
+        <label id="boxUnitsField" class="inventory-crate-field" hidden>
+          Pieces per box
+          <input type="number" id="boxUnits" min="1" step="1" value="1" />
         </label>
         <label id="buyingCostPerPieceField" class="inventory-crate-field" hidden>
           Buying cost per piece (calculated)

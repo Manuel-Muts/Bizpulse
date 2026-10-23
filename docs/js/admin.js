@@ -74,6 +74,16 @@ const activeClientsCount = document.getElementById("activeClientsCount");
 const suspendedClientsCount = document.getElementById("suspendedClientsCount");
 const newClientsLast30Days = document.getElementById("newClientsLast30Days");
 const dataLoadingBar = document.getElementById("dataLoadingBar");
+const inventoryFeaturesModal = document.getElementById("inventoryFeaturesModal");
+const inventoryFeaturesForm = document.getElementById("inventoryFeaturesForm");
+const inventoryFeaturesBusinessName = document.getElementById("inventoryFeaturesBusinessName");
+const inventoryFeaturesMessage = document.getElementById("inventoryFeaturesMessage");
+const featureFuelEnergy = document.getElementById("featureFuelEnergy");
+const featureCrateItems = document.getElementById("featureCrateItems");
+const featureBoxItems = document.getElementById("featureBoxItems");
+const featureAccessories = document.getElementById("featureAccessories");
+const saveInventoryFeaturesBtn = document.getElementById("saveInventoryFeaturesBtn");
+const closeInventoryFeaturesBtn = document.getElementById("closeInventoryFeaturesBtn");
 
 let activeAdminLoads = 0;
 function setAdminLoading(active) {
@@ -82,6 +92,7 @@ function setAdminLoading(active) {
 }
 
 let editUserId = null;
+let inventoryFeaturesUserId = null;
 let users = [];
 
 let paymentPage = 1;
@@ -182,6 +193,9 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
           <button class="action-btn" style="background: #10b981;" onclick="editUser('${u.id}')">
             Edit
           </button>
+          <button class="action-btn" style="background: #0f766e;" data-inventory-features-user="${escapeHtml(u.id)}">
+            Inventory features
+          </button>
           <button class="action-btn" style="background: #8b5cf6;" onclick="viewPayments('${u.id}', '${businessName.replace(/'/g, "\\'")}')">
             Payments
           </button>
@@ -218,6 +232,64 @@ function escapeHtml(value) {
     "'": "&#39;"
   })[character]);
 }
+
+adminUserTable.addEventListener("click", event => {
+  const button = event.target.closest("[data-inventory-features-user]");
+  if (!button) return;
+  openInventoryFeatures(button.dataset.inventoryFeaturesUser);
+});
+
+function openInventoryFeatures(userId) {
+  const user = users.find(client => client.id === userId);
+  if (!user) return;
+  const features = user.inventoryFeatures || {};
+  inventoryFeaturesUserId = userId;
+  inventoryFeaturesBusinessName.textContent =
+    `Choose the inventory-taking categories available to ${user.businessName || user.email}.`;
+  featureFuelEnergy.checked = features.fuelEnergy !== false;
+  featureCrateItems.checked = features.crateItems !== false;
+  featureBoxItems.checked = features.boxItems !== false;
+  featureAccessories.checked = features.accessories !== false;
+  inventoryFeaturesMessage.textContent = "";
+  saveInventoryFeaturesBtn.disabled = false;
+  inventoryFeaturesModal.style.display = "flex";
+  featureFuelEnergy.focus();
+}
+
+function closeInventoryFeatures() {
+  inventoryFeaturesModal.style.display = "none";
+  inventoryFeaturesUserId = null;
+}
+
+inventoryFeaturesForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!inventoryFeaturesUserId) return;
+  saveInventoryFeaturesBtn.disabled = true;
+  inventoryFeaturesMessage.textContent = "Saving inventory features…";
+  try {
+    await updateDoc(doc(db, "users", inventoryFeaturesUserId), {
+      inventoryFeatures: {
+        fuelEnergy: featureFuelEnergy.checked,
+        crateItems: featureCrateItems.checked,
+        boxItems: featureBoxItems.checked,
+        accessories: featureAccessories.checked
+      }
+    });
+    inventoryFeaturesMessage.textContent = "Inventory features saved.";
+    await loadAdminDashboard("initial", adminSearchInput.value);
+  } catch (error) {
+    console.error("Unable to save client inventory features:", error);
+    inventoryFeaturesMessage.textContent =
+      `Unable to save inventory features: ${error.message}`;
+  } finally {
+    saveInventoryFeaturesBtn.disabled = false;
+  }
+});
+
+closeInventoryFeaturesBtn.addEventListener("click", closeInventoryFeatures);
+inventoryFeaturesModal.addEventListener("click", event => {
+  if (event.target === inventoryFeaturesModal) closeInventoryFeatures();
+});
 
 function formatPhoneNumber(value) {
   const digits = String(value || "").replace(/\D/g, "");
@@ -461,7 +533,13 @@ registerForm.addEventListener("submit", async (e) => {
   role: "user",
   suspended: false,
   firstLogin: true,
-  createdAt: new Date().toISOString(),
+   inventoryFeatures: {
+     fuelEnergy: true,
+     crateItems: true,
+     boxItems: true,
+     accessories: true
+   },
+   createdAt: new Date().toISOString(),
   uid: newUser.uid // ✅ ADD THIS
 });
     await signOut(secondaryAuth); // Ensure the secondary instance is cleared

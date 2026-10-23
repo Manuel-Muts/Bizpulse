@@ -22,19 +22,24 @@ import { jsPDF } from "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm";
 import { getAnalyticsItemSalesRanking } from "./analytics-item-chart.js";
 import {
   adjustCrateStock,
+  adjustBoxStock,
   adjustQuantity,
   appendQuantityUnit,
   calculatePetrolDip,
   escapeQuantity,
   formatCrateStock,
+  formatBoxStock,
   formatDisplayQuantity,
   formatNumber,
   formatQuantity,
   getCrateStockPieces,
+  getBoxStockUnits,
   getPiecesPerCrate,
+  getUnitsPerBox,
   isExcludedFromAllAnalyticsName,
   isStrictlyExcludedFromGeneralAnalyticsName,
   isCrateItem,
+  isBoxItem,
   isLiterUnit,
   isPetrolName,
   parseQuantity,
@@ -43,7 +48,6 @@ import {
 
 const EXPENSE_COST_CATEGORIES = new Set([
   "general",
-  "petrol",
   "gas-cylinder",
   "k-gas",
   "total-gas",
@@ -56,7 +60,6 @@ const EXPENSE_COST_CATEGORIES = new Set([
   "accessory-item"
 ]);
 const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
-  "petrol",
   "gas-cylinder",
   "k-gas",
   "total-gas",
@@ -71,7 +74,7 @@ const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
 const isExcludedItemPurchase = expense =>
   String(expense.type || "").toLowerCase() === "purchase" &&
   (EXCLUDED_ITEM_PURCHASE_CATEGORIES.has(expense.costCategory) ||
-    getCustomFuelCategoryName(expense.costCategory).toLowerCase().includes("gas"));
+    Boolean(getCustomFuelCategoryName(expense.costCategory)));
 const ALL_GAS_ANALYTICS_FILTER = "__all_gas__";
 const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
 const ALL_CRATE_ANALYTICS_FILTER = "__all_crate_items__";
@@ -105,8 +108,11 @@ const saleCrateStockStatus = document.getElementById("saleCrateStockStatus");
 const saleQuantityUnitField = document.getElementById("saleQuantityUnitField");
 const saleQuantityUnit = document.getElementById("saleQuantityUnit");
 const saleCrateOption = document.getElementById("saleCrateOption");
+const salePieceOption = document.getElementById("salePieceOption");
 const saleCrateSizeField = document.getElementById("saleCrateSizeField");
 const saleCrateSize = document.getElementById("saleCrateSize");
+const saleFullPackOption = document.getElementById("saleFullPackOption");
+const saleHalfPackOption = document.getElementById("saleHalfPackOption");
 const recordSaleBtn = document.getElementById("recordSaleBtn");
 const salesTableBody = document.getElementById("salesTable"); // Renamed to avoid conflict with global sales array
 const salesDateFilter = document.getElementById("salesDateFilter");
@@ -177,6 +183,10 @@ const expenseNotesInput = document.getElementById("expenseNotes");
 const saveExpenseBtn = document.getElementById("saveExpenseBtn");
 const expenseFormMessage = document.getElementById("expenseFormMessage");
 const expensesTable = document.getElementById("expensesTable");
+const expensePeriodFilter = document.getElementById("expensePeriodFilter");
+const expenseCustomDateRange = document.getElementById("expenseCustomDateRange");
+const expenseFromDate = document.getElementById("expenseFromDate");
+const expenseToDate = document.getElementById("expenseToDate");
 
 let dbInstance;
 let authInstance;
@@ -324,10 +334,22 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   exportAnalyticsPdfBtn.addEventListener("click", exportAnalyticsPdf);
   expenseDateInput.value = dateKey(new Date());
   expenseDateInput.max = dateKey(new Date());
+  expenseFromDate.value = dateKey(new Date());
+  expenseToDate.value = dateKey(new Date());
+  expenseFromDate.max = dateKey(new Date());
+  expenseToDate.max = dateKey(new Date());
+  expensePeriodFilter.addEventListener("change", () => {
+    expenseCustomDateRange.hidden = expensePeriodFilter.value !== "custom";
+    renderExpensesTable();
+  });
+  [expenseFromDate, expenseToDate].forEach(input => {
+    input.addEventListener("change", renderExpensesTable);
+  });
   expenseForm.addEventListener("submit", handleExpenseFormSubmit);
   expenseCostCategoryInput.addEventListener("change", updateExpenseGasTypeField);
   expenseAccessoryItemInput.addEventListener("change", updateExpenseGasTypeField);
-  [expenseDescriptionInput, expenseVendorInput, expenseNotesInput].forEach(input => {
+  expenseDescriptionInput.addEventListener("input", handleExpenseDescriptionInput);
+  [expenseVendorInput, expenseNotesInput].forEach(input => {
     input.addEventListener("input", () => uppercaseInput(input));
   });
   expenseDescriptionInput.addEventListener("blur", formatCrateExpenseDescription);
@@ -767,15 +789,17 @@ function updateExpenseGasTypeField() {
     getSelectedExpenseCategoryName().toLowerCase().includes("gas");
   const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
     ?.parentElement?.id === "fuelEnergyExpenseOptions";
+  const requiresGasType = !isPetrolExpenseCategory() && (isFuelEnergyCategory || isGasCategory);
   const isCrateItemCategory = category === "crate-item";
   const isAccessoryItemCategory = category === "accessory-item";
   expenseCrateItemField.hidden = !isCrateItemCategory;
   expenseCrateItemInput.required = isCrateItemCategory;
   expenseAccessoryItemField.hidden = !isAccessoryItemCategory;
   expenseAccessoryItemInput.required = isAccessoryItemCategory;
-  expenseGasTypeField.hidden = !isFuelEnergyCategory && !isGasCategory;
-  expenseGasTypeInput.required = isFuelEnergyCategory || isGasCategory;
-  if (!isFuelEnergyCategory && !isGasCategory) {
+  expenseGasTypeField.hidden = !requiresGasType;
+  expenseGasTypeInput.required = requiresGasType;
+  appendQuantityUnit(expenseDescriptionInput, "L", isPetrolExpenseCategory());
+  if (!requiresGasType) {
     expenseGasTypeInput.value = "";
   } else if (category === "gas-refillable") {
     expenseGasTypeInput.value = "refillable";
@@ -825,7 +849,7 @@ function renderCrateExpenseItemSelect(expense) {
   const hasSelectedItem = options.some(item => item.id === selectedItemId);
   const selectedName = hasSelectedItem ? "" : expense.crateItemName || "";
   const isCrateCategory = expense.costCategory === "crate-item";
-  return `<select data-expense-crate-item${isCrateCategory ? " required" : " hidden"} aria-label="Crate inventory item">
+  return `<select class="expense-linked-item-select" data-expense-crate-item${isCrateCategory ? " required" : " hidden"} aria-label="Crate inventory item">
     <option value="">Choose crate item...</option>
     ${selectedName ? `<option value="${escapeQuantity(selectedItemId)}" selected>${escapeQuantity(selectedName)} (not in inventory)</option>` : ""}
     ${options.map(item =>
@@ -839,7 +863,7 @@ function renderAccessoryExpenseItemSelect(expense) {
   const hasSelectedItem = accessoryExpenseItems.some(accessory => accessory.id === selectedItemId);
   const selectedName = hasSelectedItem ? "" : expense.accessoryItemName || "";
   const isAccessoryCategory = expense.costCategory === "accessory-item";
-  return `<select data-expense-accessory-item${isAccessoryCategory ? " required" : " hidden"} aria-label="Accessory item">
+  return `<select class="expense-linked-item-select" data-expense-accessory-item${isAccessoryCategory ? " required" : " hidden"} aria-label="Accessory item">
     <option value="">Choose accessory...</option>
     ${selectedName ? `<option value="${escapeQuantity(selectedItemId)}" selected>${escapeQuantity(selectedName)} (not in accessory list)</option>` : ""}
     ${accessoryExpenseItems.slice().sort((left, right) => left.name.localeCompare(right.name)).map(accessory =>
@@ -856,8 +880,24 @@ function getSelectedExpenseCategoryName() {
   return selectedOption?.textContent || "";
 }
 
+function isPetrolExpenseCategory() {
+  return /\bpetrol\b/i.test(getSelectedExpenseCategoryName());
+}
+
+function handleExpenseDescriptionInput() {
+  appendQuantityUnit(expenseDescriptionInput, "L", isPetrolExpenseCategory());
+  uppercaseInput(expenseDescriptionInput);
+}
+
 function getCustomFuelCategoryName(categoryId) {
   return customFuelEnergyCategories.find(category => `fuel:${category.id}` === categoryId)?.name || "";
+}
+
+function getCustomFuelCategoryForItem(item) {
+  const itemName = String(item?.name || "").trim().toLowerCase();
+  return customFuelEnergyCategories.find(category =>
+    String(category.name || "").trim().toLowerCase() === itemName
+  );
 }
 
 function getExpenseGasType(expense) {
@@ -943,7 +983,8 @@ async function handleExpenseFormSubmit(event) {
     selectedCategoryName.toLowerCase().includes("gas");
   const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
     ?.parentElement?.id === "fuelEnergyExpenseOptions";
-  if ((isFuelEnergyCategory || isGasCategory) && !expenseGasTypeInput.value) {
+  const requiresGasType = !isPetrolExpenseCategory() && (isFuelEnergyCategory || isGasCategory);
+  if (requiresGasType && !expenseGasTypeInput.value) {
     expenseFormMessage.textContent = "Choose whether this Fuel & Energy cost is refillable or non-refillable.";
     return;
   }
@@ -961,7 +1002,7 @@ async function handleExpenseFormSubmit(event) {
     expenseFormMessage.textContent = "Choose an accessory from the accessory list.";
     return;
   }
-  const gasType = isFuelEnergyCategory || isGasCategory ? expenseGasTypeInput.value : "";
+  const gasType = requiresGasType ? expenseGasTypeInput.value : "";
   const namedGasCategory = ["k-gas", "total-gas", "pro-gas"]
     .includes(expenseCostCategoryInput.value);
   const costCategory = isGasCategory && !namedGasCategory
@@ -1007,9 +1048,34 @@ function renderExpensesTable() {
     expensesTable.innerHTML = `<tr><td colspan="9">${escapeQuantity(expensesError)}</td></tr>`;
     return;
   }
-  const sortedExpenses = [...expensesForAnalytics].sort((left, right) =>
-    (right.date || dateKey(new Date(right.createdAt)))
-      .localeCompare(left.date || dateKey(new Date(left.createdAt))));
+  const today = new Date();
+  const todayKey = dateKey(today);
+  let startKey;
+  let endKey = todayKey;
+  if (expensePeriodFilter.value === "custom") {
+    startKey = expenseFromDate.value;
+    endKey = expenseToDate.value;
+    if (!startKey || !endKey || startKey > endKey) {
+      expensesTable.innerHTML =
+        `<tr><td colspan="9" style="text-align:center;">Choose a valid custom date range.</td></tr>`;
+      return;
+    }
+  } else {
+    const periodDays = expensePeriodFilter.value === "today"
+      ? 1
+      : Number(expensePeriodFilter.value) || 1;
+    const periodStart = new Date(today);
+    periodStart.setDate(today.getDate() - periodDays + 1);
+    startKey = dateKey(periodStart);
+  }
+  const sortedExpenses = expensesForAnalytics
+    .filter(expense => {
+      const expenseDate = expenseDateKey(expense);
+      return expenseDate >= startKey && expenseDate <= todayKey;
+    })
+    .sort((left, right) =>
+      expenseDateKey(right).localeCompare(expenseDateKey(left))
+    );
   expensesTable.innerHTML = sortedExpenses.length
     ? sortedExpenses.map(expense => {
       const date = expense.date || dateKey(new Date(expense.createdAt));
@@ -1021,13 +1087,18 @@ function renderExpensesTable() {
         <td>${escapeQuantity(expense.type || "Expense")}</td>
         <td>${escapeQuantity(expense.description || "")}</td>
         <td>
-          <select data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}">
+          <div class="expense-category-fields">
+          <select class="expense-category-select" data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}">
             <option value=""${selectedCategory ? "" : " selected"}>Unclassified</option>
             <option value="general"${selectedCategory === "general" ? " selected" : ""}>General</option>
-            <option value="petrol"${selectedCategory === "petrol" ? " selected" : ""}>Fuel & Energy: PETROL</option>
-            <option value="k-gas"${selectedCategory === "k-gas" ? " selected" : ""}>Fuel & Energy: K GAS</option>
-            <option value="total-gas"${selectedCategory === "total-gas" ? " selected" : ""}>Fuel & Energy: TOTAL GAS</option>
-            <option value="pro-gas"${selectedCategory === "pro-gas" ? " selected" : ""}>Fuel & Energy: PRO GAS</option>
+            <optgroup label="Fuel & Energy">
+              <option value="k-gas"${selectedCategory === "k-gas" ? " selected" : ""}>K GAS</option>
+              <option value="total-gas"${selectedCategory === "total-gas" ? " selected" : ""}>TOTAL GAS</option>
+              <option value="pro-gas"${selectedCategory === "pro-gas" ? " selected" : ""}>PRO GAS</option>
+              ${customFuelEnergyCategories.map(category =>
+                `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>${escapeQuantity(category.name)}</option>`
+              ).join("")}
+            </optgroup>
             ${selectedCategory === "gas-cylinder"
               ? `<option value="gas-cylinder" selected>Legacy: Gas cylinder</option>`
               : ""}
@@ -1035,21 +1106,19 @@ function renderExpensesTable() {
             <option value="gas-nonrefillable"${selectedCategory === "gas-nonrefillable" ? " selected" : ""}>Gas: Non-refillable</option>
             <option value="crate-item"${selectedCategory === "crate-item" ? " selected" : ""}>Crate Items</option>
             <option value="accessory-item"${selectedCategory === "accessory-item" ? " selected" : ""}>Accessories</option>
-            ${customFuelEnergyCategories.map(category =>
-              `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>Fuel & Energy: ${escapeQuantity(category.name)}</option>`
-            ).join("")}
           </select>
           ${renderCrateExpenseItemSelect(expense)}
           ${renderAccessoryExpenseItemSelect(expense)}
+          </div>
         </td>
         <td>${escapeQuantity(expense.paidToSupplier || "—")}</td>
         <td>${escapeQuantity(expense.vendor || "—")}</td>
         <td>${formatNumber(expense.amount)}</td>
         <td>${escapeQuantity(expense.notes || "—")}</td>
-        <td><button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save category</button></td>
+        <td><button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save</button></td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="9" style="text-align:center;">No expenses or purchases recorded.</td></tr>`;
+    : `<tr><td colspan="9" style="text-align:center;">No expenses or purchases recorded for this period.</td></tr>`;
 }
 
 async function handleExpenseCategorySave(event) {
@@ -1154,7 +1223,9 @@ function handleItemSearch() {
 
   const matches = itemsArray.filter(i =>
     i.name.toLowerCase().includes(term) &&
-    (isCrateItem(i.name) ? getCrateStockPieces(i) : (parseQuantity(i.quantity)?.amount ?? 0)) > 0);
+    (isBoxItem(i) ? getBoxStockUnits(i) :
+      isCrateItem(i.name) ? getCrateStockPieces(i) :
+        (parseQuantity(i.quantity)?.amount ?? 0)) > 0);
 
   if (matches.length === 0) {
     saleSearchResults.style.display = "none";
@@ -1165,15 +1236,16 @@ function handleItemSearch() {
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
       ${item.gasType ? `<small class="sale-gas-type">${getGasTypeLabel(item.gasType)}</small><br/>` : ""}
-      <small>${isCrateItem(item.name)
-        ? `Price: KES ${formatNumber(item.outgoing)} / crate | KES ${
+      <small>${isCrateItem(item.name) || isBoxItem(item)
+        ? `Price: KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"} | KES ${
           item.pieceSellingPrice === null || item.pieceSellingPrice === undefined
             ? "Not set"
             : formatNumber(item.pieceSellingPrice)
-        } / piece`
+        } / ${isBoxItem(item) ? "unit" : "piece"}`
         : `Price: KES ${formatNumber(item.outgoing)}`
       } | Stock: ${escapeQuantity(
-        isCrateItem(item.name) ? formatCrateStock(item) : formatDisplayQuantity(item.quantity)
+        isBoxItem(item) ? formatBoxStock(item) :
+          isCrateItem(item.name) ? formatCrateStock(item) : formatDisplayQuantity(item.quantity)
       )}</small>
     </div>
   `).join("");
@@ -1316,15 +1388,22 @@ function getAnalyticsSalesForFilter(filterValue) {
 }
 
 function setSaleQuantityUnit(item) {
-  const crateItem = isCrateItem(item?.name);
-  saleQuantityUnitField.hidden = !crateItem;
-  saleCrateStockStatus.hidden = !crateItem;
-  saleQuantityInput.placeholder = crateItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
-  salePriceInput.placeholder = crateItem ? "Selling price per crate" : "Price Sold";
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item?.name);
+  const packagedItem = crateItem || boxItem;
+  const packageName = boxItem ? "box" : "crate";
+  saleQuantityUnitField.hidden = !packagedItem;
+  saleCrateStockStatus.hidden = !packagedItem;
+  saleQuantityInput.placeholder = packagedItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
+  salePriceInput.placeholder = packagedItem ? `Selling price per ${packageName}` : "Price Sold";
   saleQuantityUnit.value = "";
   saleCrateSize.value = "full";
-  const piecesPerCrate = crateItem ? getPiecesPerCrate(item) : 24;
-  saleCrateOption.textContent = `Crate (${formatNumber(piecesPerCrate)} pieces)`;
+  const unitsPerPack = boxItem ? getUnitsPerBox(item) : crateItem ? getPiecesPerCrate(item) : 24;
+  saleCrateOption.textContent = `${boxItem ? "Box" : "Crate"} (${formatNumber(unitsPerPack)} pieces)`;
+  salePieceOption.textContent = "Individual piece";
+  saleFullPackOption.textContent = `Full ${packageName}`;
+  saleHalfPackOption.textContent = `Half ${packageName}`;
+  saleCrateSizeField.firstChild.textContent = `${boxItem ? "Box" : "Crate"} size`;
   updateSaleCrateSizeField(item);
   syncSaleQuantityUnit(item);
   updateSaleUnitPrice();
@@ -1332,6 +1411,7 @@ function setSaleQuantityUnit(item) {
 }
 
 function supportsHalfCrate(item) {
+  if (isBoxItem(item)) return getUnitsPerBox(item) % 2 === 0;
   if (!isCrateItem(item?.name)) return false;
   const name = String(item.name);
   const isWaterCrate = /\bwater\b/i.test(name);
@@ -1348,22 +1428,25 @@ function updateSaleCrateSizeField(item) {
 function getCrateSaleQuantityUnit(item) {
   if (!saleQuantityUnit.value) return "";
   if (saleQuantityUnit.value === "piece") return "PIECES";
+  const packageLabel = isBoxItem(item) ? "BOX" : "CRATE";
   return supportsHalfCrate(item) && saleCrateSize.value === "half"
-    ? "HALF CRATES"
-    : "CRATES";
+    ? `HALF ${packageLabel}S`
+    : `${packageLabel}S`;
 }
 
 function updateCrateSaleStockPreview() {
   const item = itemsArray.find(candidate => candidate.id === selectedItemId);
-  if (!isCrateItem(item?.name)) {
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item?.name);
+  if (!crateItem && !boxItem) {
     saleCrateStockStatus.hidden = true;
     saleCrateStockStatus.textContent = "";
     return;
   }
 
   saleCrateStockStatus.hidden = false;
-  const piecesPerCrate = getPiecesPerCrate(item);
-  let availablePieces = getCrateStockPieces(item);
+  const piecesPerCrate = boxItem ? getUnitsPerBox(item) : getPiecesPerCrate(item);
+  let availablePieces = boxItem ? getBoxStockUnits(item) : getCrateStockPieces(item);
   if (editSaleId && editingOriginalSale?.itemId === selectedItemId) {
     availablePieces += getCrateSaleStockUnits(editingOriginalSale, item);
   }
@@ -1371,12 +1454,19 @@ function updateCrateSaleStockPreview() {
   const formatStock = pieces => {
     const crates = Math.floor(pieces / piecesPerCrate);
     const loosePieces = pieces % piecesPerCrate;
-    const stock = formatCrateStock({
-      quantity: formatQuantity(crates, "CRATES"),
-      loosePieces,
-      piecesPerCrate
-    });
-    return `${stock} (${formatNumber(pieces)} ${pieces === 1 ? "PIECE" : "PIECES"})`;
+    const stock = boxItem
+      ? formatBoxStock({
+        quantity: formatQuantity(crates, "BOXES"),
+        looseUnits: loosePieces,
+        unitsPerBox: piecesPerCrate
+      })
+      : formatCrateStock({
+        quantity: formatQuantity(crates, "CRATES"),
+        loosePieces,
+        piecesPerCrate
+      });
+    const unitLabel = "PIECE";
+    return `${stock} (${formatNumber(pieces)} ${pieces === 1 ? unitLabel : `${unitLabel}S`})`;
   };
 
   const lines = [`Available: ${formatStock(availablePieces)}`];
@@ -1387,7 +1477,8 @@ function updateCrateSaleStockPreview() {
     const packSize = getCrateSaleQuantityUnit(item);
     const piecesToSell = saleQuantity.amount *
       (packSize === "HALF CRATES" ? piecesPerCrate / 2 :
-        packSize === "CRATES" ? piecesPerCrate : 1);
+        packSize === "HALF BOXES" ? piecesPerCrate / 2 :
+          packSize === "CRATES" || packSize === "BOXES" ? piecesPerCrate : 1);
     if (piecesToSell <= availablePieces) {
       lines.push(`After sale: ${formatStock(availablePieces - piecesToSell)}`);
     } else {
@@ -1401,15 +1492,15 @@ function syncSaleQuantityUnit(item) {
   const quantity = parseQuantity(saleQuantityInput.value);
   if (!quantity) return;
 
-  if (isCrateItem(item?.name)) {
-    if (!quantity.unit || /^(?:half\s+)?crates?$|^pieces?$/i.test(quantity.unit)) {
+  if (isCrateItem(item?.name) || isBoxItem(item)) {
+    if (!quantity.unit || /^(?:half\s+)?(?:crates?|boxes?)$|^(?:pieces?|units?)$/i.test(quantity.unit)) {
       const unit = getCrateSaleQuantityUnit(item);
       if (unit) saleQuantityInput.value = formatQuantity(quantity.amount, unit);
     }
     return;
   }
 
-  if (/^(crates?|pieces?)$/i.test(quantity.unit)) {
+  if (/^(crates?|pieces?|boxes?|units?)$/i.test(quantity.unit)) {
     saleQuantityInput.value = String(quantity.amount);
   }
   appendQuantityUnit(saleQuantityInput, "L", isPetrolItem(item));
@@ -1422,7 +1513,9 @@ function updateSaleUnitPrice() {
     salePriceInput.readOnly = false;
     return;
   }
-  if (!isCrateItem(item.name)) {
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item.name);
+  if (!crateItem && !boxItem) {
     salePriceInput.placeholder = saleTypeInput.value === "wholesale"
       ? "Wholesale price"
       : "Price Sold";
@@ -1445,12 +1538,14 @@ function updateSaleUnitPrice() {
     supportsHalfCrate(item) &&
     saleCrateSize.value === "half";
   salePriceInput.readOnly = isHalfCrateSale && saleTypeInput.value !== "wholesale";
+  const packageName = boxItem ? "box" : "crate";
+  const unitName = "piece";
   salePriceInput.placeholder = saleTypeInput.value === "wholesale"
-    ? isPieceSale ? "Wholesale price per piece"
-      : isHalfCrateSale ? "Wholesale price per half crate" : "Wholesale price per crate"
+    ? isPieceSale ? `Wholesale price per ${unitName}`
+      : isHalfCrateSale ? `Wholesale price per half ${packageName}` : `Wholesale price per ${packageName}`
     : isPieceSale
-    ? "Selling price per piece"
-    : isHalfCrateSale ? "Selling price per half crate" : "Selling price per crate";
+    ? `Selling price per ${unitName}`
+    : isHalfCrateSale ? `Selling price per half ${packageName}` : `Selling price per ${packageName}`;
   salePriceInput.value = isPieceSale
     ? Number(item.pieceSellingPrice) || ""
     : isHalfCrateSale ? Number(item.outgoing) / 2 : item.outgoing;
@@ -1471,12 +1566,18 @@ function saleSizeForPrice(item, crateSize) {
 function getCrateSaleStockUnits(sale, item) {
   const quantity = Number(sale.quantity) || 0;
   const unit = String(sale.quantityUnit || "").toLowerCase();
-  if (!isCrateItem(item?.name)) return quantity;
-  const piecesPerCrate = Number(sale.piecesPerCrate) || getPiecesPerCrate(item);
-  if (sale.crateSize === "half" || unit.startsWith("half crate")) {
-    return quantity * piecesPerCrate / 2;
+  const boxSale = Number(sale.unitsPerBox) > 0 ||
+    unit.startsWith("box") || unit.startsWith("half box");
+  const crateSale = !boxSale && (Number(sale.piecesPerCrate) > 0 ||
+    isCrateItem(item?.name) || unit.startsWith("crate") || unit.startsWith("half crate"));
+  if (!crateSale && !boxSale) return quantity;
+  const boxItem = boxSale || (!crateSale && isBoxItem(item));
+  const unitsPerPack = Number(boxItem ? sale.unitsPerBox : sale.piecesPerCrate) ||
+    (boxItem ? getUnitsPerBox(item) : getPiecesPerCrate(item));
+  if (sale.crateSize === "half" || unit.startsWith("half crate") || unit.startsWith("half box")) {
+    return quantity * unitsPerPack / 2;
   }
-  return quantity * (!unit || unit.startsWith("crate") ? piecesPerCrate : 1);
+  return quantity * (!unit || unit.startsWith("crate") || unit.startsWith("box") ? unitsPerPack : 1);
 }
 
 function formatSaleQuantity(sale) {
@@ -1491,17 +1592,30 @@ function formatSaleQuantity(sale) {
   if (unit === "PIECES") {
     return `${formatNumber(quantity)} ${quantity === 1 ? "PIECE" : "PIECES"}`;
   }
+  if (unit === "HALF BOXES") {
+    return `${formatNumber(quantity)} HALF ${quantity === 1 ? "BOX" : "BOXES"}`;
+  }
+  if (unit === "BOXES") {
+    return `${formatNumber(quantity)} FULL ${quantity === 1 ? "BOX" : "BOXES"}`;
+  }
+  if (unit === "UNITS") {
+    return `${formatNumber(quantity)} ${quantity === 1 ? "PIECE" : "PIECES"}`;
+  }
   return formatDisplayQuantity(formatQuantity(sale.quantity, sale.quantityUnit || ""));
 }
 
 function getItemStockUnits(item) {
-  return isCrateItem(item.name)
+  return isBoxItem(item)
+    ? getBoxStockUnits(item)
+    : isCrateItem(item.name)
     ? getCrateStockPieces(item)
     : parseQuantity(item.quantity)?.amount ?? 0;
 }
 
 function getItemStockUnit(item) {
-  return isCrateItem(item.name)
+  return isBoxItem(item)
+    ? "PIECES"
+    : isCrateItem(item.name)
     ? "PIECES"
     : String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
 }
@@ -1519,6 +1633,9 @@ function createStockMovement(item, quantityDelta, type) {
 }
 
 function getItemStockUpdate(item, unitAdjustment) {
+  if (isBoxItem(item)) {
+    return adjustBoxStock(item, unitAdjustment);
+  }
   if (isCrateItem(item.name)) {
     return adjustCrateStock(item, unitAdjustment);
   }
@@ -2555,6 +2672,15 @@ function countLowStockItems() {
 function formatStockAdditionQuantity(addition) {
   const quantity = Number(addition.quantity) || 0;
   const unit = String(addition.quantityUnit || "").trim().toUpperCase();
+  if (unit === "BOXES") {
+    const boxLabel = quantity === 1 ? "BOX" : "BOXES";
+    const unitsAdded = Number(addition.unitsAdded) ||
+      quantity * (Number(addition.unitsPerBox) || 0);
+    return `${formatNumber(quantity)} ${boxLabel} (${formatNumber(unitsAdded)} PIECES)`;
+  }
+  if (unit === "UNITS" || unit === "PIECES") {
+    return `${formatNumber(quantity)} ${quantity === 1 ? "PIECE" : "PIECES"}`;
+  }
   if (unit === "CRATES") {
     const crateLabel = quantity === 1 ? "CRATE" : "CRATES";
     const piecesAdded = Number(addition.piecesAdded) ||
@@ -2585,16 +2711,18 @@ function getExpensesForAnalyticsSelection(expenses) {
       !isExcludedItemPurchase(expense));
   }
 
+  const isPurchase = expense => String(expense.type || "").toLowerCase() === "purchase";
   const selectedItem = analyticsItemsById.get(selectedValue) ||
     itemsArray.find(item => item.id === selectedValue);
-  if (isPetrolItem(selectedItem)) {
+  const customFuelCategory = getCustomFuelCategoryForItem(selectedItem);
+  if (customFuelCategory) {
+    const customCategoryId = `fuel:${customFuelCategory.id}`;
     return expenses.filter(expense =>
-      String(expense.type || "").toLowerCase() === "purchase" &&
-      expense.costCategory === "petrol"
+      isPurchase(expense) &&
+      expense.costCategory === customCategoryId
     );
   }
 
-  const isPurchase = expense => String(expense.type || "").toLowerCase() === "purchase";
   if (selectedValue === ALL_GAS_ANALYTICS_FILTER) {
     return expenses.filter(expense => isPurchase(expense) &&
       Boolean(getExpenseGasCategory(expense)));
@@ -2807,12 +2935,15 @@ function renderOverviewTopItems(sales) {
     const inventoryItem = analyticsItemsById.get(sale.itemId) ||
       itemsArray.find(item => item.id === sale.itemId);
     const itemForSale = inventoryItem || { name: sale.itemName };
-    const isCrateSale = isCrateItem(itemForSale.name);
-    const unit = isCrateSale
+    const boxSale = isBoxItem(itemForSale);
+    const crateSale = !boxSale && isCrateItem(itemForSale.name);
+    const unit = boxSale
       ? "PIECES"
-      : String(sale.quantityUnit || parseQuantity(inventoryItem?.quantity)?.unit || "UNITS")
+      : crateSale
+      ? "PIECES"
+      : String(sale.quantityUnit || parseQuantity(inventoryItem?.quantity)?.unit || "PIECES")
         .trim().toUpperCase();
-    const quantity = isCrateSale
+    const quantity = boxSale || crateSale
       ? getCrateSaleStockUnits(sale, itemForSale)
       : Number(sale.quantity) || 0;
     const unitItems = itemsByUnit.get(unit) || new Map();
@@ -2959,10 +3090,11 @@ function getAnalyticsQuantityDisplay(dateKeys) {
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
     itemsArray.find(item => item.id === selectedItemId);
   const isAllCratesSelected = selectedItemId === ALL_CRATE_ANALYTICS_FILTER;
-  if (!isAllCratesSelected && !isCrateItem(selectedItem?.name)) return null;
+  const isBoxSelection = isBoxItem(selectedItem);
+  if (!isAllCratesSelected && !isCrateItem(selectedItem?.name) && !isBoxSelection) return null;
 
   const selectedDates = new Set(dateKeys);
-  const quantities = { crates: 0, halfCrates: 0, pieces: 0 };
+  const quantities = { crates: 0, halfCrates: 0, pieces: 0, boxes: 0, halfBoxes: 0, units: 0 };
   (analyticsItemSales || []).forEach(sale => {
     if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
 
@@ -2970,6 +3102,12 @@ function getAnalyticsQuantityDisplay(dateKeys) {
     const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
     if (isAllCratesSelected) {
       if (!isCrateItem(sale.itemName || "")) return;
+    }
+    if (isBoxSelection) {
+      if (sale.crateSize === "half" || unit.startsWith("half box")) quantities.halfBoxes += quantity;
+      else if (unit.startsWith("unit") || unit.startsWith("piece")) quantities.units += quantity;
+      else quantities.boxes += quantity;
+      return;
     }
     if (sale.crateSize === "half" || unit.startsWith("half crate")) {
       quantities.halfCrates += quantity;
@@ -2980,13 +3118,15 @@ function getAnalyticsQuantityDisplay(dateKeys) {
     }
   });
 
-  return `Full crates: ${formatNumber(quantities.crates)}, Half crates: ${formatNumber(quantities.halfCrates)}, Pieces: ${formatNumber(quantities.pieces)}`;
+  return isBoxSelection
+    ? `Full boxes: ${formatNumber(quantities.boxes)}, Half boxes: ${formatNumber(quantities.halfBoxes)}, Pieces: ${formatNumber(quantities.units)}`
+    : `Full crates: ${formatNumber(quantities.crates)}, Half crates: ${formatNumber(quantities.halfCrates)}, Pieces: ${formatNumber(quantities.pieces)}`;
 }
 
 function getAnalyticsSaleTypeBreakdown(dateKeys) {
   return getAnalyticsSaleTypeQuantities(dateKeys)
-    .map(({ type, quantities, isCrateSelection }) => `
-      <span class="analytics-sale-type-quantity"><strong>${type}</strong> ${formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)}</span>`)
+    .map(({ type, quantities, isCrateSelection, isBoxSelection }) => `
+      <span class="analytics-sale-type-quantity"><strong>${type}</strong> ${formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection, isBoxSelection)}</span>`)
     .join("");
 }
 
@@ -2996,10 +3136,11 @@ function getAnalyticsSaleTypeQuantities(dateKeys) {
     itemsArray.find(item => item.id === selectedItemId);
   const isCrateSelection = selectedItemId === ALL_CRATE_ANALYTICS_FILTER ||
     isCrateItem(selectedItem?.name);
+  const isBoxSelection = isBoxItem(selectedItem);
   const selectedDates = new Set(dateKeys);
   const quantities = new Map([
-    ["retail", { total: 0, crates: 0, halfCrates: 0, pieces: 0 }],
-    ["wholesale", { total: 0, crates: 0, halfCrates: 0, pieces: 0 }]
+    ["retail", { total: 0, crates: 0, halfCrates: 0, pieces: 0, boxes: 0, halfBoxes: 0, units: 0 }],
+    ["wholesale", { total: 0, crates: 0, halfCrates: 0, pieces: 0, boxes: 0, halfBoxes: 0, units: 0 }]
   ]);
   const sales = analyticsItemSales !== null
     ? analyticsItemSales
@@ -3013,7 +3154,16 @@ function getAnalyticsSaleTypeQuantities(dateKeys) {
     const quantity = Number(sale.quantity) || 0;
     const typeQuantities = quantities.get(saleType);
     typeQuantities.total += quantity;
-    if (isCrateSelection) {
+    if (isBoxSelection) {
+      const unit = String(sale.quantityUnit || "BOXES").toLowerCase();
+      if (sale.crateSize === "half" || unit.startsWith("half box")) {
+        typeQuantities.halfBoxes += quantity;
+      } else if (unit.startsWith("unit") || unit.startsWith("piece")) {
+        typeQuantities.units += quantity;
+      } else {
+        typeQuantities.boxes += quantity;
+      }
+    } else if (isCrateSelection) {
       const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
       if (sale.crateSize === "half" || unit.startsWith("half crate")) {
         typeQuantities.halfCrates += quantity;
@@ -3028,12 +3178,15 @@ function getAnalyticsSaleTypeQuantities(dateKeys) {
   return [...quantities.entries()].map(([type, typeQuantities]) => ({
     type: type === "retail" ? "Retail" : "Wholesale",
     quantities: typeQuantities,
-    isCrateSelection
+    isCrateSelection,
+    isBoxSelection
   }));
 }
 
-function formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection = false) {
-  return isCrateSelection
+function formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection = false, isBoxSelection = false) {
+  return isBoxSelection
+    ? `${formatNumber(quantities.boxes)} FULL BOXES, ${formatNumber(quantities.halfBoxes)} HALF BOXES, ${formatNumber(quantities.units)} PIECES`
+    : isCrateSelection
     ? `${formatNumber(quantities.crates)} FULL CRATES, ${formatNumber(quantities.halfCrates)} HALF CRATES, ${formatNumber(quantities.pieces)} PIECES`
     : formatNumber(quantities.total);
 }
@@ -3169,10 +3322,11 @@ function getBackfilledStockBalance(item, start, end) {
     if (sale.itemId !== item.id) return;
     const occurredAt = getStockHistoryDate(sale.createdAt);
     const saleUnit = String(sale.quantityUnit || unit).trim().toUpperCase();
-    if (!isCrateItem(item.name) && saleUnit !== unit) return;
-    const quantity = isCrateItem(item.name)
-      ? getCrateSaleStockUnits(sale, item)
-      : Number(sale.quantity);
+    const packagedSale = Number(sale.unitsPerBox) > 0 ||
+      Number(sale.piecesPerCrate) > 0 ||
+      /^(?:half\s+)?(?:boxes?|crates?)$/i.test(saleUnit);
+    if (!packagedSale && saleUnit !== unit) return;
+    const quantity = getCrateSaleStockUnits(sale, item);
     if (Number.isFinite(quantity)) addDatedEvent(occurredAt, -quantity);
   });
 
@@ -3193,6 +3347,16 @@ function getBackfilledStockBalance(item, start, end) {
       } else if (additionUnit === "CRATES") {
         quantity = Number(addition.quantity) * getPiecesPerCrate(item);
       } else if (additionUnit === "PIECES") {
+        quantity = Number(addition.quantity);
+      }
+    } else if (isBoxItem(item)) {
+      const unitsAdded = Number(addition.unitsAdded);
+      if (addition.unitsAdded !== null && addition.unitsAdded !== undefined &&
+          Number.isInteger(unitsAdded) && unitsAdded >= 0) {
+        quantity = unitsAdded;
+      } else if (additionUnit === "BOXES") {
+        quantity = Number(addition.quantity) * (Number(addition.unitsPerBox) || getUnitsPerBox(item));
+      } else if (additionUnit === "UNITS" || additionUnit === "PIECES") {
         quantity = Number(addition.quantity);
       }
     } else if (additionUnit === unit) {
@@ -3227,6 +3391,14 @@ function getStockHistoryDate(value) {
 }
 
 function formatAnalyticsStockUnits(item, units) {
+  if (isBoxItem(item)) {
+    const unitsPerBox = getUnitsPerBox(item);
+    return formatBoxStock({
+      quantity: formatQuantity(Math.floor(units / unitsPerBox), "BOXES"),
+      looseUnits: units % unitsPerBox,
+      unitsPerBox
+    });
+  }
   if (isCrateItem(item.name)) {
     const piecesPerCrate = getPiecesPerCrate(item);
     return formatCrateStock({
@@ -3383,48 +3555,56 @@ async function handleSaleFormSubmit(e) {
   const itemQuantity = parseQuantity(item.quantity);
   const itemUnit = itemQuantity?.unit || "";
   const petrolItem = isPetrolItem(item);
-  const crateItem = isCrateItem(item.name);
-  const saleUnit = crateItem ? saleQuantityUnit.value : "";
-  if (crateItem && saleUnit !== "crate" && saleUnit !== "piece") {
-    alert("Choose how to sell this crate item before entering the sale.");
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item.name);
+  const packagedItem = crateItem || boxItem;
+  const packageName = boxItem ? "box" : "crate";
+  const unitName = boxItem ? "unit" : "piece";
+  const saleUnit = packagedItem ? saleQuantityUnit.value : "";
+  if (packagedItem && saleUnit !== "crate" && saleUnit !== "piece") {
+    alert(`Choose how to sell this ${packageName} item before entering the sale.`);
     window.showLoadingIndicator(false);
     saleQuantityUnit.focus();
     return;
   }
-  const crateSize = crateItem && saleUnit === "crate" &&
+  const crateSize = packagedItem && saleUnit === "crate" &&
     supportsHalfCrate(item) && saleCrateSize.value === "half"
     ? "half"
     : "full";
-  if (crateItem && !Number.isInteger(saleQuantity.amount)) {
-    alert("Crates and pieces must be sold as whole numbers.");
+  const unitsPerPack = boxItem ? getUnitsPerBox(item) : getPiecesPerCrate(item);
+  if (packagedItem && !Number.isInteger(saleQuantity.amount)) {
+    alert(`${boxItem ? "Boxes and pieces" : "Crates and pieces"} must be sold as whole numbers.`);
     window.showLoadingIndicator(false);
     return;
   }
-  const expectedSaleUnit = crateItem
-    ? crateSize === "half" ? "HALF CRATES" : saleUnit === "crate" ? "CRATES" : "PIECES"
+  const expectedSaleUnit = packagedItem
+    ? crateSize === "half" ? `HALF ${boxItem ? "BOXES" : "CRATES"}` :
+      saleUnit === "crate" ? `${boxItem ? "BOXES" : "CRATES"}` : "PIECES"
     : "";
-  if (crateItem && saleQuantity.unit &&
+  if (packagedItem && saleQuantity.unit &&
       saleQuantity.unit.toLowerCase() !== expectedSaleUnit.toLowerCase() &&
       !(saleUnit === "crate" && crateSize === "full" &&
-        /^crates?$/i.test(saleQuantity.unit)) &&
-      !(saleUnit === "piece" && /^pieces?$/i.test(saleQuantity.unit))) {
+        (boxItem ? /^boxes?$/i : /^crates?$/i).test(saleQuantity.unit)) &&
+      !(saleUnit === "piece" && (boxItem ? /^units?$/i : /^pieces?$/i).test(saleQuantity.unit))) {
     alert(`Select ${saleUnit} in the Sell as menu or remove the unit from the quantity.`);
     window.showLoadingIndicator(false);
     return;
   }
-  if (crateItem && crateSize === "half" && !supportsHalfCrate(item)) {
-    alert("Half crates are available only for water crates and Soda 300ml/500ml crates with an even piece count.");
+  if (packagedItem && crateSize === "half" && !supportsHalfCrate(item)) {
+    alert(boxItem
+      ? "Half-box sales require an even number of pieces per box."
+      : "Half crates are available only for water crates and Soda 300ml/500ml crates with an even piece count.");
     window.showLoadingIndicator(false);
     return;
   }
-  if (crateItem && saleUnit === "piece" &&
+  if (packagedItem && saleUnit === "piece" &&
       (item.pieceSellingPrice === null || item.pieceSellingPrice === undefined ||
        item.pieceSellingPrice === "" || !Number.isFinite(Number(item.pieceSellingPrice)))) {
-    alert("Set this item's selling price per piece in Inventory before selling pieces.");
+    alert(`Set this item's selling price per ${unitName} in Inventory before selling individual ${unitName}s.`);
     window.showLoadingIndicator(false);
     return;
   }
-  if (!crateItem && saleQuantity.unit && itemUnit &&
+  if (!packagedItem && saleQuantity.unit && itemUnit &&
       saleQuantity.unit.toLowerCase() !== itemUnit.toLowerCase() &&
       !(petrolItem && isLiterUnit(saleQuantity.unit) && isLiterUnit(itemUnit))) {
     alert(`Sale unit must match the inventory unit (${itemUnit}).`);
@@ -3433,7 +3613,7 @@ async function handleSaleFormSubmit(e) {
   }
   const qtySold = saleQuantity.amount;
   const saleType = saleTypeInput.value === "wholesale" ? "wholesale" : "retail";
-  const retailUnitPrice = getRetailUnitPrice(item, crateItem, saleUnit, crateSize);
+  const retailUnitPrice = getRetailUnitPrice(item, packagedItem, saleUnit, crateSize);
   if (!Number.isFinite(retailUnitPrice) || retailUnitPrice < 0) {
     alert("A valid retail price is required for this item before recording a sale.");
     window.showLoadingIndicator(false);
@@ -3452,13 +3632,14 @@ async function handleSaleFormSubmit(e) {
   const discountAmount = saleType === "wholesale"
     ? (retailUnitPrice - unitPriceSold) * qtySold
     : 0;
-  const stockUnitsSold = crateItem
+  const stockUnitsSold = packagedItem
     ? qtySold * (saleUnit === "piece"
       ? 1
-      : getPiecesPerCrate(item) * (crateSize === "half" ? 0.5 : 1))
+      : unitsPerPack * (crateSize === "half" ? 0.5 : 1))
     : qtySold;
-  const quantityUnit = crateItem
-    ? saleUnit === "piece" ? "PIECES" : crateSize === "half" ? "HALF CRATES" : "CRATES"
+  const quantityUnit = packagedItem
+    ? saleUnit === "piece" ? "PIECES" :
+      crateSize === "half" ? `HALF ${boxItem ? "BOXES" : "CRATES"}` : boxItem ? "BOXES" : "CRATES"
     : petrolItem ? "L" : (itemUnit || saleQuantity.unit);
   let petrolDip = null;
   if (petrolItem) {
@@ -3487,8 +3668,12 @@ async function handleSaleFormSubmit(e) {
 
   if (stockUnitsSold > availableStock) {
     const availableUnit = petrolItem ? "L" : itemUnit;
-    const availableQuantity = crateItem
-      ? formatCrateStock({
+    const availableQuantity = packagedItem
+      ? boxItem ? formatBoxStock({
+        quantity: formatQuantity(Math.floor(availableStock / unitsPerPack), "BOXES"),
+        looseUnits: availableStock % unitsPerPack,
+        unitsPerBox: unitsPerPack
+      }) : formatCrateStock({
         quantity: formatQuantity(Math.floor(availableStock / getPiecesPerCrate(item)), "CRATES"),
         loosePieces: availableStock % getPiecesPerCrate(item),
         piecesPerCrate: getPiecesPerCrate(item)
@@ -3500,8 +3685,8 @@ async function handleSaleFormSubmit(e) {
   }
 
   const revenue = unitPriceSold * qtySold;
-  const cost = crateItem
-    ? item.incoming * (stockUnitsSold / getPiecesPerCrate(item))
+  const cost = packagedItem
+    ? item.incoming * (stockUnitsSold / unitsPerPack)
     : item.incoming * qtySold;
   const profit = revenue - cost;
   const saleDateTimestamp = new Date(selectedSaleDateStart);
@@ -3526,6 +3711,10 @@ async function handleSaleFormSubmit(e) {
     quantityUnit,
     ...(crateItem ? {
       piecesPerCrate: getPiecesPerCrate(item),
+      crateSize: saleUnit === "crate" ? crateSize : null
+    } : {}),
+    ...(boxItem ? {
+      unitsPerBox: unitsPerPack,
       crateSize: saleUnit === "crate" ? crateSize : null
     } : {}),
     ...(petrolDip ? { petrolDip } : {}),
@@ -3722,10 +3911,11 @@ window.editSale = (id) => {
   }
   const item = itemsArray.find(candidate => candidate.id === sale.itemId);
   setSaleQuantityUnit(item);
-  if (isCrateItem(item?.name)) {
+  if (isCrateItem(item?.name) || isBoxItem(item)) {
     const unit = String(sale.quantityUnit || "").toLowerCase();
-    saleQuantityUnit.value = unit.includes("crate") ? "crate" : "piece";
-    saleCrateSize.value = sale.crateSize === "half" || unit.startsWith("half crate")
+    saleQuantityUnit.value = unit.includes("crate") || unit.includes("box") ? "crate" : "piece";
+    saleCrateSize.value = sale.crateSize === "half" || unit.startsWith("half crate") ||
+      unit.startsWith("half box")
       ? "half"
       : "full";
   }

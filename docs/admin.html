@@ -86,6 +86,25 @@
     </div>
   </div>
 
+  <div id="inventoryFeaturesModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="inventoryFeaturesTitle">
+    <div class="modal-content inventory-features-modal">
+      <h2 id="inventoryFeaturesTitle">Inventory features</h2>
+      <p id="inventoryFeaturesBusinessName"></p>
+      <p>Uncheck categories that this business does not use. Hidden categories remain in existing inventory and records.</p>
+      <form id="inventoryFeaturesForm">
+        <label><input type="checkbox" id="featureFuelEnergy" /> Fuel &amp; Energy</label>
+        <label><input type="checkbox" id="featureCrateItems" /> Crate Items</label>
+        <label><input type="checkbox" id="featureBoxItems" /> Box Items</label>
+        <label><input type="checkbox" id="featureAccessories" /> Accessories</label>
+        <p id="inventoryFeaturesMessage" role="status" aria-live="polite"></p>
+        <div class="inventory-features-actions">
+          <button type="submit" id="saveInventoryFeaturesBtn" class="action-btn" style="background:#2563eb;">Save features</button>
+          <button type="button" id="closeInventoryFeaturesBtn" class="action-btn" style="background:#64748b;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script type="module" src="js/admin.js"></script>
 </body>
 </html>
