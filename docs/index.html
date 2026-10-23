@@ -3,9 +3,54 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="BizPulse helps small and medium businesses manage inventory, orders, sales, and profits with real-time business insights." />
+  <meta name="description" content="BizPulse is a business management platform for tracking inventory, sales, purchases, expenses, and orders, with stock and profit insights for small businesses." />
   <link rel="canonical" href="https://business.competencehub.co.ke/" />
-  <title>BizPulse - Business Management</title>
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BizPulse" />
+  <meta property="og:title" content="BizPulse | Business Management Platform" />
+  <meta property="og:description" content="Manage inventory, sales, purchases, expenses, and orders with BizPulse business insights." />
+  <meta property="og:url" content="https://business.competencehub.co.ke/" />
+  <meta property="og:image" content="https://business.competencehub.co.ke/images/logo.png" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:image" content="https://business.competencehub.co.ke/images/logo.png" />
+  <meta name="twitter:title" content="BizPulse | Business Management Platform" />
+  <meta name="twitter:description" content="Manage inventory, sales, purchases, expenses, and orders with BizPulse business insights." />
+  <title>BizPulse | Business Management Platform</title>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://business.competencehub.co.ke/#organization",
+          "name": "MUTSTECH LTD",
+          "alternateName": "BizPulse",
+          "url": "https://business.competencehub.co.ke/",
+          "logo": "https://business.competencehub.co.ke/images/logo.png"
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://business.competencehub.co.ke/#website",
+          "name": "BizPulse",
+          "url": "https://business.competencehub.co.ke/",
+          "publisher": {
+            "@id": "https://business.competencehub.co.ke/#organization"
+          }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "BizPulse",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web browser",
+          "url": "https://business.competencehub.co.ke/",
+          "description": "Business management software for inventory, sales, orders, expenses, purchases, and business analytics.",
+          "publisher": {
+            "@id": "https://business.competencehub.co.ke/#organization"
+          }
+        }
+      ]
+    }
+  </script>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="shortcut icon" href="images/logo.png" type="image/png" />
 </head>
@@ -27,7 +72,7 @@
     <ul class="nav-links" id="navLinks">
       <li><a href="#" data-section="hero">Home</a></li>
       <li><a href="/about" target="_self">About</a></li>
-      <li><a href="/contacts" target="_self">Contacts</a></li>
+      <li><a href="/contact">Contact</a></li>
       <li><a href="/login" id="navLoginBtn" class="nav-login-btn">Login</a></li>
     </ul>
   </nav>
@@ -38,11 +83,35 @@
     <section id="hero" class="landing-section">
       <div class="hero-content">
         <h1>Streamline Your Business with BizPulse</h1>
-        <p>The ultimate Business Management System for tracking inventory, orders, and profits with precision.</p>
+        <p>Manage inventory, record sales and orders, track purchases and expenses, and review the numbers that help you understand your business.</p>
         <a href="/login" class="cta-btn">Get Started</a>
       </div>
     </section>
-
+    <section id="homeFeatures" class="home-features" aria-labelledby="homeFeaturesTitle">
+      <div class="home-features-content">
+        <h2 id="homeFeaturesTitle">Everyday business management, in one place</h2>
+        <p class="home-features-intro">BizPulse brings day-to-day records and useful business summaries together, so you can keep track of your operations.</p>
+        <div class="home-feature-grid">
+          <article class="home-feature-card">
+            <h3>Inventory and stock</h3>
+            <p>Record items, stock additions, and sales. Review current quantities and stock history for supported items.</p>
+          </article>
+          <article class="home-feature-card">
+            <h3>Sales and orders</h3>
+            <p>Record customer sales and orders, then review sales activity and item quantities in one dashboard.</p>
+          </article>
+          <article class="home-feature-card">
+            <h3>Expenses and purchases</h3>
+            <p>Keep dated expense and purchase records to support cost tracking and financial reporting.</p>
+          </article>
+          <article class="home-feature-card">
+            <h3>Business analytics</h3>
+            <p>Explore sales and stock summaries by item and time period to help understand business performance.</p>
+          </article>
+        </div>
+        <p class="home-features-cta"><a href="/about">Learn more about BizPulse</a> or <a href="/contact">contact our team</a>.</p>
+      </div>
+    </section>
   </main>
   <footer class="main-footer">
     <div class="container">
