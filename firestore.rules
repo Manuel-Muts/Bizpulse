@@ -169,16 +169,25 @@ service cloud.firestore {
         (ownsDocument(resource.data) &&
           request.resource.data.uid == resource.data.uid &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'date',
+            'type',
             'costCategory',
             'crateItemId',
             'crateItemName',
             'accessoryItemId',
-            'accessoryItemName'
+            'accessoryItemName',
+            'gasType',
+            'description',
+            'paidToSupplier',
+            'vendor',
+            'amount',
+            'notes',
+            'updatedAt'
           ]) &&
           isValidFuelCostCategory(request.resource.data.costCategory) &&
           hasValidCrateExpenseItem(request.resource.data) &&
           hasValidAccessoryExpenseItem(request.resource.data));
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || ownsDocument(resource.data);
     }
 
     match /fuelEnergyCategories/{categoryId} {

@@ -703,7 +703,7 @@
             <option value="non-refillable">Non-refillable</option>
           </select>
         </label>
-        <label for="expenseDescription">Description
+        <label for="expenseDescription">Description/Quantity
           <input type="text" id="expenseDescription" maxlength="120" placeholder="e.g. Transport or stock purchase" required />
         </label>
         <label for="expensePaidToSupplier">Paid to supplier?
@@ -721,10 +721,12 @@
         <label for="expenseNotes">Notes
           <input type="text" id="expenseNotes" maxlength="250" placeholder="Optional reference or details" />
         </label>
+        <p class="expense-analysis-hint">Matching date, type, category, item/description, and amount entries are flagged as possible duplicates; you can confirm intentional repeats. Editing or deleting a cost updates expense and profit reports, but not inventory stock.</p>
         <button type="submit" id="saveExpenseBtn" class="action-btn" style="background:#059669;">
           <span class="btn-text">Record cost</span>
           <span class="spinner" aria-hidden="true"></span>
         </button>
+        <button type="button" id="cancelExpenseEditBtn" class="action-btn" hidden>Cancel edit</button>
       </form>
       <p id="expenseFormMessage" role="status" aria-live="polite"></p>
       <div class="expense-table-controls">

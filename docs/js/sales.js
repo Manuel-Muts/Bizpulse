@@ -12,6 +12,7 @@ import {
   endBefore,
   limitToLast,
   getDocs,
+  getDocsFromServer,
   increment,
   updateDoc,
   deleteField,
@@ -56,6 +57,7 @@ const EXPENSE_COST_CATEGORIES = new Set([
   "gas-nonrefillable",
   "soda-300ml",
   "soda-500ml",
+  "petrol",
   "crate-item",
   "accessory-item"
 ]);
@@ -181,6 +183,7 @@ const expenseVendorInput = document.getElementById("expenseVendor");
 const expenseAmountInput = document.getElementById("expenseAmount");
 const expenseNotesInput = document.getElementById("expenseNotes");
 const saveExpenseBtn = document.getElementById("saveExpenseBtn");
+const cancelExpenseEditBtn = document.getElementById("cancelExpenseEditBtn");
 const expenseFormMessage = document.getElementById("expenseFormMessage");
 const expensesTable = document.getElementById("expensesTable");
 const expensePeriodFilter = document.getElementById("expensePeriodFilter");
@@ -213,6 +216,7 @@ let clientBusinessName; // The business name of the logged-in client
 let selectedItemId = null;
 let editSaleId = null;
 let editingOriginalSale = null;
+let editingExpenseId = null;
 let salesUnsubscribe = null;
 let allSalesForAnalytics = [];
 let analyticsAllSalesLoaded = false;
@@ -354,6 +358,10 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
     input.addEventListener("input", () => uppercaseInput(input));
   });
   expenseDescriptionInput.addEventListener("blur", formatCrateExpenseDescription);
+  cancelExpenseEditBtn.addEventListener("click", () => {
+    resetExpenseForm();
+    expenseFormMessage.textContent = "Edit cancelled.";
+  });
   expensesTable.addEventListener("change", event => {
     if (event.target.matches("[data-expense-category]")) {
       const row = event.target.closest("tr");
@@ -369,7 +377,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
       }
     }
   });
-  expensesTable.addEventListener("click", handleExpenseCategorySave);
+  expensesTable.addEventListener("click", handleExpenseTableAction);
   renderCrateExpenseItemOptions(expenseCrateItemInput);
   renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
   updateExpenseGasTypeField();
@@ -1010,38 +1018,131 @@ async function handleExpenseFormSubmit(event) {
     ? gasType === "refillable" ? "gas-refillable" : "gas-nonrefillable"
     : expenseCostCategoryInput.value;
 
+  const expenseData = {
+    date,
+    type: expenseTypeInput.value,
+    costCategory,
+    description: expenseDescriptionInput.value.trim(),
+    paidToSupplier: expensePaidToSupplierInput.value,
+    vendor: expenseVendorInput.value.trim(),
+    amount,
+    notes: expenseNotesInput.value.trim()
+  };
+  const expenseForDuplicateCheck = {
+    ...expenseData,
+    ...(crateItem ? { crateItemId: crateItem.id, crateItemName: crateItem.name } : {}),
+    ...(accessoryItem ? { accessoryItemId: accessoryItem.id, accessoryItemName: accessoryItem.name } : {})
+  };
   saveExpenseBtn.disabled = true;
+  cancelExpenseEditBtn.disabled = true;
   saveExpenseBtn.classList.add("loading");
   expenseFormMessage.textContent = "";
   try {
-    await addDoc(expensesRef, {
-      uid: user.uid,
-      date,
-      type: expenseTypeInput.value,
-      costCategory,
-      ...(crateItem ? { crateItemId: crateItem.id, crateItemName: crateItem.name } : {}),
-      ...(accessoryItem ? { accessoryItemId: accessoryItem.id, accessoryItemName: accessoryItem.name } : {}),
-      ...(gasType ? { gasType } : {}),
-      description: expenseDescriptionInput.value.trim(),
-      paidToSupplier: expensePaidToSupplierInput.value,
-      vendor: expenseVendorInput.value.trim(),
-      amount,
-      notes: expenseNotesInput.value.trim(),
-      createdAt: new Date().toISOString()
-    });
-    expenseForm.reset();
-    expenseDateInput.value = today;
-    renderCrateExpenseItemOptions(expenseCrateItemInput, "");
-    renderAccessoryExpenseItemOptions(expenseAccessoryItemInput, "");
-    updateExpenseGasTypeField();
-    expenseFormMessage.textContent = "Cost recorded.";
+    let duplicate;
+    try {
+      duplicate = await findDuplicateExpense(
+        expenseForDuplicateCheck,
+        user.uid,
+        editingExpenseId
+      );
+    } catch (error) {
+      console.error("Unable to verify duplicate expense records:", error);
+      expenseFormMessage.textContent = `Unable to verify duplicate costs: ${error.message}`;
+      return;
+    }
+    if (duplicate && !confirmDuplicateExpense(duplicate)) {
+      expenseFormMessage.textContent = "Cost was not saved because a matching entry already exists.";
+      return;
+    }
+
+    if (editingExpenseId) {
+      const expenseRef = doc(expensesRef, editingExpenseId);
+      await runTransaction(dbInstance, async transaction => {
+        const expenseSnapshot = await transaction.get(expenseRef);
+        if (!expenseSnapshot.exists()) {
+          throw new Error("This cost no longer exists.");
+        }
+        if (expenseSnapshot.data().uid !== user.uid) {
+          throw new Error("You do not have permission to update this cost.");
+        }
+        transaction.update(expenseRef, {
+          ...expenseData,
+          crateItemId: crateItem ? crateItem.id : deleteField(),
+          crateItemName: crateItem ? crateItem.name : deleteField(),
+          accessoryItemId: accessoryItem ? accessoryItem.id : deleteField(),
+          accessoryItemName: accessoryItem ? accessoryItem.name : deleteField(),
+          gasType: gasType || deleteField(),
+          updatedAt: serverTimestamp()
+        });
+      });
+      resetExpenseForm();
+      expenseFormMessage.textContent = "Cost updated. Expense and profit reports will refresh automatically.";
+    } else {
+      await addDoc(expensesRef, {
+        uid: user.uid,
+        ...expenseData,
+        ...(crateItem ? { crateItemId: crateItem.id, crateItemName: crateItem.name } : {}),
+        ...(accessoryItem ? { accessoryItemId: accessoryItem.id, accessoryItemName: accessoryItem.name } : {}),
+        ...(gasType ? { gasType } : {}),
+        createdAt: new Date().toISOString()
+      });
+      resetExpenseForm();
+      expenseFormMessage.textContent = "Cost recorded.";
+    }
   } catch (error) {
-    console.error("Unable to record expense or purchase:", error);
-    expenseFormMessage.textContent = `Unable to record cost: ${error.message}`;
+    console.error(editingExpenseId
+      ? "Unable to update expense or purchase:"
+      : "Unable to record expense or purchase:", error);
+    expenseFormMessage.textContent = `Unable to ${editingExpenseId ? "update" : "record"} cost: ${error.message}`;
   } finally {
     saveExpenseBtn.disabled = false;
+    cancelExpenseEditBtn.disabled = false;
     saveExpenseBtn.classList.remove("loading");
   }
+}
+
+async function findDuplicateExpense(expense, uid, excludedExpenseId = null) {
+  const snapshot = await getDocsFromServer(query(
+    expensesRef,
+    where("uid", "==", uid)
+  ));
+  const candidateDate = expense.date || expenseDateKey(expense);
+  const candidateType = String(expense.type || "Expense").trim().toLowerCase();
+  const candidateCategory = String(expense.costCategory || "").trim().toLowerCase();
+  const candidateItem = getExpenseDuplicateItemKey(expense);
+  const candidateAmount = Number(expense.amount);
+
+  return snapshot.docs
+    .filter(expenseDoc => expenseDoc.id !== excludedExpenseId)
+    .map(expenseDoc => ({ id: expenseDoc.id, ...expenseDoc.data() }))
+    .find(existing => (
+      expenseDateKey(existing) === candidateDate &&
+      String(existing.type || "Expense").trim().toLowerCase() === candidateType &&
+      String(existing.costCategory || "").trim().toLowerCase() === candidateCategory &&
+      getExpenseDuplicateItemKey(existing) === candidateItem &&
+      Number(existing.amount) === candidateAmount
+    )) || null;
+}
+
+function getExpenseDuplicateItemKey(expense) {
+  const normalize = value => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (expense.costCategory === "crate-item") {
+    return `crate:${expense.crateItemId || normalize(expense.crateItemName)}`;
+  }
+  if (expense.costCategory === "accessory-item") {
+    return `accessory:${expense.accessoryItemId || normalize(expense.accessoryItemName)}`;
+  }
+  return `description:${normalize(expense.description)}`;
+}
+
+function confirmDuplicateExpense(duplicate) {
+  const item = duplicate.crateItemName || duplicate.accessoryItemName ||
+    duplicate.description || "matching cost";
+  return window.confirm(
+    `A matching ${duplicate.type || "Expense"} entry already exists for "${item}" ` +
+    `on ${expenseDateKey(duplicate)} for KES ${formatNumber(duplicate.amount)}. ` +
+    "Record this additional entry anyway?"
+  );
 }
 
 function renderExpensesTable() {
@@ -1116,10 +1217,121 @@ function renderExpensesTable() {
         <td>${escapeQuantity(expense.vendor || "—")}</td>
         <td>${formatNumber(expense.amount)}</td>
         <td>${escapeQuantity(expense.notes || "—")}</td>
-        <td><button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save</button></td>
+        <td><div class="expense-row-actions">
+          <button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save category</button>
+          <button type="button" data-edit-expense="${escapeQuantity(expense.id)}">Edit</button>
+          <button type="button" data-delete-expense="${escapeQuantity(expense.id)}">Delete</button>
+        </div></td>
       </tr>`;
     }).join("")
     : `<tr><td colspan="9" style="text-align:center;">No expenses or purchases recorded for this period.</td></tr>`;
+}
+
+function handleExpenseTableAction(event) {
+  const saveButton = event.target.closest("[data-save-expense-category]");
+  if (saveButton) {
+    handleExpenseCategorySave(event);
+    return;
+  }
+  const editButton = event.target.closest("[data-edit-expense]");
+  if (editButton) {
+    startExpenseEdit(editButton.dataset.editExpense);
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-expense]");
+  if (deleteButton) {
+    deleteExpense(deleteButton.dataset.deleteExpense, deleteButton);
+  }
+}
+
+function startExpenseEdit(expenseId) {
+  const expense = expensesForAnalytics.find(candidate => candidate.id === expenseId);
+  const user = authInstance.currentUser;
+  if (!expense || !user || expense.uid !== user.uid) {
+    expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
+    return;
+  }
+
+  const category = expense.costCategory || "";
+  if (!isValidExpenseCostCategory(category)) {
+    expenseFormMessage.textContent = "This cost has an unsupported category. Save a valid category in the table before editing.";
+    return;
+  }
+  if (category && ![...expenseCostCategoryInput.options].some(option => option.value === category)) {
+    const legacyOption = document.createElement("option");
+    legacyOption.value = category;
+    legacyOption.textContent = `Legacy: ${category}`;
+    expenseCostCategoryInput.appendChild(legacyOption);
+  }
+
+  editingExpenseId = expense.id;
+  expenseDateInput.value = expenseDateKey(expense);
+  expenseTypeInput.value = expense.type === "Purchase" ? "Purchase" : "Expense";
+  expenseCostCategoryInput.value = category;
+  expenseDescriptionInput.value = expense.description || "";
+  expensePaidToSupplierInput.value = expense.paidToSupplier === "Yes" ? "Yes" : "No";
+  expenseVendorInput.value = expense.vendor || "";
+  expenseAmountInput.value = expense.amount ?? "";
+  expenseNotesInput.value = expense.notes || "";
+  updateExpenseGasTypeField();
+  expenseGasTypeInput.value = getExpenseGasType(expense);
+  renderCrateExpenseItemOptions(expenseCrateItemInput, expense.crateItemId || "");
+  renderAccessoryExpenseItemOptions(expenseAccessoryItemInput, expense.accessoryItemId || "");
+  saveExpenseBtn.querySelector(".btn-text").textContent = "Update cost";
+  cancelExpenseEditBtn.hidden = false;
+  expenseFormMessage.textContent = `Editing ${expense.description || "cost"}. Saving will update linked expense and profit reports.`;
+  expenseForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  expenseDateInput.focus();
+}
+
+function resetExpenseForm() {
+  expenseForm.reset();
+  expenseDateInput.value = dateKey(new Date());
+  editingExpenseId = null;
+  saveExpenseBtn.querySelector(".btn-text").textContent = "Record cost";
+  cancelExpenseEditBtn.hidden = true;
+  renderCrateExpenseItemOptions(expenseCrateItemInput, "");
+  renderAccessoryExpenseItemOptions(expenseAccessoryItemInput, "");
+  updateExpenseGasTypeField();
+}
+
+async function deleteExpense(expenseId, button) {
+  const expense = expensesForAnalytics.find(candidate => candidate.id === expenseId);
+  const user = authInstance.currentUser;
+  if (!expense || !user || expense.uid !== user.uid) {
+    expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
+    return;
+  }
+
+  const description = expense.description || "this cost";
+  if (!window.confirm(
+    `Delete ${expense.type || "Expense"} "${description}" for KES ${formatNumber(expense.amount)}? ` +
+    "Expense and profit reports will be recalculated. Inventory stock is not changed."
+  )) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const expenseRef = doc(expensesRef, expenseId);
+    await runTransaction(dbInstance, async transaction => {
+      const expenseSnapshot = await transaction.get(expenseRef);
+      if (!expenseSnapshot.exists()) {
+        throw new Error("This cost no longer exists.");
+      }
+      if (expenseSnapshot.data().uid !== user.uid) {
+        throw new Error("You do not have permission to delete this cost.");
+      }
+      transaction.delete(expenseRef);
+    });
+    if (editingExpenseId === expenseId) resetExpenseForm();
+    expenseFormMessage.textContent = "Cost deleted. Expense and profit reports will refresh automatically.";
+  } catch (error) {
+    console.error("Unable to delete expense or purchase:", error);
+    expenseFormMessage.textContent = `Unable to delete cost: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function handleExpenseCategorySave(event) {
@@ -1153,9 +1365,39 @@ async function handleExpenseCategorySave(event) {
     return;
   }
 
+  const existingExpense = expensesForAnalytics.find(expense => expense.id === expenseId);
+  const user = authInstance.currentUser;
+  if (!existingExpense || !user || existingExpense.uid !== user.uid) {
+    expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
+    return;
+  }
+  const updatedExpense = {
+    ...existingExpense,
+    costCategory: category,
+    ...(crateItem
+      ? { crateItemId: crateItem.id, crateItemName: crateItem.name }
+      : { crateItemId: "", crateItemName: "" }),
+    ...(accessoryItem
+      ? { accessoryItemId: accessoryItem.id, accessoryItemName: accessoryItem.name }
+      : { accessoryItemId: "", accessoryItemName: "" })
+  };
+
   saveButton.disabled = true;
   expenseFormMessage.textContent = "";
   try {
+    let duplicate;
+    try {
+      duplicate = await findDuplicateExpense(updatedExpense, user.uid, expenseId);
+    } catch (error) {
+      console.error("Unable to verify duplicate expense records:", error);
+      expenseFormMessage.textContent = `Unable to verify duplicate costs: ${error.message}`;
+      return;
+    }
+    if (duplicate && !confirmDuplicateExpense(duplicate)) {
+      expenseFormMessage.textContent = "Category was not saved because a matching entry already exists.";
+      return;
+    }
+
     await updateDoc(doc(expensesRef, expenseId), {
       costCategory: category,
       crateItemId: crateItem ? crateItem.id : deleteField(),
@@ -1167,6 +1409,7 @@ async function handleExpenseCategorySave(event) {
   } catch (error) {
     console.error("Unable to update expense category:", error);
     expenseFormMessage.textContent = `Unable to update category: ${error.message}`;
+  } finally {
     saveButton.disabled = false;
   }
 }
@@ -2409,7 +2652,10 @@ function listenToAnalytics(uid) {
   if (analyticsUnsubscribe) analyticsUnsubscribe();
   const userSalesQuery = query(salesRef, where("uid", "==", uid));
   analyticsUnsubscribe = onSnapshot(userSalesQuery, snapshot => {
-    allSalesForAnalytics = snapshot.docs.map(saleDoc => saleDoc.data());
+    allSalesForAnalytics = snapshot.docs.map(saleDoc => ({
+      id: saleDoc.id,
+      ...saleDoc.data()
+    }));
     analyticsAllSalesError = null;
     analyticsAllSalesLoaded = true;
     if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
@@ -3664,79 +3910,50 @@ async function deleteSale(saleId, button) {
   }
 }
 
-function handleSalesTableAction(event) {
-  const button = event.target.closest("button[data-sale-action]");
-  if (!button) return;
-  const saleId = button.dataset.saleId;
-  if (button.dataset.saleAction === "edit") {
-    window.editSale(saleId);
-  } else if (button.dataset.saleAction === "delete") {
-    deleteSale(saleId, button);
-  }
-}
-
-async function deleteSale(saleId, button) {
-  const sale = salesArray.find(candidate => candidate.id === saleId);
-  const user = authInstance.currentUser;
-  if (!sale || !user || sale.uid !== user.uid) {
-    showToast("This sale is no longer available. Refresh the list and try again.", "error");
-    return;
-  }
-
-  const quantity = formatSaleQuantity(sale);
-  const saleDate = new Date(sale.createdAt);
-  if (!window.confirm(
-    `Delete the ${quantity} sale of ${sale.itemName} recorded on ` +
-    `${Number.isFinite(saleDate.getTime()) ? saleDate.toLocaleString() : "an unknown date"}? ` +
-    "The inventory balance and sales totals will be corrected."
-  )) {
-    return;
-  }
-
-  button.disabled = true;
-  try {
-    const saleRef = doc(salesRef, saleId);
-    await runTransaction(dbInstance, async transaction => {
-      const saleSnapshot = await transaction.get(saleRef);
-      if (!saleSnapshot.exists()) throw new Error("This sale no longer exists.");
-      const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
-      if (latestSale.uid !== user.uid) {
-        throw new Error("You do not have permission to delete this sale.");
-      }
-      const itemRef = doc(itemsRef, latestSale.itemId);
-      const itemSnapshot = await transaction.get(itemRef);
-      if (!itemSnapshot.exists()) {
-        throw new Error("The inventory item for this sale no longer exists, so stock cannot be restored.");
-      }
-      const item = { id: itemSnapshot.id, ...itemSnapshot.data() };
-      if (item.uid !== user.uid) {
-        throw new Error("You do not have permission to update this inventory item.");
-      }
-      const stockUnits = getCrateSaleStockUnits(latestSale, item);
-      if (!Number.isFinite(stockUnits) || stockUnits <= 0) {
-        throw new Error("The sale quantity is invalid, so inventory cannot be reconciled.");
-      }
-
-      transaction.set(salesSummaryRef, {}, { merge: true });
-      transaction.update(salesSummaryRef, getSalesSummaryUpdate(latestSale));
-      transaction.update(itemRef, getItemStockUpdate(item, stockUnits));
-      transaction.delete(saleRef);
-      if (!isPetrolItem(item)) {
-        transaction.set(
-          doc(stockMovementsRef),
-          createStockMovement(item, stockUnits, "sale-delete")
-        );
-      }
+async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) {
+  let existingSales;
+  let historyIncomplete = false;
+  if (navigator.onLine) {
+    const selectedDateStart = new Date(`${saleDateKey}T00:00:00`);
+    const nextDateStart = new Date(selectedDateStart);
+    nextDateStart.setDate(selectedDateStart.getDate() + 1);
+    const matchingDateQuery = query(
+      salesRef,
+      where("uid", "==", uid),
+      where("createdAt", ">=", selectedDateStart.toISOString()),
+      where("createdAt", "<", nextDateStart.toISOString()),
+      orderBy("createdAt", "desc")
+    );
+    const snapshot = await getDocsFromServer(matchingDateQuery);
+    existingSales = snapshot.docs.map(saleDoc => ({
+      id: saleDoc.id,
+      ...saleDoc.data()
+    }));
+  } else {
+    const localSales = new Map();
+    [...allSalesForAnalytics, ...salesArray].forEach(existing => {
+      if (existing.id) localSales.set(existing.id, existing);
     });
-
-    window.dispatchEvent(new CustomEvent("saleRecorded", { detail: { uid: user.uid } }));
-    showToast(`Deleted the sale and restored ${quantity} to ${sale.itemName}.`, "success");
-  } catch (error) {
-    console.error("Unable to delete sale:", error);
-    showToast(`Unable to delete sale: ${error.message}`, "error");
-  } finally {
-    button.disabled = false;
+    existingSales = [...localSales.values()];
+    historyIncomplete = !analyticsAllSalesLoaded || Boolean(analyticsAllSalesError);
   }
+
+  const normalizedUnit = value => String(value || "").trim().toLowerCase();
+  const duplicate = existingSales.find(existing => {
+    if (existing.id === excludedSaleId) return false;
+    const existingDate = new Date(existing.createdAt);
+    return Number.isFinite(existingDate.getTime()) &&
+      dateKey(existingDate) === saleDateKey &&
+      existing.uid === uid &&
+      existing.itemId === sale.itemId &&
+      String(existing.saleType || "retail").toLowerCase() ===
+        String(sale.saleType || "retail").toLowerCase() &&
+      Number(existing.quantity) === Number(sale.quantity) &&
+      normalizedUnit(existing.quantityUnit) === normalizedUnit(sale.quantityUnit) &&
+      Number(existing.unitPriceSold) === Number(sale.unitPriceSold);
+  });
+
+  return { duplicate: duplicate || null, historyIncomplete };
 }
 
 /**
@@ -3946,6 +4163,28 @@ async function handleSaleFormSubmit(e) {
   recordSaleBtn.classList.add("loading");
 
   try {
+    const duplicateCheck = await findDuplicateSale(
+      saleData,
+      selectedSaleDate,
+      authInstance.currentUser.uid,
+      editSaleId
+    );
+    if (duplicateCheck.duplicate) {
+      const duplicate = duplicateCheck.duplicate;
+      const matchingSale = `${formatSaleQuantity(duplicate)} of ${duplicate.itemName} ` +
+        `(${duplicate.saleType || "retail"}, KES ${formatNumber(duplicate.unitPriceSold)} each)`;
+      if (!window.confirm(
+        `A matching sale already exists for ${matchingSale} on ${selectedSaleDate}. ` +
+        "Record this additional sale anyway?"
+      )) return;
+    } else if (duplicateCheck.historyIncomplete &&
+        !window.confirm(
+          "You are offline and complete sales history is not available on this device. " +
+          "The duplicate check may be incomplete. Continue recording this sale?"
+        )) {
+      return;
+    }
+
     let outOfStockAfterSave = isOutOfStock;
     if (editSaleId) {
       const originalSale = editingOriginalSale || salesArray.find(s => s.id === editSaleId);

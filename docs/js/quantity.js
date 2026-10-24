@@ -12,6 +12,24 @@ export function parseQuantity(value) {
   return Number.isFinite(amount) ? { amount, unit: match[2].trim() } : null;
 }
 
+export function parseNumericValue(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const quantity = parseQuantity(trimmed);
+  if (quantity) return quantity.amount;
+
+  const normalized = trimmed.replace(/,/g, "");
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 export function formatQuantity(amount, unit = "") {
   return unit ? `${amount} ${unit}` : amount;
 }
@@ -136,7 +154,8 @@ export function appendQuantityUnit(input, unit, enabled) {
 
   const rawValue = input.value;
   const numericValue = rawValue.replace(new RegExp(`\\s+${unit}$`, "i"), "");
-  if (!/^(?:\d+(?:\.\d*)?|\.\d*)$/.test(numericValue) || !numericValue) return;
+  const normalizedValue = numericValue.replace(/,/g, "");
+  if (!/^(?:\d+(?:\.\d*)?|\.\d*)$/.test(normalizedValue) || !normalizedValue) return;
 
   const caret = input.selectionStart ?? numericValue.length;
   input.value = `${numericValue} ${unit}`;
@@ -153,7 +172,8 @@ export function uppercaseInput(input) {
 }
 
 export function formatNumber(value) {
-  const number = Number(value);
+  const normalizedValue = typeof value === "string" ? value.replace(/,/g, "") : value;
+  const number = Number(normalizedValue);
   if (!Number.isFinite(number)) return String(value);
 
   return number.toLocaleString("en-KE", {
@@ -188,8 +208,8 @@ export function adjustQuantity(value, adjustment) {
 }
 
 export function calculatePetrolDip(openingDip, fuelReceived, pumpSales, actualClosingDip) {
-  const values = [openingDip, fuelReceived, pumpSales, actualClosingDip].map(Number);
-  if (values.some(value => !Number.isFinite(value) || value < 0)) return null;
+  const values = [openingDip, fuelReceived, pumpSales, actualClosingDip].map(parseNumericValue);
+  if (values.some(value => value === null || value < 0)) return null;
 
   const [opening, received, sales, actualClosing] = values;
   const totalAvailable = opening + received;

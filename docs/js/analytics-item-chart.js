@@ -1,4 +1,4 @@
-import { getPiecesPerCrate, isCrateItem } from "./quantity.js";
+import { getPiecesPerCrate, isCrateItem, parseNumericValue } from "./quantity.js";
 
 function formatAmount(value) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
@@ -40,8 +40,8 @@ function aggregateCrateSales(sales, itemsById, start, end) {
     if (!isCrateItem(item.name)) return;
     const occurredAt = saleDate(sale);
     if (!occurredAt || occurredAt < start || occurredAt >= end) return;
-    const quantity = Number(sale.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) return;
+    const quantity = parseNumericValue(sale.quantity);
+    if (quantity === null || quantity <= 0) return;
 
     const unit = String(sale.quantityUnit || "CRATES").trim().toLowerCase();
     const existing = totals.get(sale.itemId || item.name) || {
@@ -78,8 +78,8 @@ function aggregateOtherSales(sales, itemsById, start, end) {
     if (isCrateItem(item.name)) return;
     const occurredAt = saleDate(sale);
     if (!occurredAt || occurredAt < start || occurredAt >= end) return;
-    const quantity = Number(sale.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) return;
+    const quantity = parseNumericValue(sale.quantity);
+    if (quantity === null || quantity <= 0) return;
 
     const unit = String(sale.quantityUnit || "").trim().toUpperCase() || "units";
     const key = `${sale.itemId || item.name}|${unit}`;

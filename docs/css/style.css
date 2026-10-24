@@ -1574,6 +1574,14 @@ button.loading .btn-text {
   padding: 7px 14px;
 }
 
+.expense-form #cancelExpenseEditBtn {
+  min-height: 38px;
+  width: auto;
+  min-width: 110px;
+  margin: 0;
+  padding: 7px 14px;
+}
+
 #expenseFormMessage {
   min-height: 20px;
   color: #475569;
@@ -1666,8 +1674,8 @@ button.loading .btn-text {
 .expenses-table th:nth-child(5) { width: 10%; }
 .expenses-table th:nth-child(6) { width: 10%; }
 .expenses-table th:nth-child(7) { width: 10%; }
-.expenses-table th:nth-child(8) { width: 12%; }
-.expenses-table th:nth-child(9) { width: 8%; }
+.expenses-table th:nth-child(8) { width: 10%; }
+.expenses-table th:nth-child(9) { width: 12%; }
 
 .expenses-table .expense-category-fields {
   display: grid;
@@ -1710,6 +1718,12 @@ button.loading .btn-text {
   max-width: 100%;
   padding: 5px 6px;
   font-size: 11px;
+}
+
+.expenses-table .expense-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .overview-empty-state {
