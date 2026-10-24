@@ -161,11 +161,21 @@
           <div class="stock-top-up-history-heading">
             <div>
               <h3 id="stockTopUpHistoryTitle">Recorded additions</h3>
-              <p>Filter by received date, then edit or remove an entry.</p>
+              <p>Filter by period, then edit or remove an entry.</p>
             </div>
             <div class="stock-top-up-date-filters">
-              <label for="stockTopUpFromDate">From<input type="date" id="stockTopUpFromDate" /></label>
-              <label for="stockTopUpToDate">To<input type="date" id="stockTopUpToDate" /></label>
+              <label for="stockTopUpPeriodFilter">Period</label>
+              <select id="stockTopUpPeriodFilter" aria-label="Filter stock additions by period">
+                <option value="all" selected>All dates</option>
+                <option value="today">Today</option>
+                <option value="last-7-days">Last 7 days</option>
+                <option value="last-30-days">Last 30 days</option>
+                <option value="custom">Custom range</option>
+              </select>
+              <div id="stockTopUpCustomRange" class="stock-top-up-custom-range" hidden>
+                <label for="stockTopUpFromDate">From<input type="date" id="stockTopUpFromDate" /></label>
+                <label for="stockTopUpToDate">To<input type="date" id="stockTopUpToDate" /></label>
+              </div>
             </div>
           </div>
           <p id="stockTopUpHistoryStatus" class="stock-top-up-history-status" role="status" aria-live="polite">Loading stock additions…</p>

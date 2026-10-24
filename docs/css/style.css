@@ -1367,6 +1367,7 @@ button.loading .btn-text {
 
 .stock-top-up-date-filters {
   display: flex;
+  align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -1379,14 +1380,25 @@ button.loading .btn-text {
   font-weight: 600;
 }
 
+.stock-top-up-date-filters select,
 .stock-top-up-date-filters input {
-  width: 145px;
+  width: 160px;
   min-height: 36px;
   padding: 6px 8px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   color: #1f2937;
   background: #fff;
+}
+
+.stock-top-up-custom-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.stock-top-up-custom-range[hidden] {
+  display: none;
 }
 
 .stock-top-up-history-status {
@@ -1497,8 +1509,14 @@ button.loading .btn-text {
     flex: 1 1 130px;
   }
 
+  .stock-top-up-date-filters select,
   .stock-top-up-date-filters input {
     width: 100%;
+  }
+
+  .stock-top-up-custom-range {
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

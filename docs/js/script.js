@@ -224,6 +224,8 @@ const stockTopUpUnitDescription = document.getElementById("stockTopUpUnitDescrip
 const saveStockTopUpBtn = document.getElementById("saveStockTopUpBtn");
 const cancelStockTopUpBtn = document.getElementById("cancelStockTopUpBtn");
 const cancelStockTopUpEditBtn = document.getElementById("cancelStockTopUpEditBtn");
+const stockTopUpPeriodFilter = document.getElementById("stockTopUpPeriodFilter");
+const stockTopUpCustomRange = document.getElementById("stockTopUpCustomRange");
 const stockTopUpFromDate = document.getElementById("stockTopUpFromDate");
 const stockTopUpToDate = document.getElementById("stockTopUpToDate");
 const stockTopUpHistoryBody = document.getElementById("stockTopUpHistoryBody");
@@ -992,12 +994,31 @@ function renderStockTopUpHistory() {
     return;
   }
 
-  const fromDate = stockTopUpFromDate.value;
-  const toDate = stockTopUpToDate.value;
-  if (fromDate && toDate && fromDate > toDate) {
-    stockTopUpHistoryStatus.textContent = "The start date must be on or before the end date.";
+  const period = stockTopUpPeriodFilter.value;
+  const today = localDateKey(new Date());
+  let fromDate = "";
+  let toDate = "";
+  if (period === "today" || period === "last-7-days" || period === "last-30-days") {
+    const days = period === "today" ? 1 : period === "last-7-days" ? 7 : 30;
+    const start = new Date(`${today}T00:00:00`);
+    start.setDate(start.getDate() - days + 1);
+    fromDate = localDateKey(start);
+    toDate = today;
+  } else if (period === "custom") {
+    fromDate = stockTopUpFromDate.value;
+    toDate = stockTopUpToDate.value;
+  }
+
+  if (period === "custom" && (!fromDate || !toDate)) {
+    stockTopUpHistoryStatus.textContent = "Choose both dates for the custom range.";
     stockTopUpHistoryBody.innerHTML =
-      '<tr><td class="stock-top-up-empty" colspan="3">Choose a valid date range.</td></tr>';
+      '<tr><td class="stock-top-up-empty" colspan="3">Choose a start and end date.</td></tr>';
+    return;
+  }
+  if (fromDate && toDate && (fromDate > toDate || toDate > today)) {
+    stockTopUpHistoryStatus.textContent = "Choose a valid date range up to today.";
+    stockTopUpHistoryBody.innerHTML =
+      '<tr><td class="stock-top-up-empty" colspan="3">The start date must be on or before the end date.</td></tr>';
     return;
   }
 
@@ -1058,9 +1079,16 @@ window.openStockTopUp = itemId => {
 
   stockTopUpItemId = item.id;
   stockTopUpItemName.textContent = item.name;
-  stockTopUpDate.max = localDateKey(new Date());
-  stockTopUpFromDate.value = "";
-  stockTopUpToDate.value = "";
+  const today = localDateKey(new Date());
+  stockTopUpDate.max = today;
+  stockTopUpPeriodFilter.value = "all";
+  stockTopUpCustomRange.hidden = true;
+  stockTopUpFromDate.value = today;
+  stockTopUpFromDate.max = today;
+  stockTopUpFromDate.removeAttribute("min");
+  stockTopUpToDate.value = today;
+  stockTopUpToDate.max = today;
+  stockTopUpToDate.removeAttribute("min");
   const boxItem = isBoxItem(item);
   const crateItem = !boxItem && isCrateItem(item.name);
   stockTopUpUnitField.hidden = !crateItem && !boxItem;
@@ -1094,8 +1122,20 @@ function closeStockTopUpModal() {
 
 cancelStockTopUpBtn?.addEventListener("click", closeStockTopUpModal);
 cancelStockTopUpEditBtn?.addEventListener("click", resetStockTopUpEditor);
-stockTopUpFromDate?.addEventListener("change", renderStockTopUpHistory);
-stockTopUpToDate?.addEventListener("change", renderStockTopUpHistory);
+stockTopUpPeriodFilter?.addEventListener("change", () => {
+  stockTopUpCustomRange.hidden = stockTopUpPeriodFilter.value !== "custom";
+  renderStockTopUpHistory();
+});
+stockTopUpFromDate?.addEventListener("change", () => {
+  stockTopUpToDate.min = stockTopUpFromDate.value;
+  stockTopUpFromDate.max = stockTopUpToDate.value || localDateKey(new Date());
+  renderStockTopUpHistory();
+});
+stockTopUpToDate?.addEventListener("change", () => {
+  stockTopUpFromDate.max = stockTopUpToDate.value || localDateKey(new Date());
+  stockTopUpToDate.min = stockTopUpFromDate.value;
+  renderStockTopUpHistory();
+});
 stockTopUpModal?.addEventListener("click", event => {
   if (event.target === stockTopUpModal) closeStockTopUpModal();
 });
