@@ -287,6 +287,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
 
   // Attach event listener for sale form
   saleForm.addEventListener("submit", handleSaleFormSubmit);
+  salesTableBody.addEventListener("click", handleSalesTableAction);
 
   // Attach search listener
   saleItemSearch.addEventListener("input", handleItemSearch);
@@ -1630,6 +1631,63 @@ function createStockMovement(item, quantityDelta, type) {
     type,
     occurredAt: serverTimestamp()
   };
+}
+
+function getSalesSummaryUpdate(originalSale, replacementSale = null) {
+  const originalSaleDate = new Date(originalSale.createdAt);
+  const replacementSaleDate = replacementSale ? new Date(replacementSale.createdAt) : null;
+  if (!Number.isFinite(originalSaleDate.getTime()) ||
+      (replacementSaleDate && !Number.isFinite(replacementSaleDate.getTime()))) {
+    throw new Error("The sale date is invalid, so sales totals cannot be reconciled.");
+  }
+  const originalDate = dateKey(originalSaleDate);
+  const replacementDate = replacementSaleDate ? dateKey(replacementSaleDate) : null;
+  const originalMonth = originalDate.slice(0, 7);
+  const replacementMonth = replacementDate?.slice(0, 7);
+  const originalRevenue = Number(originalSale.revenue) || 0;
+  const replacementRevenue = Number(replacementSale?.revenue) || 0;
+  const originalProfit = Number(originalSale.profit) || 0;
+  const replacementProfit = Number(replacementSale?.profit) || 0;
+  const originalQuantity = Number(originalSale.quantity) || 0;
+  const replacementQuantity = Number(replacementSale?.quantity) || 0;
+  const updates = {
+    "lifetime.revenue": increment(replacementRevenue - originalRevenue),
+    "lifetime.profit": increment(replacementProfit - originalProfit)
+  };
+
+  if (originalDate === replacementDate) {
+    updates[`dailyTotals.${originalDate}.revenue`] =
+      increment(replacementRevenue - originalRevenue);
+    updates[`dailyTotals.${originalDate}.profit`] =
+      increment(replacementProfit - originalProfit);
+    updates[`dailyTotals.${originalDate}.count`] =
+      increment(replacementQuantity - originalQuantity);
+  } else {
+    updates[`dailyTotals.${originalDate}.revenue`] = increment(-originalRevenue);
+    updates[`dailyTotals.${originalDate}.profit`] = increment(-originalProfit);
+    updates[`dailyTotals.${originalDate}.count`] = increment(-originalQuantity);
+    if (replacementSale) {
+      updates[`dailyTotals.${replacementDate}.revenue`] = increment(replacementRevenue);
+      updates[`dailyTotals.${replacementDate}.profit`] = increment(replacementProfit);
+      updates[`dailyTotals.${replacementDate}.count`] = increment(replacementQuantity);
+    }
+  }
+
+  if (originalMonth === replacementMonth) {
+    updates[`monthlyTotals.${originalMonth}.revenue`] =
+      increment(replacementRevenue - originalRevenue);
+    updates[`monthlyTotals.${originalMonth}.profit`] =
+      increment(replacementProfit - originalProfit);
+  } else {
+    updates[`monthlyTotals.${originalMonth}.revenue`] = increment(-originalRevenue);
+    updates[`monthlyTotals.${originalMonth}.profit`] = increment(-originalProfit);
+    if (replacementSale) {
+      updates[`monthlyTotals.${replacementMonth}.revenue`] = increment(replacementRevenue);
+      updates[`monthlyTotals.${replacementMonth}.profit`] = increment(replacementProfit);
+    }
+  }
+
+  return updates;
 }
 
 function getItemStockUpdate(item, unitAdjustment) {
@@ -3509,7 +3567,10 @@ function renderSalesTable() {
         <td>${formatNumber(sale.unitPriceSold)}</td>
         <td>${formatNumber(sale.revenue)}</td>
         <td style="color: green; font-weight: bold;">${formatNumber(sale.profit)}</td>
-        <td><button onclick="window.editSale('${sale.id}')">Edit</button></td>
+        <td><div class="sale-row-actions">
+          <button type="button" class="sale-edit-button" data-sale-action="edit" data-sale-id="${escapeQuantity(sale.id)}">Edit</button>
+          <button type="button" class="sale-delete-button" data-sale-action="delete" data-sale-id="${escapeQuantity(sale.id)}">Delete</button>
+        </div></td>
       `;
     salesTableBody.appendChild(row);
   });
@@ -3518,6 +3579,163 @@ function renderSalesTable() {
     salesTableBody.innerHTML = `<tr><td colspan="9" style="text-align:center; color: #6b7280; padding: 20px;">
       No sales recorded yet.
     </td></tr>`;
+  }
+}
+
+function handleSalesTableAction(event) {
+  const button = event.target.closest("button[data-sale-action]");
+  if (!button) return;
+  const saleId = button.dataset.saleId;
+  if (button.dataset.saleAction === "edit") {
+    window.editSale(saleId);
+  } else if (button.dataset.saleAction === "delete") {
+    deleteSale(saleId, button);
+  }
+}
+
+async function deleteSale(saleId, button) {
+  const sale = salesArray.find(candidate => candidate.id === saleId);
+  const user = authInstance.currentUser;
+  if (!sale || !user || sale.uid !== user.uid) {
+    showToast("This sale is no longer available. Refresh the list and try again.", "error");
+    return;
+  }
+
+  const quantity = formatSaleQuantity(sale);
+  if (!window.confirm(
+    `Delete the ${quantity} sale of ${sale.itemName} recorded on ` +
+    `${new Date(sale.createdAt).toLocaleString()}? The inventory balance and sales totals will be corrected.`
+  )) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const saleRef = doc(salesRef, saleId);
+    const summaryUpdateRef = salesSummaryRef;
+    await runTransaction(dbInstance, async transaction => {
+      const saleSnapshot = await transaction.get(saleRef);
+      if (!saleSnapshot.exists()) {
+        throw new Error("This sale no longer exists.");
+      }
+      const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
+      if (latestSale.uid !== user.uid) {
+        throw new Error("You do not have permission to delete this sale.");
+      }
+      const itemRef = doc(itemsRef, latestSale.itemId);
+      const [itemSnapshot, summarySnapshot] = await Promise.all([
+        transaction.get(itemRef),
+        transaction.get(summaryUpdateRef)
+      ]);
+      if (!itemSnapshot.exists()) {
+        throw new Error("The inventory item for this sale no longer exists, so stock cannot be restored.");
+      }
+      const item = { id: itemSnapshot.id, ...itemSnapshot.data() };
+      if (item.uid !== user.uid) {
+        throw new Error("You do not have permission to update this inventory item.");
+      }
+      const stockUnits = getCrateSaleStockUnits(latestSale, item);
+      if (!Number.isFinite(stockUnits) || stockUnits <= 0) {
+        throw new Error("The sale quantity is invalid, so inventory cannot be reconciled.");
+      }
+
+      transaction.update(itemRef, getItemStockUpdate(item, stockUnits));
+      transaction.delete(saleRef);
+      if (!isPetrolItem(item)) {
+        transaction.set(
+          doc(stockMovementsRef),
+          createStockMovement(item, stockUnits, "sale-delete")
+        );
+      }
+      transaction.set(summaryUpdateRef, {}, { merge: true });
+      transaction.update(summaryUpdateRef, getSalesSummaryUpdate(latestSale));
+      if (!summarySnapshot.exists()) {
+        console.warn("Sales summary document was missing during sale deletion.");
+      }
+    });
+
+    window.dispatchEvent(new CustomEvent("saleRecorded", { detail: { uid: user.uid } }));
+    showToast(`Deleted the sale and restored ${quantity} to ${sale.itemName}.`, "success");
+  } catch (error) {
+    console.error("Unable to delete sale:", error);
+    showToast(`Unable to delete sale: ${error.message}`, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handleSalesTableAction(event) {
+  const button = event.target.closest("button[data-sale-action]");
+  if (!button) return;
+  const saleId = button.dataset.saleId;
+  if (button.dataset.saleAction === "edit") {
+    window.editSale(saleId);
+  } else if (button.dataset.saleAction === "delete") {
+    deleteSale(saleId, button);
+  }
+}
+
+async function deleteSale(saleId, button) {
+  const sale = salesArray.find(candidate => candidate.id === saleId);
+  const user = authInstance.currentUser;
+  if (!sale || !user || sale.uid !== user.uid) {
+    showToast("This sale is no longer available. Refresh the list and try again.", "error");
+    return;
+  }
+
+  const quantity = formatSaleQuantity(sale);
+  const saleDate = new Date(sale.createdAt);
+  if (!window.confirm(
+    `Delete the ${quantity} sale of ${sale.itemName} recorded on ` +
+    `${Number.isFinite(saleDate.getTime()) ? saleDate.toLocaleString() : "an unknown date"}? ` +
+    "The inventory balance and sales totals will be corrected."
+  )) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const saleRef = doc(salesRef, saleId);
+    await runTransaction(dbInstance, async transaction => {
+      const saleSnapshot = await transaction.get(saleRef);
+      if (!saleSnapshot.exists()) throw new Error("This sale no longer exists.");
+      const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
+      if (latestSale.uid !== user.uid) {
+        throw new Error("You do not have permission to delete this sale.");
+      }
+      const itemRef = doc(itemsRef, latestSale.itemId);
+      const itemSnapshot = await transaction.get(itemRef);
+      if (!itemSnapshot.exists()) {
+        throw new Error("The inventory item for this sale no longer exists, so stock cannot be restored.");
+      }
+      const item = { id: itemSnapshot.id, ...itemSnapshot.data() };
+      if (item.uid !== user.uid) {
+        throw new Error("You do not have permission to update this inventory item.");
+      }
+      const stockUnits = getCrateSaleStockUnits(latestSale, item);
+      if (!Number.isFinite(stockUnits) || stockUnits <= 0) {
+        throw new Error("The sale quantity is invalid, so inventory cannot be reconciled.");
+      }
+
+      transaction.set(salesSummaryRef, {}, { merge: true });
+      transaction.update(salesSummaryRef, getSalesSummaryUpdate(latestSale));
+      transaction.update(itemRef, getItemStockUpdate(item, stockUnits));
+      transaction.delete(saleRef);
+      if (!isPetrolItem(item)) {
+        transaction.set(
+          doc(stockMovementsRef),
+          createStockMovement(item, stockUnits, "sale-delete")
+        );
+      }
+    });
+
+    window.dispatchEvent(new CustomEvent("saleRecorded", { detail: { uid: user.uid } }));
+    showToast(`Deleted the sale and restored ${quantity} to ${sale.itemName}.`, "success");
+  } catch (error) {
+    console.error("Unable to delete sale:", error);
+    showToast(`Unable to delete sale: ${error.message}`, "error");
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -3728,95 +3946,114 @@ async function handleSaleFormSubmit(e) {
   recordSaleBtn.classList.add("loading");
 
   try {
-    const batch = writeBatch(dbInstance);
-    const newSaleRef = doc(salesRef);
-    const itemRef = doc(dbInstance, "items", selectedItemId);
-
+    let outOfStockAfterSave = isOutOfStock;
     if (editSaleId) {
       const originalSale = editingOriginalSale || salesArray.find(s => s.id === editSaleId);
+      if (!originalSale) throw new Error("This sale is no longer available. Refresh and try again.");
       const originalItem = itemsArray.find(candidate => candidate.id === originalSale.itemId) ||
         analyticsItemsById.get(originalSale.itemId);
       const originalStockUnits = getCrateSaleStockUnits(
         originalSale,
         originalItem || { name: originalSale.itemName }
       );
-      if (originalSale.itemId !== selectedItemId) {
-        if (originalItem) {
-          batch.update(
-            doc(dbInstance, "items", originalSale.itemId),
-            getItemStockUpdate(originalItem, originalStockUnits)
+      const sameItem = originalSale.itemId === selectedItemId;
+      const availableStock = getItemStockUnits(item) +
+        (sameItem ? originalStockUnits : 0);
+      if (stockUnitsSold > availableStock) {
+        throw new Error("There is not enough current stock to save this edited sale.");
+      }
+      const itemRef = doc(itemsRef, selectedItemId);
+      const saleRef = doc(salesRef, editSaleId);
+      outOfStockAfterSave = availableStock - stockUnitsSold === 0;
+      await runTransaction(dbInstance, async transaction => {
+        const saleSnapshot = await transaction.get(saleRef);
+        if (!saleSnapshot.exists()) throw new Error("This sale no longer exists.");
+        const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
+        if (latestSale.uid !== authInstance.currentUser.uid ||
+            latestSale.itemId !== originalSale.itemId) {
+          throw new Error("This sale changed while you were editing it. Refresh and try again.");
+        }
+        const targetItemRef = doc(itemsRef, selectedItemId);
+        const originalItemRef = sameItem ? targetItemRef : doc(itemsRef, latestSale.itemId);
+        const [targetItemSnapshot, originalItemSnapshot] = await Promise.all([
+          transaction.get(targetItemRef),
+          sameItem ? Promise.resolve(null) : transaction.get(originalItemRef)
+        ]);
+        if (!targetItemSnapshot.exists() || (!sameItem && !originalItemSnapshot?.exists())) {
+          throw new Error("The inventory item for this sale no longer exists.");
+        }
+        const targetItem = { id: targetItemSnapshot.id, ...targetItemSnapshot.data() };
+        const previousItem = sameItem
+          ? targetItem
+          : { id: originalItemSnapshot.id, ...originalItemSnapshot.data() };
+        if (targetItem.uid !== authInstance.currentUser.uid ||
+            previousItem.uid !== authInstance.currentUser.uid) {
+          throw new Error("You do not have permission to update the inventory for this sale.");
+        }
+        const previousStockUnits = getCrateSaleStockUnits(latestSale, previousItem);
+        if (!Number.isFinite(previousStockUnits) || previousStockUnits <= 0) {
+          throw new Error("The original sale quantity is invalid, so inventory cannot be reconciled.");
+        }
+        const latestAvailableStock = getItemStockUnits(targetItem) +
+          (sameItem ? previousStockUnits : 0);
+        if (stockUnitsSold > latestAvailableStock) {
+          throw new Error("There is not enough current stock to save this edited sale.");
+        }
+
+        if (sameItem) {
+          transaction.update(
+            targetItemRef,
+            getItemStockUpdate(targetItem, previousStockUnits - stockUnitsSold)
           );
+          const delta = previousStockUnits - stockUnitsSold;
+          if (delta !== 0 && !isPetrolItem(targetItem)) {
+            transaction.set(
+              doc(stockMovementsRef),
+              createStockMovement(targetItem, delta, "sale-edit")
+            );
+          }
+        } else {
+          transaction.update(
+            originalItemRef,
+            getItemStockUpdate(previousItem, previousStockUnits)
+          );
+          transaction.update(targetItemRef, getItemStockUpdate(targetItem, -stockUnitsSold));
+          if (!isPetrolItem(previousItem)) {
+            transaction.set(
+              doc(stockMovementsRef),
+              createStockMovement(previousItem, previousStockUnits, "sale-edit")
+            );
+          }
+          if (!isPetrolItem(targetItem)) {
+            transaction.set(
+              doc(stockMovementsRef),
+              createStockMovement(targetItem, -stockUnitsSold, "sale-edit")
+            );
+          }
         }
-        batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
-      } else {
-        batch.update(itemRef, getItemStockUpdate(item, originalStockUnits - stockUnitsSold));
-      }
 
-      if (originalSale.itemId === selectedItemId && !isPetrolItem(item)) {
-        const stockDelta = originalStockUnits - stockUnitsSold;
-        if (stockDelta !== 0) {
-          batch.set(doc(stockMovementsRef), createStockMovement(
-            item,
-            stockDelta,
-            "sale-edit"
-          ));
+        transaction.update(saleRef, saleData);
+        transaction.set(salesSummaryRef, {}, { merge: true });
+        transaction.update(salesSummaryRef, getSalesSummaryUpdate(latestSale, saleData));
+        outOfStockAfterSave = latestAvailableStock - stockUnitsSold === 0;
+        if (outOfStockAfterSave) {
+          transaction.set(doc(ordersCollectionRef), {
+            customerName: clientBusinessName,
+            itemName: targetItem.name,
+            quantity: isPetrolItem(targetItem)
+              ? "5 L"
+              : isCrateItem(targetItem.name) ? "5 CRATES" : 5,
+            notes: "Item quantity reached 0. <br>Quantity to be adjusted.",
+            date: new Date().toISOString(),
+            uid: authInstance.currentUser.uid,
+            createdAt: new Date().toISOString()
+          });
         }
-      } else if (originalSale.itemId !== selectedItemId) {
-        if (originalItem && !isPetrolItem(originalItem)) {
-          batch.set(doc(stockMovementsRef), createStockMovement(
-            originalItem,
-            originalStockUnits,
-            "sale-edit"
-          ));
-        }
-        if (!isPetrolItem(item)) {
-          batch.set(doc(stockMovementsRef), createStockMovement(
-            item,
-            -stockUnitsSold,
-            "sale-edit"
-          ));
-        }
-      }
-      
-      batch.update(doc(salesRef, editSaleId), saleData);
-
-      const originalDate = dateKey(new Date(originalSale.createdAt));
-      const originalMonth = originalDate.slice(0, 7);
-      const deltaRevenue = revenue - originalSale.revenue;
-      const deltaProfit = profit - originalSale.profit;
-      const deltaCount = qtySold - originalSale.quantity;
-      const currentMonth = selectedSaleDate.slice(0, 7);
-      const summaryUpdate = {
-        "lifetime.revenue": increment(deltaRevenue),
-        "lifetime.profit": increment(deltaProfit)
-      };
-      if (originalDate === selectedSaleDate) {
-        summaryUpdate[`dailyTotals.${originalDate}.revenue`] = increment(deltaRevenue);
-        summaryUpdate[`dailyTotals.${originalDate}.profit`] = increment(deltaProfit);
-        summaryUpdate[`dailyTotals.${originalDate}.count`] = increment(deltaCount);
-      } else {
-        summaryUpdate[`dailyTotals.${originalDate}.revenue`] = increment(-originalSale.revenue);
-        summaryUpdate[`dailyTotals.${originalDate}.profit`] = increment(-originalSale.profit);
-        summaryUpdate[`dailyTotals.${originalDate}.count`] = increment(-originalSale.quantity);
-        summaryUpdate[`dailyTotals.${selectedSaleDate}.revenue`] = increment(revenue);
-        summaryUpdate[`dailyTotals.${selectedSaleDate}.profit`] = increment(profit);
-        summaryUpdate[`dailyTotals.${selectedSaleDate}.count`] = increment(qtySold);
-      }
-      if (originalMonth === currentMonth) {
-        summaryUpdate[`monthlyTotals.${originalMonth}.revenue`] = increment(deltaRevenue);
-        summaryUpdate[`monthlyTotals.${originalMonth}.profit`] = increment(deltaProfit);
-      } else {
-        summaryUpdate[`monthlyTotals.${originalMonth}.revenue`] = increment(-originalSale.revenue);
-        summaryUpdate[`monthlyTotals.${originalMonth}.profit`] = increment(-originalSale.profit);
-        summaryUpdate[`monthlyTotals.${currentMonth}.revenue`] = increment(revenue);
-        summaryUpdate[`monthlyTotals.${currentMonth}.profit`] = increment(profit);
-      }
-      
-      // Use update for surgical nested increments; set ensures doc existence
-      // Correct Pattern: set ensures the doc exists, update ensures dot-notation creates Maps
-      batch.set(salesSummaryRef, {}, { merge: true });
-      batch.update(salesSummaryRef, summaryUpdate);
+      });
     } else {
+      const batch = writeBatch(dbInstance);
+      const newSaleRef = doc(salesRef);
+      const itemRef = doc(itemsRef, selectedItemId);
       batch.set(newSaleRef, saleData);
       batch.update(itemRef, getItemStockUpdate(item, -stockUnitsSold));
       if (!isPetrolItem(item)) {
@@ -3842,24 +4079,19 @@ async function handleSaleFormSubmit(e) {
       // Use update for surgical nested increments; set ensures doc existence
       batch.set(salesSummaryRef, {}, { merge: true });
       batch.update(salesSummaryRef, summaryUpdate);
+      if (isOutOfStock) {
+        batch.set(doc(ordersCollectionRef), {
+          customerName: clientBusinessName,
+          itemName: item.name,
+          quantity: isPetrolItem(item) ? "5 L" : crateItem ? "5 CRATES" : 5,
+          notes: "Item quantity reached 0. <br>Quantity to be adjusted.",
+          date: new Date().toISOString(),
+          uid: authInstance.currentUser.uid,
+          createdAt: new Date().toISOString()
+        });
+      }
+      await batch.commit();
     }
-
-    // Check if item quantity went to 0 after this sale
-    if (isOutOfStock) {
-      const reorderData = {
-        customerName: clientBusinessName, // Use the client's business name
-        itemName: item.name,
-        quantity: isPetrolItem(item) ? "5 L" : crateItem ? "5 CRATES" : 5,
-        notes: "Item quantity reached 0. <br>Quantity to be adjusted.",
-        date: new Date().toISOString(),
-        uid: authInstance.currentUser.uid,
-        createdAt: new Date().toISOString()
-      };
-      batch.set(doc(ordersCollectionRef), reorderData); // Add to orders collection
-    }
-
-    // batch.commit() resolves immediately to the local cache when persistence is enabled.
-    await batch.commit(); 
 
     if (editSaleId) {
       editSaleId = null;
@@ -3871,7 +4103,7 @@ async function handleSaleFormSubmit(e) {
       showToast("Sale saved offline. It will sync when you are back online.", "info");
     }
 
-    if (isOutOfStock) {
+    if (outOfStockAfterSave) {
       showToast(`Stock Alert: ${item.name} is out of stock. An automatic order has been created.`, "info");
     }
 

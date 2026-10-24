@@ -105,7 +105,7 @@ service cloud.firestore {
       allow create: if isAdmin() || ownsDocument(request.resource.data);
       allow update: if isAdmin() ||
         (ownsDocument(resource.data) && request.resource.data.uid == resource.data.uid);
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || ownsDocument(resource.data);
     }
 
     match /stockAdditions/{additionId} {

@@ -2688,6 +2688,37 @@ table tr:hover {
   color: #991b1b;
 }
 
+.sale-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.sale-row-actions button {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sale-edit-button {
+  background: #2563eb;
+}
+
+.sale-delete-button {
+  background: #dc2626;
+}
+
+.sale-row-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .inventory-table-wrap {
   width: 100%;
   overflow-x: auto;
