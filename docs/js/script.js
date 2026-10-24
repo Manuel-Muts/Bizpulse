@@ -1081,7 +1081,7 @@ window.openStockTopUp = itemId => {
   stockTopUpItemName.textContent = item.name;
   const today = localDateKey(new Date());
   stockTopUpDate.max = today;
-  stockTopUpPeriodFilter.value = "all";
+  stockTopUpPeriodFilter.value = "today";
   stockTopUpCustomRange.hidden = true;
   stockTopUpFromDate.value = today;
   stockTopUpFromDate.max = today;
