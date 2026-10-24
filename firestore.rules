@@ -111,13 +111,35 @@ service cloud.firestore {
     match /stockAdditions/{additionId} {
       allow read: if isAdmin() || ownsDocument(resource.data);
       allow create: if isAdmin() || ownsDocument(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'quantity',
+            'quantityUnit',
+            'stockDate',
+            'piecesPerCrate',
+            'unitsPerBox',
+            'piecesAdded',
+            'unitsAdded',
+            'itemName',
+            'movementId'
+          ]));
+      allow delete: if isAdmin() || ownsDocument(resource.data);
     }
 
     match /stockMovements/{movementId} {
       allow read: if isAdmin() || ownsDocument(resource.data);
       allow create: if isAdmin() || ownsDocument(request.resource.data);
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (ownsDocument(resource.data) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'itemName',
+            'quantityDelta',
+            'quantityUnit'
+          ]));
+      allow delete: if isAdmin() || ownsDocument(resource.data);
     }
 
     match /customCrateTypes/{crateTypeId} {

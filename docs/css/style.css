@@ -1253,16 +1253,83 @@ button.loading .btn-text {
   margin-top: 0;
 }
 
-.stock-top-up-modal {
-  max-width: 480px;
+#stockTopUpModal .stock-top-up-modal {
+  width: min(1200px, 96vw);
+  max-width: 1200px;
+  max-height: calc(100vh - 40px);
+  padding: 24px;
   text-align: left;
+}
+
+.stock-top-up-heading,
+.stock-top-up-history-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.stock-top-up-heading h2,
+.stock-top-up-entry h3,
+.stock-top-up-history h3 {
+  margin: 0;
+}
+
+.stock-top-up-heading p,
+.stock-top-up-history-heading p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.stock-top-up-close {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 25px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stock-top-up-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(0, 1.6fr);
+  gap: 22px;
+  margin-top: 20px;
+}
+
+.stock-top-up-entry,
+.stock-top-up-history {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.stock-top-up-entry h3,
+.stock-top-up-history h3 {
+  margin-bottom: 14px;
+  color: #1e3a8a;
+  font-size: 16px;
 }
 
 .stock-top-up-modal p {
   margin-bottom: 14px;
 }
 
-.stock-top-up-form {
+.stock-top-up-modal .stock-top-up-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.stock-top-up-entry .stock-top-up-form {
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
@@ -1292,10 +1359,149 @@ button.loading .btn-text {
 
 .stock-top-up-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
 }
+
+.stock-top-up-date-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stock-top-up-date-filters label {
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stock-top-up-date-filters input {
+  width: 145px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #1f2937;
+  background: #fff;
+}
+
+.stock-top-up-history-status {
+  min-height: 20px;
+  margin: 10px 0 !important;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.stock-top-up-history-table-wrap {
+  max-height: min(56vh, 560px);
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.stock-top-up-history-table {
+  min-width: 500px;
+  margin: 0;
+}
+
+.stock-top-up-history-table th,
+.stock-top-up-history-table td {
+  padding: 9px 10px;
+  vertical-align: middle;
+}
+
+.stock-top-up-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.stock-top-up-row-actions button {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stock-top-up-edit-button {
+  background: #2563eb;
+}
+
+.stock-top-up-delete-button {
+  background: #dc2626;
+}
+
+.stock-top-up-row-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.stock-top-up-history-table .stock-top-up-empty {
+  padding: 18px;
+  color: #64748b;
+  text-align: center;
+}
+
+.stock-top-up-modal {
+  max-width: 480px;
+  text-align: left;
+}
+
+@media (max-width: 850px) {
+  #stockTopUpModal .stock-top-up-modal {
+    width: min(720px, 96vw);
+    padding: 18px;
+  }
+
+  .stock-top-up-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .stock-top-up-history-heading {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  #stockTopUpModal {
+    align-items: flex-start;
+    padding: 8px;
+  }
+
+  #stockTopUpModal .stock-top-up-modal {
+    width: 100%;
+    max-height: calc(100vh - 16px);
+    padding: 14px;
+  }
+
+  .stock-top-up-entry,
+  .stock-top-up-history {
+    padding: 12px;
+  }
+
+  .stock-top-up-date-filters {
+    width: 100%;
+  }
+
+  .stock-top-up-date-filters label {
+    flex: 1 1 130px;
+  }
+
+  .stock-top-up-date-filters input {
+    width: 100%;
+  }
+}
+
 
 .expense-form {
   grid-template-columns: repeat(5, minmax(0, 1fr));

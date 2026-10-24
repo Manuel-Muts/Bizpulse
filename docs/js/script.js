@@ -223,6 +223,11 @@ const stockTopUpUnit = document.getElementById("stockTopUpUnit");
 const stockTopUpUnitDescription = document.getElementById("stockTopUpUnitDescription");
 const saveStockTopUpBtn = document.getElementById("saveStockTopUpBtn");
 const cancelStockTopUpBtn = document.getElementById("cancelStockTopUpBtn");
+const cancelStockTopUpEditBtn = document.getElementById("cancelStockTopUpEditBtn");
+const stockTopUpFromDate = document.getElementById("stockTopUpFromDate");
+const stockTopUpToDate = document.getElementById("stockTopUpToDate");
+const stockTopUpHistoryBody = document.getElementById("stockTopUpHistoryBody");
+const stockTopUpHistoryStatus = document.getElementById("stockTopUpHistoryStatus");
 
 // Inventory Pagination Elements
 const prevPageBtn = document.getElementById("prevPageBtn");
@@ -741,6 +746,10 @@ const lowStockPageSize = 5;
 let itemsUnsubscribe = null;
 let ordersUnsubscribe = null;
 let stockTopUpItemId = null;
+let stockTopUpAdditions = [];
+let stockTopUpAdditionsUnsubscribe = null;
+let stockTopUpAdditionsError = null;
+let editingStockAdditionId = null;
 let customCrateTypes = [];
 let customCrateTypesUnsubscribe = null;
 let customBoxTypes = [];
@@ -838,16 +847,220 @@ window.addEventListener('saleRecorded', async (e) => {
 lowStockPrevBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage - 1));
 lowStockNextBtn?.addEventListener("click", () => renderLowStockAlerts(lowStockPage + 1));
 
+function getStockAdditionUnit(item, addition) {
+  const unit = String(addition.quantityUnit || "").trim().toUpperCase();
+  if (isCrateItem(item.name)) return unit === "CRATES" ? "CRATES" : "PIECES";
+  if (isBoxItem(item)) return unit === "BOXES" ? "BOXES" : "UNITS";
+  return String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
+}
+
+function getStockAdditionDelta(item, addition) {
+  const amount = Number(addition.quantity);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("This stock addition has an invalid quantity and cannot be corrected.");
+  }
+
+  if (isCrateItem(item.name)) {
+    if (Number.isFinite(Number(addition.piecesAdded)) && addition.piecesAdded !== null) {
+      return Number(addition.piecesAdded);
+    }
+    return getStockAdditionUnit(item, addition) === "CRATES"
+      ? amount * (Number(addition.piecesPerCrate) || getPiecesPerCrate(item))
+      : amount;
+  }
+  if (isBoxItem(item)) {
+    if (Number.isFinite(Number(addition.unitsAdded)) && addition.unitsAdded !== null) {
+      return Number(addition.unitsAdded);
+    }
+    return getStockAdditionUnit(item, addition) === "BOXES"
+      ? amount * (Number(addition.unitsPerBox) || getUnitsPerBox(item))
+      : amount;
+  }
+
+  const itemUnit = String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
+  if (getStockAdditionUnit(item, addition) !== itemUnit) {
+    throw new Error("This stock addition uses a different unit from the inventory item.");
+  }
+  return amount;
+}
+
+function getStockTopUpEntry(item, amount, unit) {
+  const boxItem = isBoxItem(item);
+  const crateItem = !boxItem && isCrateItem(item.name);
+  const packagedItem = crateItem || boxItem;
+  if (packagedItem && (!Number.isInteger(amount) ||
+      (crateItem && unit !== "crate" && unit !== "piece") ||
+      (boxItem && unit !== "box" && unit !== "unit"))) {
+    throw new Error(`${boxItem ? "Box and piece" : "Crate and piece"} stock additions must be whole numbers.`);
+  }
+
+  const quantityUnit = packagedItem
+    ? crateItem
+      ? unit === "crate" ? "CRATES" : "PIECES"
+      : unit === "box" ? "BOXES" : "UNITS"
+    : String(parseQuantity(item.quantity)?.unit || "").toUpperCase();
+  const normalizedUnit = quantityUnit === "UNITS" ? "PIECES" : quantityUnit;
+  const piecesPerCrate = crateItem ? getPiecesPerCrate(item) : null;
+  const unitsPerBox = boxItem ? getUnitsPerBox(item) : null;
+  const piecesAdded = crateItem ? amount * (unit === "crate" ? piecesPerCrate : 1) : null;
+  const unitsAdded = boxItem ? amount * (unit === "box" ? unitsPerBox : 1) : null;
+  const stockDelta = crateItem ? piecesAdded : boxItem ? unitsAdded : amount;
+
+  return {
+    quantityUnit,
+    normalizedUnit,
+    piecesPerCrate,
+    unitsPerBox,
+    piecesAdded,
+    unitsAdded,
+    stockDelta
+  };
+}
+
+function adjustInventoryStock(item, adjustment) {
+  if (isCrateItem(item.name)) return adjustCrateStock(item, adjustment);
+  if (isBoxItem(item)) return adjustBoxStock(item, adjustment);
+
+  const quantity = parseQuantity(item.quantity);
+  if (!quantity || quantity.amount + adjustment < 0) {
+    throw new Error("The correction would make inventory stock negative.");
+  }
+  return { quantity: adjustQuantity(item.quantity, adjustment) };
+}
+
+function getStockAdditionMovementDate(movement) {
+  if (movement?.occurredAt && typeof movement.occurredAt.toDate === "function") {
+    return movement.occurredAt.toDate().getTime();
+  }
+  const parsed = new Date(movement?.occurredAt || "").getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isStockAdditionMovement(movement, item, uid, expectedDelta) {
+  return movement?.uid === uid &&
+    movement.itemId === item.id &&
+    movement.type === "stock-addition" &&
+    Number(movement.quantityDelta) === expectedDelta;
+}
+
+async function getStockAdditionMovementRef(addition, item, uid, expectedDelta) {
+  if (addition.movementId) return doc(stockMovementsRef, addition.movementId);
+  if (isPetrolName(item.name)) return null;
+
+  const movementsSnapshot = await getDocs(query(stockMovementsRef, where("uid", "==", uid)));
+  const expectedCreatedAt = new Date(addition.createdAt || "").getTime();
+  const candidates = movementsSnapshot.docs.filter(movementDoc => {
+    const movement = movementDoc.data();
+    return movement.itemId === item.id &&
+      movement.type === "stock-addition" &&
+      Number(movement.quantityDelta) === expectedDelta;
+  }).map(movementDoc => ({
+    ref: movementDoc.ref,
+    distance: Number.isFinite(expectedCreatedAt)
+      ? Math.abs((getStockAdditionMovementDate(movementDoc.data()) ?? NaN) - expectedCreatedAt)
+      : null
+  }));
+
+  if (candidates.length === 1 && candidates[0].distance === null) {
+    return candidates[0].ref;
+  }
+  const datedCandidates = candidates
+    .filter(candidate => candidate.distance !== null && candidate.distance <= 120000)
+    .sort((left, right) => left.distance - right.distance);
+  if (!datedCandidates.length ||
+      (datedCandidates.length > 1 && datedCandidates[0].distance === datedCandidates[1].distance)) {
+    throw new Error("Could not safely match this addition to its stock movement. No changes were made.");
+  }
+  return datedCandidates[0].ref;
+}
+
+function resetStockTopUpEditor() {
+  editingStockAdditionId = null;
+  stockTopUpForm?.reset();
+  stockTopUpDate.value = localDateKey(new Date());
+  saveStockTopUpBtn.querySelector(".btn-text").textContent = "Add Stock";
+  cancelStockTopUpEditBtn.hidden = true;
+  document.getElementById("stockTopUpEntryTitle").textContent = "Add stock";
+}
+
+function renderStockTopUpHistory() {
+  if (!stockTopUpHistoryBody || !stockTopUpHistoryStatus) return;
+  if (stockTopUpAdditionsError) {
+    stockTopUpHistoryStatus.textContent = stockTopUpAdditionsError;
+    stockTopUpHistoryBody.innerHTML =
+      `<tr><td class="stock-top-up-empty" colspan="3">${escapeQuantity(stockTopUpAdditionsError)}</td></tr>`;
+    return;
+  }
+
+  const fromDate = stockTopUpFromDate.value;
+  const toDate = stockTopUpToDate.value;
+  if (fromDate && toDate && fromDate > toDate) {
+    stockTopUpHistoryStatus.textContent = "The start date must be on or before the end date.";
+    stockTopUpHistoryBody.innerHTML =
+      '<tr><td class="stock-top-up-empty" colspan="3">Choose a valid date range.</td></tr>';
+    return;
+  }
+
+  const additions = stockTopUpAdditions
+    .filter(addition => addition.itemId === stockTopUpItemId)
+    .filter(addition => !fromDate || String(addition.stockDate || "") >= fromDate)
+    .filter(addition => !toDate || String(addition.stockDate || "") <= toDate)
+    .sort((left, right) =>
+      String(right.stockDate || "").localeCompare(String(left.stockDate || "")) ||
+      String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+  stockTopUpHistoryStatus.textContent = additions.length
+    ? `${formatNumber(additions.length)} stock addition${additions.length === 1 ? "" : "s"}`
+    : "No stock additions match this date range.";
+  stockTopUpHistoryBody.innerHTML = additions.length
+    ? additions.map(addition => {
+      const unit = String(addition.quantityUnit || "").toUpperCase();
+      const quantity = `${formatNumber(addition.quantity)} ${unit}`.trim();
+      const id = escapeQuantity(addition.id);
+      return `<tr>
+        <td>${escapeQuantity(addition.stockDate || "Date not recorded")}</td>
+        <td>${escapeQuantity(quantity)}</td>
+        <td><div class="stock-top-up-row-actions">
+          <button type="button" class="stock-top-up-edit-button" data-stock-addition-action="edit" data-addition-id="${id}">Edit</button>
+          <button type="button" class="stock-top-up-delete-button" data-stock-addition-action="delete" data-addition-id="${id}">Delete</button>
+        </div></td>
+      </tr>`;
+    }).join("")
+    : '<tr><td class="stock-top-up-empty" colspan="3">No stock additions match this date range.</td></tr>';
+}
+
+function listenToStockTopUpAdditions(uid) {
+  if (stockTopUpAdditionsUnsubscribe) stockTopUpAdditionsUnsubscribe();
+  stockTopUpAdditions = [];
+  stockTopUpAdditionsError = null;
+  stockTopUpHistoryStatus.textContent = "Loading stock additions…";
+  stockTopUpAdditionsUnsubscribe = onSnapshot(
+    query(stockAdditionsRef, where("uid", "==", uid)),
+    snapshot => {
+      stockTopUpAdditions = snapshot.docs.map(additionDoc => ({
+        id: additionDoc.id,
+        ...additionDoc.data()
+      }));
+      stockTopUpAdditionsError = null;
+      renderStockTopUpHistory();
+    },
+    error => {
+      console.error("Unable to load stock additions for correction:", error);
+      stockTopUpAdditionsError = "Unable to load stock additions. Check your connection and try again.";
+      renderStockTopUpHistory();
+    }
+  );
+}
+
 window.openStockTopUp = itemId => {
   const item = items.find(candidate => candidate.id === itemId);
-  if (!item || !stockTopUpModal) return;
+  const user = auth.currentUser;
+  if (!item || !stockTopUpModal || !user) return;
 
   stockTopUpItemId = item.id;
   stockTopUpItemName.textContent = item.name;
-  const today = localDateKey(new Date());
-  stockTopUpDate.value = today;
-  stockTopUpDate.max = today;
-  stockTopUpQuantity.value = "";
+  stockTopUpDate.max = localDateKey(new Date());
+  stockTopUpFromDate.value = "";
+  stockTopUpToDate.value = "";
   const boxItem = isBoxItem(item);
   const crateItem = !boxItem && isCrateItem(item.name);
   stockTopUpUnitField.hidden = !crateItem && !boxItem;
@@ -862,19 +1075,108 @@ window.openStockTopUp = itemId => {
     : boxItem
     ? `${formatNumber(getUnitsPerBox(item))} pieces per box`
     : `Quantity will be added in ${parseQuantity(item.quantity)?.unit || "the item's current unit"}.`;
+  resetStockTopUpEditor();
   stockTopUpModal.style.display = "flex";
+  listenToStockTopUpAdditions(user.uid);
   stockTopUpQuantity.focus();
 };
 
-cancelStockTopUpBtn?.addEventListener("click", () => {
+function closeStockTopUpModal() {
   stockTopUpModal.style.display = "none";
   stockTopUpItemId = null;
+  resetStockTopUpEditor();
+  if (stockTopUpAdditionsUnsubscribe) {
+    stockTopUpAdditionsUnsubscribe();
+    stockTopUpAdditionsUnsubscribe = null;
+  }
+  stockTopUpAdditions = [];
+}
+
+cancelStockTopUpBtn?.addEventListener("click", closeStockTopUpModal);
+cancelStockTopUpEditBtn?.addEventListener("click", resetStockTopUpEditor);
+stockTopUpFromDate?.addEventListener("change", renderStockTopUpHistory);
+stockTopUpToDate?.addEventListener("change", renderStockTopUpHistory);
+stockTopUpModal?.addEventListener("click", event => {
+  if (event.target === stockTopUpModal) closeStockTopUpModal();
 });
 
-stockTopUpModal?.addEventListener("click", event => {
-  if (event.target === stockTopUpModal) {
-    stockTopUpModal.style.display = "none";
-    stockTopUpItemId = null;
+stockTopUpHistoryBody?.addEventListener("click", async event => {
+  const button = event.target.closest("button[data-stock-addition-action]");
+  if (!button) return;
+  const addition = stockTopUpAdditions.find(candidate => candidate.id === button.dataset.additionId);
+  const item = items.find(candidate => candidate.id === stockTopUpItemId);
+  const user = auth.currentUser;
+  if (!addition || !item || !user || addition.uid !== user.uid) {
+    alert("This stock addition is no longer available. Refresh the list and try again.");
+    return;
+  }
+
+  if (button.dataset.stockAdditionAction === "edit") {
+    editingStockAdditionId = addition.id;
+    stockTopUpDate.value = addition.stockDate || localDateKey(new Date());
+    stockTopUpQuantity.value = addition.quantity;
+    if (isCrateItem(item.name)) {
+      stockTopUpUnit.value = String(addition.quantityUnit).toUpperCase() === "CRATES"
+        ? "crate"
+        : "piece";
+    } else if (isBoxItem(item)) {
+      stockTopUpUnit.value = String(addition.quantityUnit).toUpperCase() === "BOXES"
+        ? "box"
+        : "unit";
+    }
+    saveStockTopUpBtn.querySelector(".btn-text").textContent = "Save changes";
+    cancelStockTopUpEditBtn.hidden = false;
+    document.getElementById("stockTopUpEntryTitle").textContent = "Edit addition";
+    stockTopUpQuantity.focus();
+    return;
+  }
+
+  const quantity = `${formatNumber(addition.quantity)} ${addition.quantityUnit || ""}`.trim();
+  if (!confirm(`Delete the ${quantity} stock addition for ${item.name} dated ${addition.stockDate || "unknown date"}? The matching item balance and stock movement will also be corrected.`)) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const delta = getStockAdditionDelta(item, addition);
+    const movementRef = await getStockAdditionMovementRef(addition, item, user.uid, delta);
+    const additionRef = doc(stockAdditionsRef, addition.id);
+    const itemRef = doc(itemsRef, item.id);
+    await runTransaction(db, async transaction => {
+      const [additionSnapshot, itemSnapshot] = await Promise.all([
+        transaction.get(additionRef),
+        transaction.get(itemRef)
+      ]);
+      if (!additionSnapshot.exists() || !itemSnapshot.exists()) {
+        throw new Error("The stock addition or inventory item no longer exists.");
+      }
+      const latestAddition = additionSnapshot.data();
+      const latestItem = { id: itemSnapshot.id, ...itemSnapshot.data() };
+      if (latestAddition.uid !== user.uid || latestItem.uid !== user.uid ||
+          latestAddition.itemId !== latestItem.id) {
+        throw new Error("You do not have permission to correct this stock addition.");
+      }
+      const latestDelta = getStockAdditionDelta(latestItem, latestAddition);
+      if (latestDelta !== delta) {
+        throw new Error("This addition changed while you were correcting it. Refresh and try again.");
+      }
+      const movementSnapshot = movementRef ? await transaction.get(movementRef) : null;
+      const movement = movementSnapshot?.exists() ? movementSnapshot.data() : null;
+      if ((!isPetrolName(latestItem.name) && !movementRef) ||
+          (movementRef && !isStockAdditionMovement(movement, latestItem, user.uid, delta))) {
+        throw new Error("The matching stock movement is missing or changed. No changes were made.");
+      }
+      transaction.update(itemRef, adjustInventoryStock(latestItem, -delta));
+      transaction.delete(additionRef);
+      if (movementRef) transaction.delete(movementRef);
+    });
+    if (editingStockAdditionId === addition.id) resetStockTopUpEditor();
+    stockTopUpHistoryStatus.textContent = `Removed ${quantity} from ${item.name}; the stock balance was updated.`;
+  } catch (error) {
+    console.error("Unable to delete stock addition:", error);
+    alert(`Unable to delete stock addition: ${error.message}`);
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -899,95 +1201,176 @@ stockTopUpForm?.addEventListener("submit", async event => {
     return;
   }
 
-  const boxItem = isBoxItem(item);
-  const crateItem = !boxItem && isCrateItem(item.name);
-  const packagedItem = crateItem || boxItem;
-  const unit = packagedItem ? stockTopUpUnit.value : parseQuantity(item.quantity)?.unit || "";
-  if (packagedItem && (!Number.isInteger(amount) ||
-      (crateItem && unit !== "crate" && unit !== "piece") ||
-      (boxItem && unit !== "box" && unit !== "unit"))) {
-    alert(`${boxItem ? "Box and piece" : "Crate and piece"} stock additions must be whole numbers.`);
+  let entry;
+  try {
+    entry = getStockTopUpEntry(item, amount, stockTopUpUnit.value);
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+  const isEditing = Boolean(editingStockAdditionId);
+  const editedAddition = isEditing
+    ? stockTopUpAdditions.find(addition => addition.id === editingStockAdditionId)
+    : null;
+  if (isEditing && !editedAddition) {
+    alert("This stock addition is no longer available. Refresh the list and try again.");
+    resetStockTopUpEditor();
     return;
   }
 
   saveStockTopUpBtn.disabled = true;
   saveStockTopUpBtn.classList.add("loading");
   try {
-    const itemRef = doc(db, "items", item.id);
-    const additionRef = doc(stockAdditionsRef);
-    const movementRef = doc(stockMovementsRef);
-    await runTransaction(db, async transaction => {
-      const latestItemSnapshot = await transaction.get(itemRef);
-      if (!latestItemSnapshot.exists()) {
-        throw new Error("This inventory item no longer exists.");
-      }
-      const latestItem = { id: latestItemSnapshot.id, ...latestItemSnapshot.data() };
-      if (latestItem.uid !== user.uid) {
-        throw new Error("You do not have permission to update this inventory item.");
-      }
+    const existingAdditions = await getDocs(query(
+      stockAdditionsRef,
+      where("uid", "==", user.uid)
+    ));
+    const hasDuplicate = existingAdditions.docs.some(additionDoc => {
+      if (additionDoc.id === editingStockAdditionId) return false;
+      const addition = additionDoc.data();
+      const existingUnit = String(addition.quantityUnit || "").trim().toUpperCase();
+      const normalizedExistingUnit = existingUnit === "UNITS" ? "PIECES" : existingUnit;
+      return addition.itemId === item.id &&
+        addition.stockDate === selectedDate &&
+        Number(addition.quantity) === amount &&
+        normalizedExistingUnit === entry.normalizedUnit;
+    });
+    if (hasDuplicate) {
+      throw new Error("This item already has a stock addition with the same date and quantity.");
+    }
 
-      const latestBoxItem = isBoxItem(latestItem);
-      const latestCrateItem = !latestBoxItem && isCrateItem(latestItem.name);
-      if (latestCrateItem !== crateItem || latestBoxItem !== boxItem) {
-        throw new Error("The item's stock type changed. Close this form and try again.");
-      }
-      const latestPiecesPerCrate = latestCrateItem ? getPiecesPerCrate(latestItem) : null;
-      const latestUnitsPerBox = latestBoxItem ? getUnitsPerBox(latestItem) : null;
-      const latestUnit = packagedItem
-        ? unit
-        : parseQuantity(latestItem.quantity)?.unit || "";
-      const createdAt = new Date().toISOString();
-      const piecesAdded = latestCrateItem
-        ? amount * (unit === "crate" ? latestPiecesPerCrate : 1)
-        : null;
-      const unitsAdded = latestBoxItem
-        ? amount * (unit === "box" ? latestUnitsPerBox : 1)
-        : null;
-      const quantityUpdate = latestCrateItem
-        ? adjustCrateStock(latestItem, piecesAdded)
-        : latestBoxItem
-        ? adjustBoxStock(latestItem, unitsAdded)
-        : { quantity: adjustQuantity(latestItem.quantity, amount) };
-      const stockAddition = {
-        uid: user.uid,
-        itemId: latestItem.id,
-        itemName: latestItem.name,
-        quantity: amount,
-        quantityUnit: latestCrateItem
-          ? unit === "crate" ? "CRATES" : "PIECES"
-          : latestBoxItem
-          ? unit === "box" ? "BOXES" : "PIECES"
-          : latestUnit,
-        stockDate: selectedDate,
-        piecesPerCrate: latestPiecesPerCrate,
-        unitsPerBox: latestUnitsPerBox,
-        piecesAdded,
-        unitsAdded,
-        buyingPricePerUnit: Number(latestItem.incoming) || 0,
-        createdAt
-      };
-      transaction.update(itemRef, quantityUpdate);
-      transaction.set(additionRef, stockAddition);
-      if (!isPetrolName(latestItem.name)) {
-        transaction.set(movementRef, {
+    const itemRef = doc(itemsRef, item.id);
+    if (!isEditing) {
+      const movementRef = doc(stockMovementsRef);
+      const duplicateKey = encodeURIComponent(
+        `${user.uid}|${item.id}|${selectedDate}|${amount}|${entry.normalizedUnit}`
+      );
+      const additionRef = doc(stockAdditionsRef, duplicateKey);
+      await runTransaction(db, async transaction => {
+        const [latestItemSnapshot, existingAdditionSnapshot] = await Promise.all([
+          transaction.get(itemRef),
+          transaction.get(additionRef)
+        ]);
+        if (!latestItemSnapshot.exists()) {
+          throw new Error("This inventory item no longer exists.");
+        }
+        if (existingAdditionSnapshot.exists()) {
+          throw new Error("This item already has a stock addition with the same date and quantity.");
+        }
+        const latestItem = { id: latestItemSnapshot.id, ...latestItemSnapshot.data() };
+        if (latestItem.uid !== user.uid) {
+          throw new Error("You do not have permission to update this inventory item.");
+        }
+        const latestBoxItem = isBoxItem(latestItem);
+        const latestCrateItem = !latestBoxItem && isCrateItem(latestItem.name);
+        if (latestCrateItem !== (!isBoxItem(item) && isCrateItem(item.name)) ||
+            latestBoxItem !== isBoxItem(item)) {
+          throw new Error("The item's stock type changed. Close this form and try again.");
+        }
+        const latestEntry = getStockTopUpEntry(latestItem, amount, stockTopUpUnit.value);
+        const latestUnit = parseQuantity(latestItem.quantity)?.unit || "";
+        const additionData = {
           uid: user.uid,
           itemId: latestItem.id,
           itemName: latestItem.name,
-          quantityDelta: latestCrateItem ? piecesAdded : latestBoxItem ? unitsAdded : amount,
-          quantityUnit: latestCrateItem ? "PIECES" : latestBoxItem ? "UNITS" : latestUnit.toUpperCase(),
-          type: "stock-addition",
-          occurredAt: serverTimestamp()
+          quantity: amount,
+          quantityUnit: latestEntry.quantityUnit,
+          stockDate: selectedDate,
+          piecesPerCrate: latestEntry.piecesPerCrate,
+          unitsPerBox: latestEntry.unitsPerBox,
+          piecesAdded: latestEntry.piecesAdded,
+          unitsAdded: latestEntry.unitsAdded,
+          buyingPricePerUnit: Number(latestItem.incoming) || 0,
+          createdAt: new Date().toISOString(),
+          movementId: isPetrolName(latestItem.name) ? null : movementRef.id
+        };
+        transaction.update(itemRef, adjustInventoryStock(latestItem, latestEntry.stockDelta));
+        transaction.set(additionRef, additionData);
+        if (!isPetrolName(latestItem.name)) {
+          transaction.set(movementRef, {
+            uid: user.uid,
+            itemId: latestItem.id,
+            itemName: latestItem.name,
+            quantityDelta: latestEntry.stockDelta,
+            quantityUnit: latestCrateItem ? "PIECES" : latestBoxItem ? "UNITS" : latestUnit.toUpperCase(),
+            type: "stock-addition",
+            occurredAt: serverTimestamp()
+          });
+        }
+      });
+      resetStockTopUpEditor();
+      stockTopUpHistoryStatus.textContent = `Added stock to ${item.name}.`;
+      stockTopUpQuantity.focus();
+      return;
+    }
+
+    const oldDelta = getStockAdditionDelta(item, editedAddition);
+    const movementRef = await getStockAdditionMovementRef(editedAddition, item, user.uid, oldDelta);
+    const additionRef = doc(stockAdditionsRef, editedAddition.id);
+    const duplicateKey = encodeURIComponent(
+      `${user.uid}|${item.id}|${selectedDate}|${amount}|${entry.normalizedUnit}`
+    );
+    const canonicalAdditionRef = doc(stockAdditionsRef, duplicateKey);
+    await runTransaction(db, async transaction => {
+      const [additionSnapshot, itemSnapshot, canonicalSnapshot] = await Promise.all([
+        transaction.get(additionRef),
+        transaction.get(itemRef),
+        transaction.get(canonicalAdditionRef)
+      ]);
+      if (!additionSnapshot.exists() || !itemSnapshot.exists()) {
+        throw new Error("The stock addition or inventory item no longer exists.");
+      }
+      if (canonicalSnapshot.exists() && canonicalAdditionRef.id !== additionRef.id) {
+        throw new Error("This item already has a stock addition with the same date and quantity.");
+      }
+      const latestAddition = additionSnapshot.data();
+      const latestItem = { id: itemSnapshot.id, ...itemSnapshot.data() };
+      if (latestAddition.uid !== user.uid || latestItem.uid !== user.uid ||
+          latestAddition.itemId !== latestItem.id) {
+        throw new Error("You do not have permission to correct this stock addition.");
+      }
+      const latestDelta = getStockAdditionDelta(latestItem, latestAddition);
+      if (latestDelta !== oldDelta) {
+        throw new Error("This addition changed while you were correcting it. Refresh and try again.");
+      }
+      const latestEntry = getStockTopUpEntry(latestItem, amount, stockTopUpUnit.value);
+      const movementSnapshot = movementRef ? await transaction.get(movementRef) : null;
+      const movement = movementSnapshot?.exists() ? movementSnapshot.data() : null;
+      if ((!isPetrolName(latestItem.name) && !movementRef) ||
+          (movementRef && !isStockAdditionMovement(movement, latestItem, user.uid, oldDelta))) {
+        throw new Error("The matching stock movement is missing or changed. No changes were made.");
+      }
+      const latestUnit = parseQuantity(latestItem.quantity)?.unit || "";
+      const updates = {
+        quantity: amount,
+        quantityUnit: latestEntry.quantityUnit,
+        stockDate: selectedDate,
+        piecesPerCrate: latestEntry.piecesPerCrate,
+        unitsPerBox: latestEntry.unitsPerBox,
+        piecesAdded: latestEntry.piecesAdded,
+        unitsAdded: latestEntry.unitsAdded,
+        itemName: latestItem.name,
+        movementId: movementRef?.id || null
+      };
+      transaction.update(itemRef, adjustInventoryStock(latestItem, latestEntry.stockDelta - oldDelta));
+      transaction.update(additionRef, updates);
+      if (movementRef) {
+        transaction.update(movementRef, {
+          itemName: latestItem.name,
+          quantityDelta: latestEntry.stockDelta,
+          quantityUnit: isCrateItem(latestItem.name)
+            ? "PIECES"
+            : isBoxItem(latestItem)
+            ? "UNITS"
+            : latestUnit.toUpperCase()
         });
       }
     });
-
-    stockTopUpModal.style.display = "none";
-    stockTopUpForm.reset();
-    stockTopUpItemId = null;
-    alert(`Added stock to ${item.name}.`);
+    resetStockTopUpEditor();
+    stockTopUpHistoryStatus.textContent = `Updated the stock addition for ${item.name}; the stock balance was corrected.`;
   } catch (error) {
-    console.error("Unable to add inventory stock:", error);
-    alert(`Unable to add stock: ${error.message}`);
+    console.error(`Unable to ${isEditing ? "edit" : "add"} inventory stock:`, error);
+    alert(`Unable to ${isEditing ? "edit" : "add"} stock: ${error.message}`);
   } finally {
     saveStockTopUpBtn.disabled = false;
     saveStockTopUpBtn.classList.remove("loading");

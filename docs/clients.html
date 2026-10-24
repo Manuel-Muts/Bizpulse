@@ -127,27 +127,56 @@
 
   <div id="stockTopUpModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="stockTopUpTitle">
     <div class="modal-content stock-top-up-modal">
-      <h2 id="stockTopUpTitle">Add Stock</h2>
-      <p id="stockTopUpItemName"></p>
-      <form id="stockTopUpForm" class="stock-top-up-form">
-        <label for="stockTopUpDate">Date stock was received</label>
-        <input type="date" id="stockTopUpDate" required />
-        <label for="stockTopUpQuantity">Quantity to add</label>
-        <input type="number" id="stockTopUpQuantity" min="0.01" step="any" required />
-        <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Add stock as</label>
-        <select id="stockTopUpUnit" hidden>
-          <option value="crate">Crates</option>
-          <option value="piece">Pieces</option>
-        </select>
-        <p id="stockTopUpUnitDescription" class="stock-top-up-unit-description"></p>
-        <div class="stock-top-up-actions">
-          <button type="submit" id="saveStockTopUpBtn" class="action-btn" style="background:#059669;">
-            <span class="btn-text">Add Stock</span>
-            <span class="spinner" aria-hidden="true"></span>
-          </button>
-          <button type="button" id="cancelStockTopUpBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+      <div class="stock-top-up-heading">
+        <div>
+          <h2 id="stockTopUpTitle">Manage Stock</h2>
+          <p id="stockTopUpItemName"></p>
         </div>
-      </form>
+        <button type="button" id="cancelStockTopUpBtn" class="stock-top-up-close" aria-label="Close stock management">&times;</button>
+      </div>
+      <div class="stock-top-up-layout">
+        <section class="stock-top-up-entry" aria-labelledby="stockTopUpEntryTitle">
+          <h3 id="stockTopUpEntryTitle">Add stock</h3>
+          <form id="stockTopUpForm" class="stock-top-up-form">
+            <label for="stockTopUpDate">Date stock was received</label>
+            <input type="date" id="stockTopUpDate" required />
+            <label for="stockTopUpQuantity">Quantity to add</label>
+            <input type="number" id="stockTopUpQuantity" min="0.01" step="any" required />
+            <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Add stock as</label>
+            <select id="stockTopUpUnit" hidden>
+              <option value="crate">Crates</option>
+              <option value="piece">Pieces</option>
+            </select>
+            <p id="stockTopUpUnitDescription" class="stock-top-up-unit-description"></p>
+            <div class="stock-top-up-actions">
+              <button type="submit" id="saveStockTopUpBtn" class="action-btn" style="background:#059669;">
+                <span class="btn-text">Add Stock</span>
+                <span class="spinner" aria-hidden="true"></span>
+              </button>
+              <button type="button" id="cancelStockTopUpEditBtn" class="action-btn stock-top-up-cancel-edit" style="background:#6b7280;" hidden>Cancel edit</button>
+            </div>
+          </form>
+        </section>
+        <section class="stock-top-up-history" aria-labelledby="stockTopUpHistoryTitle">
+          <div class="stock-top-up-history-heading">
+            <div>
+              <h3 id="stockTopUpHistoryTitle">Recorded additions</h3>
+              <p>Filter by received date, then edit or remove an entry.</p>
+            </div>
+            <div class="stock-top-up-date-filters">
+              <label for="stockTopUpFromDate">From<input type="date" id="stockTopUpFromDate" /></label>
+              <label for="stockTopUpToDate">To<input type="date" id="stockTopUpToDate" /></label>
+            </div>
+          </div>
+          <p id="stockTopUpHistoryStatus" class="stock-top-up-history-status" role="status" aria-live="polite">Loading stock additions…</p>
+          <div class="stock-top-up-history-table-wrap">
+            <table class="compact-data-table stock-top-up-history-table">
+              <thead><tr><th>Date</th><th>Quantity added</th><th>Actions</th></tr></thead>
+              <tbody id="stockTopUpHistoryBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 
