@@ -109,7 +109,12 @@ service cloud.firestore {
     }
 
     match /stockAdditions/{additionId} {
-      allow read: if isAdmin() || ownsDocument(resource.data);
+      allow get: if isAdmin() ||
+        (resource == null &&
+          isActiveClient() &&
+          additionId.matches('^' + request.auth.uid + '%7C.*$')) ||
+        ownsDocument(resource.data);
+      allow list: if isAdmin() || ownsDocument(resource.data);
       allow create: if isAdmin() || ownsDocument(request.resource.data);
       allow update: if isAdmin() ||
         (ownsDocument(resource.data) &&

@@ -3938,7 +3938,6 @@ async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) 
     historyIncomplete = !analyticsAllSalesLoaded || Boolean(analyticsAllSalesError);
   }
 
-  const normalizedUnit = value => String(value || "").trim().toLowerCase();
   const duplicate = existingSales.find(existing => {
     if (existing.id === excludedSaleId) return false;
     const existingDate = new Date(existing.createdAt);
@@ -3947,10 +3946,7 @@ async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) 
       existing.uid === uid &&
       existing.itemId === sale.itemId &&
       String(existing.saleType || "retail").toLowerCase() ===
-        String(sale.saleType || "retail").toLowerCase() &&
-      Number(existing.quantity) === Number(sale.quantity) &&
-      normalizedUnit(existing.quantityUnit) === normalizedUnit(sale.quantityUnit) &&
-      Number(existing.unitPriceSold) === Number(sale.unitPriceSold);
+        String(sale.saleType || "retail").toLowerCase();
   });
 
   return { duplicate: duplicate || null, historyIncomplete };
@@ -4171,12 +4167,12 @@ async function handleSaleFormSubmit(e) {
     );
     if (duplicateCheck.duplicate) {
       const duplicate = duplicateCheck.duplicate;
-      const matchingSale = `${formatSaleQuantity(duplicate)} of ${duplicate.itemName} ` +
-        `(${duplicate.saleType || "retail"}, KES ${formatNumber(duplicate.unitPriceSold)} each)`;
-      if (!window.confirm(
-        `A matching sale already exists for ${matchingSale} on ${selectedSaleDate}. ` +
-        "Record this additional sale anyway?"
-      )) return;
+      alert(
+        `A ${duplicate.saleType || "retail"} sale for ${duplicate.itemName} is already recorded ` +
+        `on ${selectedSaleDate} (${formatSaleQuantity(duplicate)}). ` +
+        "Edit the existing sale and adjust its quantity instead of recording another sale."
+      );
+      return;
     } else if (duplicateCheck.historyIncomplete &&
         !window.confirm(
           "You are offline and complete sales history is not available on this device. " +
