@@ -4298,7 +4298,18 @@ table tr:hover {
 
 .login-page .navbar {
   position: relative;
+  padding: 5px 5%;
   background: rgba(250, 253, 247, 0.94);
+}
+
+.login-page .navbar .nav-links {
+  margin: 0;
+  padding: 0;
+}
+
+.login-page .navbar .nav-links a {
+  display: inline-block;
+  padding: 6px 0;
 }
 
 .login-announcement {
@@ -4576,6 +4587,49 @@ table tr:hover {
   opacity: 0;
 }
 
+@media (min-width: 601px) {
+  .login-page .pwa-install-prompt {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 2500;
+    margin: 0;
+    text-align: right;
+  }
+
+  .login-page .pwa-install-prompt .install-app-button {
+    min-height: 40px;
+    padding: 8px 13px;
+    border: 1px solid rgba(71, 125, 91, 0.3);
+    border-radius: 999px;
+    background: rgba(250, 253, 247, 0.96);
+    box-shadow: 0 3px 12px rgba(34, 75, 55, 0.12);
+    color: #315e45;
+    font-size: 13px;
+  }
+
+  .login-page .pwa-install-prompt .install-app-button:hover {
+    border-color: rgba(71, 125, 91, 0.55);
+    background: #eff8ef;
+  }
+
+  .login-page .install-app-status {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: max-content;
+    max-width: min(360px, calc(100vw - 48px));
+    margin: 0;
+    padding: 9px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+    color: #334155;
+    text-align: left;
+  }
+}
+
 .cookie-btn {
   background: #fff;
   color: #1e3a8a;
@@ -4603,5 +4657,51 @@ table tr:hover {
   .login-page #loginForm #loginBtn {
     min-height: 44px;
     font-size: 16px;
+  }
+
+  .login-page .pwa-install-prompt {
+    position: fixed;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 2500;
+    margin: 0;
+    text-align: right;
+  }
+
+  .login-page .pwa-install-prompt .install-app-button {
+    min-height: 48px;
+    padding: 10px 16px;
+    border: 1px solid #047857;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #047857, #059669 58%, #0f766e);
+    box-shadow: 0 8px 22px rgba(6, 95, 70, 0.35);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .login-page .pwa-install-prompt .install-app-button span {
+    display: inline;
+  }
+
+  .login-page .pwa-install-prompt .install-app-button svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .login-page .install-app-status {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    margin: 0;
+    padding: 9px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+    color: #334155;
+    text-align: left;
   }
 }

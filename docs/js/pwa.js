@@ -23,6 +23,19 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 }
 
 if (installAppButton) {
+  let appInstalled = false;
+  const isMobileViewport = () => window.matchMedia("(max-width: 600px)").matches;
+
+  if (isMobileViewport()) {
+    installAppButton.hidden = false;
+  }
+
+  window.addEventListener("resize", () => {
+    if (isMobileViewport() && !appInstalled && !window.navigator.standalone) {
+      installAppButton.hidden = false;
+    }
+  });
+
   if (isIosDevice() && !window.navigator.standalone) {
     installAppButton.hidden = false;
   }
@@ -37,6 +50,8 @@ if (installAppButton) {
     if (!pendingInstallPrompt) {
       if (isIosDevice()) {
         showInstallStatus("To install BizPulse, tap Share in Safari, then choose Add to Home Screen.");
+      } else if (isMobileViewport()) {
+        showInstallStatus("Open your browser menu and choose Install app or Add to Home Screen.");
       }
       return;
     }
@@ -59,6 +74,7 @@ if (installAppButton) {
   });
 
   window.addEventListener("appinstalled", () => {
+    appInstalled = true;
     pendingInstallPrompt = null;
     installAppButton.hidden = true;
     showInstallStatus("BizPulse has been installed.");
