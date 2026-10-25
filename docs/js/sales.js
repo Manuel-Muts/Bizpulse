@@ -3938,7 +3938,7 @@ async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) 
     historyIncomplete = !analyticsAllSalesLoaded || Boolean(analyticsAllSalesError);
   }
 
-  const duplicate = existingSales.find(existing => {
+  const matchingSales = existingSales.filter(existing => {
     if (existing.id === excludedSaleId) return false;
     const existingDate = new Date(existing.createdAt);
     return Number.isFinite(existingDate.getTime()) &&
@@ -3948,8 +3948,21 @@ async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) 
       String(existing.saleType || "retail").toLowerCase() ===
         String(sale.saleType || "retail").toLowerCase();
   });
+  const normalizedUnit = value => String(value || "").trim().toLowerCase();
+  const duplicate = matchingSales.find(existing =>
+    Number(existing.quantity) === Number(sale.quantity) &&
+    normalizedUnit(existing.quantityUnit) === normalizedUnit(sale.quantityUnit) &&
+    Number(existing.unitPriceSold) === Number(sale.unitPriceSold)
+  ) || matchingSales[0] || null;
 
-  return { duplicate: duplicate || null, historyIncomplete };
+  return {
+    duplicate,
+    exactMatch: Boolean(duplicate &&
+      Number(duplicate.quantity) === Number(sale.quantity) &&
+      normalizedUnit(duplicate.quantityUnit) === normalizedUnit(sale.quantityUnit) &&
+      Number(duplicate.unitPriceSold) === Number(sale.unitPriceSold)),
+    historyIncomplete
+  };
 }
 
 /**
@@ -4167,11 +4180,22 @@ async function handleSaleFormSubmit(e) {
     );
     if (duplicateCheck.duplicate) {
       const duplicate = duplicateCheck.duplicate;
-      alert(
-        `A ${duplicate.saleType || "retail"} sale for ${duplicate.itemName} is already recorded ` +
-        `on ${selectedSaleDate} (${formatSaleQuantity(duplicate)}). ` +
-        "Edit the existing sale and adjust its quantity instead of recording another sale."
-      );
+      const duplicateKind = duplicateCheck.exactMatch
+        ? "An identical sale is already recorded."
+        : "A sale for this item, sale type, and date is already recorded.";
+      const existingSaleDetails =
+        `Existing: ${duplicate.itemName} (${duplicate.saleType || "retail"}), ` +
+        `${formatSaleQuantity(duplicate)}, KES ${formatNumber(duplicate.unitPriceSold)} per unit.`;
+      const attemptedSaleDetails =
+        `Attempted: ${saleData.itemName} (${saleData.saleType}), ` +
+        `${formatSaleQuantity(saleData)}, KES ${formatNumber(saleData.unitPriceSold)} per unit.`;
+      if (window.confirm(
+        `${duplicateKind}\n\nDate: ${selectedSaleDate}\n${existingSaleDetails}\n` +
+        `${attemptedSaleDetails}\n\nThis sale will not be recorded separately. ` +
+        "Choose OK to load the existing sale so you can adjust its quantity, or Cancel to return."
+      )) {
+        populateSaleFormForEdit(duplicate);
+      }
       return;
     } else if (duplicateCheck.historyIncomplete &&
         !window.confirm(
@@ -4361,15 +4385,12 @@ async function handleSaleFormSubmit(e) {
  * Populates the sale form with existing data for editing.
  * @param {string} id - The ID of the sale to edit.
  */
-window.editSale = (id) => {
-  const sale = salesArray.find(s => s.id === id);
-  if (!sale) return;
-
-  editSaleId = id;
+function populateSaleFormForEdit(sale) {
+  editSaleId = sale.id;
   editingOriginalSale = sale;
   selectedItemId = sale.itemId;
-  
-  // Populate form fields
+  salesDateFilter.value = dateKey(new Date(sale.createdAt));
+
   if (saleItemSearch) saleItemSearch.value = sale.itemName;
   if (saleTypeInput) saleTypeInput.value = sale.saleType === "wholesale" ? "wholesale" : "retail";
   if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
@@ -4402,8 +4423,12 @@ window.editSale = (id) => {
   const btnText = recordSaleBtn.querySelector(".btn-text");
   if (btnText) btnText.textContent = "Update Sale";
 
-  // Smooth scroll to form
   window.scrollTo({ top: saleForm.offsetTop - 100, behavior: 'smooth' });
+}
+
+window.editSale = (id) => {
+  const sale = salesArray.find(candidate => candidate.id === id);
+  if (sale) populateSaleFormForEdit(sale);
 };
 
 /**
