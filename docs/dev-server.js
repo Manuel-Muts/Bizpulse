@@ -18,7 +18,8 @@ const contentTypes = new Map([
   [".json", "application/json; charset=utf-8"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
-  [".webp", "image/webp"]
+  [".webp", "image/webp"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"]
 ]);
 
 const server = http.createServer((request, response) => {

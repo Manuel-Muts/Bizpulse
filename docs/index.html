@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#123c56" />
   <meta name="description" content="BizPulse is a business management platform for tracking inventory, sales, purchases, expenses, and orders, with stock and profit insights for small businesses." />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/images/bizpulse-icon-192.png" />
   <link rel="canonical" href="https://business.competencehub.co.ke/" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="BizPulse" />
@@ -121,6 +124,11 @@
     <div class="footer-links">
       <a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Service</a>
     </div>
+    <button type="button" id="installAppButton" class="install-app-button" aria-label="Install BizPulse app" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"></path></svg>
+      <span>Install BizPulse app</span>
+    </button>
+    <p id="installAppStatus" class="install-app-status" role="status" aria-live="polite" hidden></p>
   </div>
 </footer>
 
@@ -135,5 +143,6 @@
 
   <!-- LANDING PAGE LOGIC -->
   <script type="module" src="js/home.js"></script>
+  <script type="module" src="js/pwa.js"></script>
 </body>
 </html>

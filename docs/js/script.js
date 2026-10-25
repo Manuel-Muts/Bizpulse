@@ -1743,10 +1743,17 @@ window.showLoadingIndicator = showLoadingIndicator;
    TAB SWITCHING LOGIC
    ========================= */
 function switchTab(tabId) {
-  // Update buttons
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll(".tab-btn, .mobile-app-tab[data-tab]").forEach(button => {
+    const isActive = button.dataset.tab === tabId;
+    button.classList.toggle("active", isActive);
+    if (isActive) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  const isMoreSection = !document.querySelector(`.mobile-app-tab[data-tab="${tabId}"]`);
+  mobileAppMoreButton?.classList.toggle("active", isMoreSection);
+  if (isMoreSection) mobileAppMoreButton?.setAttribute("aria-current", "page");
+  else mobileAppMoreButton?.removeAttribute("aria-current");
   const activeBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
-  if (activeBtn) activeBtn.classList.add('active');
 
   // Update content sections
   document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
@@ -1804,19 +1811,33 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+document.querySelectorAll(".mobile-app-tab[data-tab]").forEach(btn => {
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+});
+
 const dashboardMenuToggle = document.getElementById("dashboardMenuToggle");
 const dashboardNavigation = document.getElementById("dashboardNavigation");
 const dashboardMenuBackdrop = document.getElementById("dashboardMenuBackdrop");
 const dashboardMenuClose = document.getElementById("dashboardMenuClose");
+const mobileAppMoreButton = document.getElementById("mobileAppMoreButton");
 
 function closeDashboardNavigation() {
   if (!dashboardNavigation || !dashboardMenuToggle || !dashboardMenuBackdrop) return;
   dashboardNavigation.classList.remove("open");
-  dashboardNavigation.setAttribute("aria-hidden", "true");
+  dashboardNavigation.setAttribute(
+    "aria-hidden",
+    window.matchMedia("(min-width: 901px)").matches ? "false" : "true"
+  );
   dashboardMenuToggle.setAttribute("aria-expanded", "false");
   dashboardMenuToggle.setAttribute("aria-label", "Open navigation menu");
+  mobileAppMoreButton?.setAttribute("aria-expanded", "false");
   dashboardMenuBackdrop.hidden = true;
   document.body.classList.remove("dashboard-menu-open");
+  const activeTab = document.querySelector(".tab-btn.active")?.dataset.tab;
+  const isMoreSection = Boolean(activeTab && !document.querySelector(`.mobile-app-tab[data-tab="${activeTab}"]`));
+  mobileAppMoreButton?.classList.toggle("active", isMoreSection);
+  if (isMoreSection) mobileAppMoreButton?.setAttribute("aria-current", "page");
+  else mobileAppMoreButton?.removeAttribute("aria-current");
 }
 
 function openDashboardNavigation() {
@@ -1825,12 +1846,19 @@ function openDashboardNavigation() {
   dashboardNavigation.setAttribute("aria-hidden", "false");
   dashboardMenuToggle.setAttribute("aria-expanded", "true");
   dashboardMenuToggle.setAttribute("aria-label", "Close navigation menu");
+  mobileAppMoreButton?.setAttribute("aria-expanded", "true");
   dashboardMenuBackdrop.hidden = false;
   document.body.classList.add("dashboard-menu-open");
+  mobileAppMoreButton?.classList.add("active");
   dashboardMenuClose?.focus();
 }
 
 dashboardMenuToggle?.addEventListener("click", () => {
+  if (dashboardNavigation?.classList.contains("open")) closeDashboardNavigation();
+  else openDashboardNavigation();
+});
+
+mobileAppMoreButton?.addEventListener("click", () => {
   if (dashboardNavigation?.classList.contains("open")) closeDashboardNavigation();
   else openDashboardNavigation();
 });

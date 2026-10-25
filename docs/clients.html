@@ -4,8 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#123c56" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="BizPulse" />
   <title>BizPulse</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="apple-touch-icon" href="/images/bizpulse-icon-192.png" />
   <link rel="shortcut icon" href="images/logo.png" type="image/png" />
 </head>
 <body class="client-page">
@@ -313,6 +319,10 @@
           <span aria-hidden="true">↻</span>
           Refresh
         </button>
+        <button type="button" id="installAppButton" class="install-app-button" aria-label="Install BizPulse app" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"></path></svg>
+          <span>Install</span>
+        </button>
         <div class="client-profile-menu">
           <button type="button" id="clientProfileToggle" class="client-profile-toggle" aria-label="Open profile menu" aria-controls="clientProfileMenu" aria-expanded="false">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -328,6 +338,7 @@
       </div>
     </header>
     <p id="dashboardRefreshStatus" class="dashboard-refresh-status" role="status" aria-live="polite"></p>
+    <p id="installAppStatus" class="install-app-status" role="status" aria-live="polite" hidden></p>
 
     <section class="dashboard-welcome" aria-live="polite">
       <h2 id="welcomeMessage">Welcome back!</h2>
@@ -352,7 +363,7 @@
       <span id="currentDashboardSection" class="current-dashboard-section">Overview</span>
     </div>
     <button type="button" id="dashboardMenuBackdrop" class="dashboard-menu-backdrop" aria-label="Close navigation menu" hidden></button>
-    <nav id="dashboardNavigation" class="dashboard-navigation" aria-label="Dashboard navigation" aria-hidden="true">
+    <nav id="dashboardNavigation" class="dashboard-navigation" aria-label="Dashboard navigation" aria-hidden="false">
       <div class="dashboard-navigation-header">
         <h2>Navigation</h2>
         <button type="button" id="dashboardMenuClose" class="dashboard-menu-close" aria-label="Close navigation menu">&times;</button>
@@ -958,10 +969,36 @@
         <button id="nextPageBtn" class="action-btn" style="background: #4b5563;">Next</button>
       </div>
     </div>
+
+    <footer class="mobile-app-footer">
+      <nav class="mobile-app-navigation" aria-label="Main navigation">
+        <button type="button" class="mobile-app-tab active" data-tab="overview" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"></path></svg>
+          <span>Home</span>
+        </button>
+        <button type="button" class="mobile-app-tab" data-tab="inventory">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"></path><path d="m3 12 9 5 9-5M3 16l9 5 9-5"></path></svg>
+          <span>Inventory</span>
+        </button>
+        <button type="button" class="mobile-app-tab" data-tab="sales">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4"></path></svg>
+          <span>Sales</span>
+        </button>
+        <button type="button" class="mobile-app-tab" data-tab="analytics">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h17M8 15l4-4 3 2 5-6"></path></svg>
+          <span>Analytics</span>
+        </button>
+        <button type="button" id="mobileAppMoreButton" class="mobile-app-tab" aria-controls="dashboardNavigation" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>
+          <span>More</span>
+        </button>
+      </nav>
+    </footer>
   </div>
 
   <!-- SCRIPTS -->
   <script type="module" src="js/script.js"></script>
   <script type="module" src="js/sales.js"></script>
+  <script type="module" src="js/pwa.js"></script>
 </body>
 </html>

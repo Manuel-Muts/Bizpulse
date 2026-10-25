@@ -350,6 +350,10 @@ button.loading .btn-text {
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+.mobile-app-footer {
+  display: none;
+}
+
 .business-header {
   position: sticky;
   top: 0;
@@ -580,6 +584,71 @@ button.loading .btn-text {
   opacity: 0.65;
 }
 
+.install-app-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #eff6ff, #fff);
+  color: #1d4ed8;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.install-app-button[hidden] {
+  display: none;
+}
+
+.install-app-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.install-app-status {
+  margin: -10px 0 14px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.install-app-status[hidden] {
+  display: none;
+}
+
+.pwa-install-prompt {
+  margin: 18px auto 0;
+  text-align: center;
+}
+
+.main-footer .install-app-button {
+  margin: 14px auto 0;
+}
+
+.main-footer .install-app-status {
+  margin: 8px 0 0;
+}
+
+.login-page .pwa-install-prompt .install-app-button {
+  min-height: 46px;
+  padding: 10px 18px;
+  border-color: rgba(127, 180, 140, 0.5);
+  background: linear-gradient(100deg, #eff8ef, #fff9e8);
+  color: #315e45;
+}
+
+.login-page .install-app-status {
+  margin: 10px 0 0;
+}
+
 .dashboard-refresh-status {
   margin: -12px 0 16px;
   color: #64748b;
@@ -676,6 +745,101 @@ button.loading .btn-text {
     width: auto;
     flex: 1;
     text-align: center;
+  }
+}
+
+@media (max-width: 900px) {
+  body.client-page {
+    min-height: 100vh;
+    padding: 0;
+    background: #f1f5f9;
+  }
+
+  .client-page > .container {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    margin: 0;
+    padding: 16px 18px calc(96px + env(safe-area-inset-bottom));
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .dashboard-menu {
+    display: none;
+  }
+
+  .mobile-app-footer {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 899;
+    display: block;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(191, 219, 254, 0.4);
+    background:
+      radial-gradient(ellipse at 50% -55%, rgba(96, 165, 250, 0.42), transparent 68%),
+      linear-gradient(115deg, #102a43 0%, #123c56 48%, #173b61 100%);
+    box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.24);
+    backdrop-filter: blur(16px);
+  }
+
+  .mobile-app-navigation {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: min(100%, 680px);
+    margin: 0 auto;
+  }
+
+  .mobile-app-tab {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 54px;
+    padding: 5px 2px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #dbeafe;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-app-tab svg {
+    width: 21px;
+    height: 21px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  .mobile-app-tab:last-child svg circle {
+    fill: currentColor;
+    stroke: none;
+  }
+
+  .mobile-app-tab.active {
+    background: linear-gradient(145deg, #fff7d6, #fef3c7);
+    color: #17324d;
+    box-shadow: 0 3px 10px rgba(2, 6, 23, 0.18), inset 0 1px rgba(255, 255, 255, 0.9);
+  }
+
+  .mobile-app-tab:focus-visible {
+    outline: 2px solid #fef3c7;
+    outline-offset: 2px;
+  }
+
+  .install-app-button {
+    min-height: 44px;
   }
 }
 
@@ -3140,6 +3304,54 @@ table tr:hover {
     padding: 10px;
   }
 
+  .client-page > .container {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .client-page button,
+  .client-page .action-btn,
+  .client-page .actions button {
+    min-height: 42px;
+  }
+
+  .login-page input,
+  .login-page select,
+  .login-page textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .client-page input,
+  .client-page select,
+  .client-page textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .client-page #saleForm .sale-form-field input,
+  .client-page #saleForm .sale-form-field select,
+  .client-page #saleForm .sale-item-search > input,
+  .client-page #saleForm .sale-quantity-unit-field select,
+  .client-page #saleForm .petrol-dip-fields input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .client-page input[type="checkbox"],
+  .client-page input[type="radio"] {
+    min-height: 18px;
+  }
+
+  .business-header {
+    top: 0;
+  }
+
+  .dashboard-welcome {
+    margin-bottom: 14px;
+    padding: 14px;
+  }
+
   .inventory-stock-tools {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3175,7 +3387,17 @@ table tr:hover {
   .business-header-actions {
     grid-column: 2;
     grid-row: 1;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .install-app-button {
+    min-width: 42px;
+    padding: 8px;
+  }
+
+  .install-app-button span {
+    display: none;
   }
 
   .home-page {
@@ -3380,6 +3602,50 @@ table tr:hover {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  #inventorySection .inventory-stock-tool-group select,
+  #inventorySection #itemForm input:not([type="hidden"]),
+  #inventorySection #itemForm select {
+    box-sizing: border-box;
+    min-height: 40px;
+    padding: 8px 9px;
+    font-size: 15px;
+  }
+
+  #inventorySection #itemForm .inventory-price-field,
+  #inventorySection #itemForm .inventory-crate-field {
+    font-size: 12px;
+  }
+
+  #inventorySection #itemForm #saveItemBtn {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+
+  #inventorySection .inventory-table-wrap {
+    overscroll-behavior-x: contain;
+  }
+
+  #inventorySection .inventory-items-table {
+    min-width: 640px;
+  }
+
+  #inventorySection .inventory-items-table th,
+  #inventorySection .inventory-items-table td {
+    padding: 6px 5px;
+    font-size: 11px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  #inventorySection .inventory-items-table td:last-child button {
+    min-height: 30px;
+    margin: 1px 2px;
+    padding: 4px 5px;
+    font-size: 10px;
+    line-height: 1.1;
   }
 
   .expense-form {
@@ -3592,27 +3858,63 @@ table tr:hover {
 
   .analytics-filters {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 8px;
     width: 100%;
   }
 
   .analytics-item-filter {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 10px;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
   }
 
   .analytics-item-search-hint {
-    grid-column: auto;
+    grid-column: 1 / -1;
+  }
+
+  #analyticsSection .analytics-filter-control {
+    gap: 4px;
+  }
+
+  #analyticsSection .analytics-filter-control label,
+  #analyticsSection .analytics-filter-custom-range label {
+    font-size: 11px;
+  }
+
+  #analyticsSection .analytics-filters input,
+  #analyticsSection .analytics-filters select,
+  #analyticsSection .analytics-filter-custom-range input {
+    box-sizing: border-box;
+    min-height: 34px;
+    padding: 5px 6px;
+    font-size: 12px;
   }
 
   .analytics-filter-period,
   .analytics-filter-date {
-    padding: 10px;
+    padding: 8px;
   }
 
   .analytics-filter-custom-range {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
+    gap: 5px;
+  }
+
+  .analytics-item-pagination {
+    gap: 3px;
+  }
+
+  .analytics-item-pagination button {
+    min-height: 25px;
+    padding: 3px 5px;
+    font-size: 10px;
+  }
+
+  .analytics-item-pagination span {
+    font-size: 10px;
   }
 
   .analytics-pdf-button {
@@ -3728,6 +4030,72 @@ table tr:hover {
   background-color: #d1d5db !important;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+@media (max-width: 900px) {
+  #inventorySection .inventory-stock-tool-group select,
+  #inventorySection #itemForm input:not([type="hidden"]),
+  #inventorySection #itemForm select {
+    box-sizing: border-box;
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+
+  #inventorySection #itemForm .inventory-price-field,
+  #inventorySection #itemForm .inventory-crate-field {
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  #inventorySection #itemForm #saveItemBtn {
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+
+  #inventorySection .inventory-stock-tool-add,
+  #inventorySection #openStockHealthModalBtn {
+    min-height: 32px;
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  #inventorySection .inventory-items-table {
+    min-width: 620px;
+  }
+
+  #inventorySection .inventory-items-table th,
+  #inventorySection .inventory-items-table td {
+    padding: 4px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  #inventorySection .inventory-items-table td:last-child button {
+    box-sizing: border-box;
+    min-height: 26px;
+    margin: 1px;
+    padding: 4px 5px;
+    border: 0;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 9px;
+    line-height: 1;
+    appearance: none;
+  }
+
+  #inventorySection .inventory-items-table td:last-child button:nth-of-type(1) {
+    background: #059669;
+  }
+
+  #inventorySection .inventory-items-table td:last-child button:nth-of-type(2) {
+    background: #2563eb;
+  }
+
+  #inventorySection .inventory-items-table td:last-child button:nth-of-type(3) {
+    background: #dc2626;
+  }
 }
 
 /* =========================
@@ -4218,4 +4586,22 @@ table tr:hover {
   font-weight: bold;
   margin-left: 20px;
   white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .login-page #loginForm input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .login-page #loginForm #togglePasswordBtn {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .login-page #loginForm #loginBtn {
+    min-height: 44px;
+    font-size: 16px;
+  }
 }

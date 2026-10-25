@@ -4,8 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#123c56" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="BizPulse" />
   <title>Login - BizPulse</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="apple-touch-icon" href="/images/bizpulse-icon-192.png" />
   <link rel="shortcut icon" href="images/logo.png" type="image/png" />
 </head>
 <body class="login-page">
@@ -61,9 +67,17 @@
       </form>
       <p id="loginMessage" class="login-message" role="status" aria-live="polite"></p>
     </div>
+    <div class="pwa-install-prompt">
+      <button type="button" id="installAppButton" class="install-app-button" aria-label="Install BizPulse app" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v3h14v-3"></path></svg>
+        <span>Install BizPulse app</span>
+      </button>
+      <p id="installAppStatus" class="install-app-status" role="status" aria-live="polite" hidden></p>
+    </div>
   </main>
 
   <!-- MODULE SCRIPT -->
   <script type="module" src="js/login.js"></script>
+  <script type="module" src="js/pwa.js"></script>
 </body>
 </html>
