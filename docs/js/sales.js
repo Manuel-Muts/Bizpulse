@@ -2112,8 +2112,8 @@ function renderPetrolAnalytics() {
         <td>${escapeQuantity(new Date(sale.createdAt).toLocaleString())}</td>
         <td>${formatNumber(dip.openingDipLiters)}</td>
         <td>${formatNumber(dip.fuelReceivedLiters)}</td>
-        <td>${formatNumber(dip.pumpSalesLiters)}</td>
         <td>${formatNumber(dip.totalAvailableLiters)}</td>
+        <td>${formatNumber(dip.pumpSalesLiters)}</td>
         <td>${formatNumber(dip.expectedClosingDipLiters)}</td>
         <td>${formatNumber(dip.actualClosingDipLiters)}</td>
         <td>${formatNumber(dip.varianceLiters)}</td>
@@ -2574,8 +2574,8 @@ function buildAnalyticsPdf() {
           new Date(sale.createdAt).toLocaleDateString(),
           `${formatNumber(dip.openingDipLiters)} L`,
           `${formatNumber(dip.fuelReceivedLiters)} L`,
-          `${formatNumber(dip.pumpSalesLiters)} L`,
           `${formatNumber(dip.totalAvailableLiters)} L`,
+          `${formatNumber(dip.pumpSalesLiters)} L`,
           `${formatNumber(dip.expectedClosingDipLiters)} L`,
           `${formatNumber(dip.actualClosingDipLiters)} L`,
           `${formatNumber(dip.varianceLiters)} L`
@@ -2584,7 +2584,7 @@ function buildAnalyticsPdf() {
 
     drawSectionTitle("Petrol dip readings (L)");
     drawTable(
-      ["Petrol source", "Date", "Opening (L)", "Received (L)", "Pump sales (L)", "Available (L)", "Expected close (L)", "Actual close (L)", "Variance (L)"],
+      ["Petrol source", "Date", "Opening (L)", "Received (L)", "Available (L)", "Pump sales (L)", "Expected close (L)", "Actual close (L)", "Variance (L)"],
       petrolRows.length ? petrolRows : [["No petrol dip records", "", "", "", "", "", "", "", ""]],
       [46, 28, 29, 29, 29, 31, 34, 29, 22]
     );
