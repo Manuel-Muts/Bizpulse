@@ -147,6 +147,8 @@ const analyticsNetRevenueTotalEl = document.getElementById("analyticsNetRevenueT
 const analyticsDiscountTotalEl = document.getElementById("analyticsDiscountTotal");
 const analyticsExpenseTotalEl = document.getElementById("analyticsExpenseTotal");
 const analyticsQuantityTotalEl = document.getElementById("analyticsQuantityTotal");
+const analyticsQuantityHeadingEl = document.getElementById("analyticsQuantityHeading");
+const analyticsSoldQuantityHeadingEl = document.getElementById("analyticsSoldQuantityHeading");
 const analyticsSelectedItemBadge = document.getElementById("analyticsSelectedItemBadge");
 const analyticsSaleTypeBreakdownEl = document.getElementById("analyticsSaleTypeBreakdown");
 const analyticsItemChartModule = document.getElementById("analyticsItemChartModule");
@@ -164,6 +166,7 @@ const overviewTopItems = document.getElementById("overviewTopItems");
 const overviewPetrolQuantity = document.getElementById("overviewPetrolQuantity");
 const overviewPetrolRevenue = document.getElementById("overviewPetrolRevenue");
 const overviewPetrolClosingDip = document.getElementById("overviewPetrolClosingDip");
+const overviewPetrolBreakdown = document.getElementById("overviewPetrolBreakdown");
 const overviewRecentSales = document.getElementById("overviewRecentSales");
 const overviewStockAdditions = document.getElementById("overviewStockAdditions");
 const overviewExpenses = document.getElementById("overviewExpenses");
@@ -472,7 +475,8 @@ function listenToAnalyticsItems(uid) {
     analyticsItemsError = null;
     ensureStockLedgerBaselines(analyticsItems);
     renderAnalyticsItemPageOptions();
-    if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
+    if (isStaticAnalyticsFilter(analyticsItemFilter.value) ||
+        isPetrolAnalyticsSelection(analyticsItemFilter.value)) {
       analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
     updateAnalyticsUI();
@@ -1432,6 +1436,11 @@ function handleAnalyticsItemChange() {
     updateAnalyticsUI();
     return;
   }
+  if (isPetrolAnalyticsSelection(itemId)) {
+    analyticsItemSales = getAnalyticsSalesForFilter(itemId);
+    updateAnalyticsUI();
+    return;
+  }
   analyticsItemSales = [];
   updateAnalyticsUI();
   const itemSalesQuery = query(
@@ -1578,6 +1587,12 @@ function isPetrolItem(item) {
   return isPetrolName(item?.name);
 }
 
+function isPetrolAnalyticsSelection(itemId) {
+  const item = analyticsItemsById.get(itemId) ||
+    itemsArray.find(candidate => candidate.id === itemId);
+  return isPetrolItem(item);
+}
+
 function isGasAnalyticsItem(item) {
   return Boolean(item && !isPetrolItem(item) &&
     (item.gasType === "refillable" || item.gasType === "non-refillable" ||
@@ -1626,9 +1641,15 @@ function getGroupedAnalyticsSales(filterValue) {
 }
 
 function getAnalyticsSalesForFilter(filterValue) {
-  return filterValue === GENERAL_ANALYTICS_FILTER
-    ? allSalesForAnalytics.filter(isIncludedInAllAnalytics)
-    : getGroupedAnalyticsSales(filterValue);
+  if (filterValue === GENERAL_ANALYTICS_FILTER) {
+    return allSalesForAnalytics.filter(isIncludedInAllAnalytics);
+  }
+  if (isPetrolAnalyticsSelection(filterValue)) {
+    return allSalesForAnalytics.filter(sale =>
+      isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName)
+    );
+  }
+  return getGroupedAnalyticsSales(filterValue);
 }
 
 function setSaleQuantityUnit(item) {
@@ -2074,23 +2095,20 @@ function renderPetrolAnalytics() {
   petrolAnalyticsPreview.hidden = !showPetrol;
   if (!showPetrol) return;
 
-  if (analyticsItemSalesError) {
-    petrolAnalyticsTable.innerHTML = `<tr><td colspan="8">${escapeQuantity(analyticsItemSalesError)}</td></tr>`;
+  if (analyticsAllSalesError) {
+    petrolAnalyticsTable.innerHTML = `<tr><td colspan="9">${escapeQuantity(analyticsAllSalesError)}</td></tr>`;
     return;
   }
 
   const { start, end } = getAnalyticsDateRange(analyticsPeriodFilter.value, analyticsDateFilter.value);
-  const salesInPeriod = (analyticsItemSales || [])
-    .filter(sale => {
-      const saleDate = new Date(sale.createdAt);
-      return sale.petrolDip && saleDate >= start && saleDate < end;
-    })
+  const salesInPeriod = getPetrolDipSalesInRange(start, end)
     .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt));
 
   petrolAnalyticsTable.innerHTML = salesInPeriod.length
     ? salesInPeriod.map(sale => {
       const dip = sale.petrolDip;
       return `<tr>
+        <td>${escapeQuantity(getPetrolSourceName(sale))}</td>
         <td>${escapeQuantity(new Date(sale.createdAt).toLocaleString())}</td>
         <td>${formatNumber(dip.openingDipLiters)}</td>
         <td>${formatNumber(dip.fuelReceivedLiters)}</td>
@@ -2101,7 +2119,21 @@ function renderPetrolAnalytics() {
         <td>${formatNumber(dip.varianceLiters)}</td>
       </tr>`;
     }).join("")
-    : `<tr><td colspan="8" style="text-align:center;">No petrol dip records for this period.</td></tr>`;
+    : `<tr><td colspan="9" style="text-align:center;">No petrol dip records for this period.</td></tr>`;
+}
+
+function getPetrolDipSalesInRange(start, end) {
+  return allSalesForAnalytics.filter(sale => {
+    const saleDate = new Date(sale.createdAt);
+    return sale.petrolDip &&
+      isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName) &&
+      Number.isFinite(saleDate.getTime()) &&
+      saleDate >= start && saleDate < end;
+  });
+}
+
+function getPetrolSourceName(sale) {
+  return analyticsItemsById.get(sale.itemId)?.name || sale.itemName || "Petrol";
 }
 
 async function exportAnalyticsPdf() {
@@ -2139,7 +2171,9 @@ function buildAnalyticsPdf() {
     throw new Error("Choose a valid custom date range before exporting.");
   }
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const itemName = analyticsItemFilter.selectedOptions[0]?.textContent || "No analysis selected";
+  const itemName = analyticsItemFilter.value
+    ? getSelectedAnalyticsItemLabel()
+    : "No analysis selected";
   const period = analyticsPeriodFilter.value;
   const selectedDate = analyticsDateFilter.value;
   const rows = currentAnalyticsRows;
@@ -2376,7 +2410,8 @@ function buildAnalyticsPdf() {
     ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
     ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
     ["Wholesale discounts", `KES ${analyticsDiscountTotalEl.textContent}`],
-    ["Quantity sold", analyticsQuantityTotalEl.textContent],
+    [isPetrolAnalyticsSelection(analyticsItemFilter.value) ? "Litres sold" : "Quantity sold",
+      analyticsQuantityTotalEl.textContent],
     ...getAnalyticsSaleTypeQuantities(rows.flatMap(row => row.dateKeys)).map(({ type, quantities, isCrateSelection }) => [
       `${type} quantity sold`,
       formatAnalyticsSaleTypeQuantity(quantities, isCrateSelection)
@@ -2392,14 +2427,15 @@ function buildAnalyticsPdf() {
     ? analyticsItemSales
     : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   drawTable(
-    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", "Items sold", "Products and quantities"],
+    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", isPetrolAnalyticsSelection(analyticsItemFilter.value) ? "Litres sold" : "Items sold", "Products and quantities"],
     rows.map(row => {
       const salesByItem = new Map();
       selectedAnalyticsSales.forEach(sale => {
         if (!row.dateKeys.includes(dateKey(new Date(sale.createdAt)))) return;
 
-        const unit = sale.quantityUnit || "";
-        const itemName = sale.itemName || "Item";
+        const petrolSelection = isPetrolAnalyticsSelection(analyticsItemFilter.value);
+        const unit = sale.quantityUnit || (petrolSelection ? "L" : "");
+        const itemName = petrolSelection ? getPetrolSourceName(sale) : sale.itemName || "Item";
         const gasType = getGasTypeForSale(sale);
         const saleType = sale.saleType === "wholesale" ? "wholesale" : "retail";
         const isGroupedCrate = analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER;
@@ -2529,15 +2565,12 @@ function buildAnalyticsPdf() {
 
   if (!petrolAnalyticsPreview.hidden) {
     const { start, end } = getAnalyticsDateRange(period, selectedDate);
-    const petrolRows = (analyticsItemSales || [])
-      .filter(sale => {
-        const saleDate = new Date(sale.createdAt);
-        return sale.petrolDip && saleDate >= start && saleDate < end;
-      })
+    const petrolRows = getPetrolDipSalesInRange(start, end)
       .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))
       .map(sale => {
         const dip = sale.petrolDip;
         return [
+          getPetrolSourceName(sale),
           new Date(sale.createdAt).toLocaleDateString(),
           `${formatNumber(dip.openingDipLiters)} L`,
           `${formatNumber(dip.fuelReceivedLiters)} L`,
@@ -2551,9 +2584,9 @@ function buildAnalyticsPdf() {
 
     drawSectionTitle("Petrol dip readings (L)");
     drawTable(
-      ["Date", "Opening (L)", "Received (L)", "Pump sales (L)", "Available (L)", "Expected close (L)", "Actual close (L)", "Variance (L)"],
-      petrolRows.length ? petrolRows : [["No petrol dip records", "", "", "", "", "", "", ""]],
-      [32, 31, 31, 31, 34, 39, 34, 45]
+      ["Petrol source", "Date", "Opening (L)", "Received (L)", "Pump sales (L)", "Available (L)", "Expected close (L)", "Actual close (L)", "Variance (L)"],
+      petrolRows.length ? petrolRows : [["No petrol dip records", "", "", "", "", "", "", "", ""]],
+      [46, 28, 29, 29, 29, 31, 34, 29, 22]
     );
   }
 
@@ -2658,7 +2691,8 @@ function listenToAnalytics(uid) {
     }));
     analyticsAllSalesError = null;
     analyticsAllSalesLoaded = true;
-    if (isStaticAnalyticsFilter(analyticsItemFilter.value)) {
+    if (isStaticAnalyticsFilter(analyticsItemFilter.value) ||
+        isPetrolAnalyticsSelection(analyticsItemFilter.value)) {
       analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
     }
     updateAnalyticsUI();
@@ -2708,6 +2742,10 @@ function updateAnalyticsUI() {
   if (!selectedDate) return;
 
   const analyticsSelectedItem = analyticsItemFilter.value;
+  const petrolSelected = isPetrolAnalyticsSelection(analyticsSelectedItem);
+  const quantityLabel = petrolSelected ? "Litres Sold" : "Items Sold";
+  analyticsQuantityHeadingEl.textContent = quantityLabel;
+  analyticsSoldQuantityHeadingEl.textContent = quantityLabel;
   const supportsGroupedItemChart = isStaticAnalyticsFilter(analyticsSelectedItem);
   analyticsItemChartModule.hidden = !supportsGroupedItemChart;
   analyticsItemChartToggle.disabled = !analyticsAllSalesLoaded || Boolean(analyticsAllSalesError);
@@ -2739,7 +2777,9 @@ function updateAnalyticsUI() {
     analyticsSelectedItem === ALL_ACCESSORIES_ANALYTICS_FILTER;
   const analyticsError = expensesError ||
     (requiresAccessoryDefinitions ? accessoryItemsError : null) ||
-    (isStaticAnalyticsFilter(analyticsSelectedItem)
+    (petrolSelected
+      ? analyticsAllSalesError || analyticsItemsError
+      : isStaticAnalyticsFilter(analyticsSelectedItem)
       ? analyticsAllSalesError || analyticsItemsError
       : analyticsItemSalesError);
   if (analyticsError) {
@@ -2916,6 +2956,7 @@ function renderOverview() {
     overviewPetrolQuantity.textContent = "—";
     overviewPetrolRevenue.textContent = "—";
     overviewPetrolClosingDip.textContent = "—";
+    overviewPetrolBreakdown.innerHTML = `<div class="overview-empty-state">${errorMessage}</div>`;
     overviewLowStockEl.textContent = String(countLowStockItems());
     renderOverviewStockAdditions(start, end);
     renderOverviewExpenses(getExpensesForDateRange(start, end));
@@ -3325,15 +3366,73 @@ function renderOverviewPetrol(sales) {
   overviewPetrolQuantity.textContent = `${formatNumber(quantity)} L`;
   overviewPetrolRevenue.textContent = `KES ${formatNumber(revenue)}`;
 
-  const latestDip = allSalesForAnalytics
-    .filter(sale => sale.petrolDip &&
-      isPetrolName(analyticsItemsById.get(sale.itemId)?.name || sale.itemName) &&
-      sale.petrolDip.actualClosingDipLiters !== null &&
-      sale.petrolDip.actualClosingDipLiters !== undefined &&
-      Number.isFinite(Number(sale.petrolDip.actualClosingDipLiters)))
-    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))[0];
-  overviewPetrolClosingDip.textContent = latestDip
-    ? `${formatNumber(latestDip.petrolDip.actualClosingDipLiters)} L`
+  const sourceMap = new Map();
+  const getSource = sale => {
+    const itemName = analyticsItemsById.get(sale.itemId)?.name || sale.itemName || "Petrol";
+    const name = String(itemName).trim() || "Petrol";
+    return {
+      key: sale.itemId ? `item:${sale.itemId}` : `name:${name.toLowerCase()}`,
+      name
+    };
+  };
+
+  sales.forEach(sale => {
+    const source = getSource(sale);
+    const current = sourceMap.get(source.key) || {
+      name: source.name,
+      quantity: 0,
+      revenue: 0,
+      latestDip: null
+    };
+    current.quantity += Number(sale.quantity) || 0;
+    current.revenue += Number(sale.revenue) || 0;
+    sourceMap.set(source.key, current);
+  });
+
+  allSalesForAnalytics.forEach(sale => {
+    const itemName = analyticsItemsById.get(sale.itemId)?.name || sale.itemName;
+    const dip = sale.petrolDip;
+    const closingDip = dip?.actualClosingDipLiters;
+    const recordedAt = new Date(sale.createdAt);
+    if (!isPetrolName(itemName) ||
+      closingDip === null ||
+      closingDip === undefined ||
+      !Number.isFinite(Number(closingDip)) ||
+      !Number.isFinite(recordedAt.getTime())) return;
+
+    const source = getSource(sale);
+    const current = sourceMap.get(source.key) || {
+      name: source.name,
+      quantity: 0,
+      revenue: 0,
+      latestDip: null
+    };
+    if (!current.latestDip || recordedAt > current.latestDip.recordedAt) {
+      current.latestDip = { quantity: Number(closingDip), recordedAt };
+    }
+    sourceMap.set(source.key, current);
+  });
+
+  const breakdownEntries = [...sourceMap.values()]
+    .sort((left, right) => right.quantity - left.quantity || left.name.localeCompare(right.name));
+  if (breakdownEntries.length) {
+    overviewPetrolBreakdown.innerHTML = breakdownEntries.map(entry => `
+      <div class="overview-petrol-breakdown-card">
+        <strong>${escapeQuantity(entry.name)}</strong>
+        <small>${formatNumber(entry.quantity)} L sold</small>
+        <small>KES ${formatNumber(entry.revenue)}</small>
+        <small>${entry.latestDip
+          ? `Latest actual closing dip: ${formatNumber(entry.latestDip.quantity)} L`
+          : "No actual closing dip recorded"}</small>
+      </div>
+    `).join("");
+  } else {
+    overviewPetrolBreakdown.innerHTML = '<div class="overview-empty-state">No petrol sales or dip records found.</div>';
+  }
+
+  const sourcesWithDip = breakdownEntries.filter(entry => entry.latestDip).length;
+  overviewPetrolClosingDip.textContent = sourcesWithDip
+    ? `${sourcesWithDip} source${sourcesWithDip === 1 ? "" : "s"} below`
     : "No dip record";
 }
 
@@ -3386,6 +3485,7 @@ function dateKey(date) {
 }
 
 function getSelectedAnalyticsItemLabel() {
+  if (isPetrolAnalyticsSelection(analyticsItemFilter.value)) return "All Petrol Sources";
   return analyticsItemFilter.selectedOptions[0]?.textContent.trim() || "Selected item";
 }
 
@@ -3393,6 +3493,17 @@ function getAnalyticsQuantityDisplay(dateKeys) {
   const selectedItemId = analyticsItemFilter.value;
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
     itemsArray.find(item => item.id === selectedItemId);
+  if (isPetrolItem(selectedItem)) {
+    const selectedDates = new Set(dateKeys);
+    const quantity = (analyticsItemSales || []).reduce((total, sale) => {
+      const saleDate = new Date(sale.createdAt);
+      return Number.isFinite(saleDate.getTime()) &&
+        selectedDates.has(dateKey(saleDate))
+        ? total + (Number(sale.quantity) || 0)
+        : total;
+    }, 0);
+    return `${formatNumber(quantity)} L`;
+  }
   const isAllCratesSelected = selectedItemId === ALL_CRATE_ANALYTICS_FILTER;
   const isBoxSelection = isBoxItem(selectedItem);
   if (!isAllCratesSelected && !isCrateItem(selectedItem?.name) && !isBoxSelection) return null;

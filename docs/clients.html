@@ -411,13 +411,14 @@
 
       <section class="overview-panel overview-petrol-panel">
         <div class="overview-panel-heading">
-          <div><h3>Petrol snapshot</h3><p>Fuel quantities and dip figures stay separate from other items.</p></div>
+          <div><h3>Petrol snapshot</h3><p>Each petrol source is tracked separately and also totalled for the selected period.</p></div>
         </div>
         <div class="overview-petrol-stats">
           <div><span>Petrol sold</span><strong id="overviewPetrolQuantity">0 L</strong></div>
           <div><span>Petrol revenue</span><strong id="overviewPetrolRevenue">KES 0</strong></div>
-          <div><span>Latest actual closing dip</span><strong id="overviewPetrolClosingDip">—</strong></div>
+          <div><span>Latest actual closing dip</span><strong id="overviewPetrolClosingDip">Per machine below</strong></div>
         </div>
+        <div id="overviewPetrolBreakdown" class="overview-petrol-breakdown" aria-live="polite"></div>
       </section>
 
       <section class="overview-panel overview-stock-additions-panel">
@@ -607,7 +608,7 @@
         <div class="stat-card"><h3>Net Sales Revenue</h3><p>KES <span id="analyticsNetRevenueTotal">0.00</span></p></div>
         <div class="stat-card"><h3>Wholesale Discounts</h3><p>KES <span id="analyticsDiscountTotal">0.00</span></p></div>
         <div class="stat-card analytics-items-sold-card">
-          <h3>Items Sold <span id="analyticsSelectedItemBadge" class="analytics-selected-item-badge" hidden></span></h3>
+          <h3><span id="analyticsQuantityHeading">Items Sold</span> <span id="analyticsSelectedItemBadge" class="analytics-selected-item-badge" hidden></span></h3>
           <p id="analyticsQuantityTotal">0</p>
           <div id="analyticsSaleTypeBreakdown" class="analytics-sale-type-breakdown" aria-live="polite"></div>
         </div>
@@ -621,7 +622,7 @@
         <table class="compact-data-table">
           <thead>
             <tr>
-              <th>Date</th><th>Opening Dip (L)</th><th>Fuel Received (L)</th>
+              <th>Petrol source</th><th>Date</th><th>Opening Dip (L)</th><th>Fuel Received (L)</th>
               <th>Pump Sales (L)</th><th>Total Available (L)</th>
               <th>Expected Closing (L)</th><th>Actual Closing (L)</th><th>Variance (L)</th>
             </tr>
@@ -638,7 +639,7 @@
       <div class="analytics-breakdown-table analytics-sales-breakdown">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per item.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail item price − wholesale item price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th>Items sold</th></tr>
+            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per item.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail item price − wholesale item price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th id="analyticsSoldQuantityHeading">Items sold</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -861,7 +862,10 @@
       </div>
       <form id="itemForm">
         <input type="hidden" id="itemPackagingType" value="" />
-        <input type="text" id="itemName" placeholder="Item Name" required />
+        <label class="inventory-price-field">
+          <span>Item</span>
+          <input type="text" id="itemName" placeholder="Item Name" required />
+        </label>
         <label id="gasTypeField" class="inventory-crate-field" hidden>
           Gas type
           <select id="gasType" required>
@@ -878,7 +882,10 @@
           <span id="outgoingPriceLabel">Selling Price</span>
           <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
         </label>
-        <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
+        <label class="inventory-price-field">
+          <span>Quantity</span>
+          <input type="text" id="quantity" inputmode="decimal" placeholder="Quantity (e.g. 5 L, 3 kg, 5 cartons)" required />
+        </label>
         <label id="crateLoosePiecesField" class="inventory-crate-field" hidden>
           Loose pieces in stock
           <input type="number" id="crateLoosePieces" min="0" step="1" value="0" />

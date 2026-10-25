@@ -1244,6 +1244,36 @@ button.loading .btn-text {
   overflow-wrap: anywhere;
 }
 
+.overview-petrol-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.overview-petrol-breakdown-card {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #f3d28b;
+  border-radius: 10px;
+  background: rgba(255, 251, 235, 0.7);
+}
+
+.overview-petrol-breakdown-card strong {
+  color: #7c2d12;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.overview-petrol-breakdown-card small {
+  color: #6b7280;
+  font-size: 13px;
+}
+
 .overview-recent-table {
   width: 100%;
   overflow-x: auto;
