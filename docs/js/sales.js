@@ -167,7 +167,12 @@ const overviewPetrolQuantity = document.getElementById("overviewPetrolQuantity")
 const overviewPetrolRevenue = document.getElementById("overviewPetrolRevenue");
 const overviewPetrolClosingDip = document.getElementById("overviewPetrolClosingDip");
 const overviewPetrolBreakdown = document.getElementById("overviewPetrolBreakdown");
-const overviewRecentSales = document.getElementById("overviewRecentSales");
+const overviewTopItemsModal = document.getElementById("overviewTopItemsModal");
+const overviewPetrolModal = document.getElementById("overviewPetrolModal");
+const openOverviewTopItemsBtn = document.getElementById("openOverviewTopItemsBtn");
+const closeOverviewTopItemsBtn = document.getElementById("closeOverviewTopItemsBtn");
+const openOverviewPetrolBtn = document.getElementById("openOverviewPetrolBtn");
+const closeOverviewPetrolBtn = document.getElementById("closeOverviewPetrolBtn");
 const overviewStockAdditions = document.getElementById("overviewStockAdditions");
 const overviewExpenses = document.getElementById("overviewExpenses");
 const expenseForm = document.getElementById("expenseForm");
@@ -2935,6 +2940,42 @@ function openSelectedAnalyticsGraphs() {
   graphWindow.opener = null;
 }
 
+function setupOverviewDetailModal(openButton, modal, closeButton) {
+  if (!openButton || !modal || !closeButton) return;
+
+  const closeModal = () => {
+    modal.style.display = "none";
+    openButton.focus();
+  };
+
+  openButton.addEventListener("click", () => {
+    modal.style.display = "flex";
+    closeButton.focus();
+  });
+
+  closeButton.addEventListener("click", closeModal);
+  modal.addEventListener("click", event => {
+    if (event.target === modal) closeModal();
+  });
+}
+
+setupOverviewDetailModal(openOverviewTopItemsBtn, overviewTopItemsModal, closeOverviewTopItemsBtn);
+setupOverviewDetailModal(openOverviewPetrolBtn, overviewPetrolModal, closeOverviewPetrolBtn);
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (overviewTopItemsModal?.style.display === "flex") {
+    closeOverviewDetailModal(openOverviewTopItemsBtn, overviewTopItemsModal);
+  } else if (overviewPetrolModal?.style.display === "flex") {
+    closeOverviewDetailModal(openOverviewPetrolBtn, overviewPetrolModal);
+  }
+});
+
+function closeOverviewDetailModal(openButton, modal) {
+  modal.style.display = "none";
+  openButton?.focus();
+}
+
 function renderOverview() {
   if (!overviewPeriodFilter) return;
 
@@ -2952,7 +2993,6 @@ function renderOverview() {
     const errorMessage = escapeQuantity(overviewError);
     overviewSalesChart.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
     overviewTopItems.innerHTML = `<p class="overview-empty-state">${errorMessage}</p>`;
-    overviewRecentSales.innerHTML = `<tr><td colspan="4">${errorMessage}</td></tr>`;
     overviewPetrolQuantity.textContent = "—";
     overviewPetrolRevenue.textContent = "—";
     overviewPetrolClosingDip.textContent = "—";
@@ -2980,7 +3020,6 @@ function renderOverview() {
   overviewLowStockEl.textContent = String(countLowStockItems());
   renderOverviewSalesChart(start, days, includedSales);
   renderOverviewTopItems(periodSales);
-  renderOverviewRecentSales(periodSales.filter(sale => !isFuelEnergySale(sale)));
   renderOverviewStockAdditions(start, end);
   renderOverviewExpenses(periodExpenses);
   renderOverviewPetrol(petrolSales);
@@ -3330,34 +3369,6 @@ function renderOverviewTopItems(sales) {
       }).join("")}
     </section>`;
   }).join("");
-}
-
-function renderOverviewRecentSales(sales) {
-  const recentSales = [...sales]
-    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
-    .slice(0, 5);
-  overviewRecentSales.innerHTML = recentSales.length
-    ? recentSales.map(sale => `<tr>
-        <td>${escapeQuantity(new Date(sale.createdAt).toLocaleDateString())}</td>
-        <td>${escapeQuantity(sale.itemName || "Item")}${getSaleGasType(sale)
-          ? `<br><small class="sale-gas-type">${escapeQuantity(getGasTypeLabel(getSaleGasType(sale)))}</small>`
-          : ""}</td>
-        <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
-        <td>${formatNumber(sale.revenue)}</td>
-      </tr>`).join("")
-    : `<tr><td colspan="4" class="overview-empty-state">No non-fuel sales in this period.</td></tr>`;
-}
-
-function isFuelEnergySale(sale) {
-  const item = analyticsItemsById.get(sale.itemId) ||
-    itemsArray.find(candidate => candidate.id === sale.itemId) ||
-    { name: sale.itemName, gasType: sale.gasType };
-  const normalizedName = String(item.name || sale.itemName || "").trim().toLowerCase();
-  return isPetrolItem(item) ||
-    isGasAnalyticsItem(item) ||
-    customFuelEnergyCategories.some(category =>
-      String(category.name || "").trim().toLowerCase() === normalizedName
-    );
 }
 
 function renderOverviewPetrol(sales) {

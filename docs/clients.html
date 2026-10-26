@@ -415,22 +415,48 @@
         <section class="overview-panel overview-top-items-panel">
           <div class="overview-panel-heading">
             <div><h3>Top-selling items</h3><p>Ranked by quantity, grouped by unit, across all inventory</p></div>
+            <button type="button" id="openOverviewTopItemsBtn" class="overview-link-button" aria-haspopup="dialog" aria-controls="overviewTopItemsModal">Open to view</button>
           </div>
-          <div id="overviewTopItems" class="overview-top-items"></div>
         </section>
       </div>
 
       <section class="overview-panel overview-petrol-panel">
         <div class="overview-panel-heading">
           <div><h3>Petrol snapshot</h3><p>Each petrol source is tracked separately and also totalled for the selected period.</p></div>
+          <button type="button" id="openOverviewPetrolBtn" class="overview-link-button" aria-haspopup="dialog" aria-controls="overviewPetrolModal">Open to view</button>
         </div>
-        <div class="overview-petrol-stats">
-          <div><span>Petrol sold</span><strong id="overviewPetrolQuantity">0 L</strong></div>
-          <div><span>Petrol revenue</span><strong id="overviewPetrolRevenue">KES 0</strong></div>
-          <div><span>Latest actual closing dip</span><strong id="overviewPetrolClosingDip">Per machine below</strong></div>
-        </div>
-        <div id="overviewPetrolBreakdown" class="overview-petrol-breakdown" aria-live="polite"></div>
       </section>
+
+      <div id="overviewTopItemsModal" class="modal overview-detail-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="overviewTopItemsModalTitle">
+        <section class="modal-content overview-detail-modal-content">
+          <div class="overview-detail-modal-heading">
+            <div>
+              <h2 id="overviewTopItemsModalTitle">Top-selling items</h2>
+              <p>Ranked by quantity, grouped by unit, across all inventory.</p>
+            </div>
+            <button type="button" id="closeOverviewTopItemsBtn" class="overview-detail-modal-close" aria-label="Close top-selling items">&times;</button>
+          </div>
+          <div id="overviewTopItems" class="overview-top-items"></div>
+        </section>
+      </div>
+
+      <div id="overviewPetrolModal" class="modal overview-detail-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="overviewPetrolModalTitle">
+        <section class="modal-content overview-detail-modal-content overview-petrol-modal-content">
+          <div class="overview-detail-modal-heading">
+            <div>
+              <h2 id="overviewPetrolModalTitle">Petrol snapshot</h2>
+              <p>Each petrol source is tracked separately for the selected period.</p>
+            </div>
+            <button type="button" id="closeOverviewPetrolBtn" class="overview-detail-modal-close" aria-label="Close petrol snapshot">&times;</button>
+          </div>
+          <div class="overview-petrol-stats">
+            <div><span>Petrol sold</span><strong id="overviewPetrolQuantity">0 L</strong></div>
+            <div><span>Petrol revenue</span><strong id="overviewPetrolRevenue">KES 0</strong></div>
+            <div><span>Latest actual closing dip</span><strong id="overviewPetrolClosingDip">Per machine below</strong></div>
+          </div>
+          <div id="overviewPetrolBreakdown" class="overview-petrol-breakdown" aria-live="polite"></div>
+        </section>
+      </div>
 
       <section class="overview-panel overview-stock-additions-panel">
         <div class="overview-panel-heading">
@@ -454,19 +480,6 @@
           <table class="compact-data-table">
             <thead><tr><th>Date</th><th>Type</th><th>Description</th><th>Amount</th></tr></thead>
             <tbody id="overviewExpenses"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="overview-panel overview-recent-panel">
-        <div class="overview-panel-heading">
-          <div><h3>Recent sales</h3><p>Latest sales included in General Items analytics</p></div>
-          <button type="button" class="overview-link-button" data-overview-tab="sales">Open Sales</button>
-        </div>
-        <div class="overview-recent-table">
-          <table class="compact-data-table">
-            <thead><tr><th>Date</th><th>Item</th><th>Quantity</th><th>Revenue</th></tr></thead>
-            <tbody id="overviewRecentSales"></tbody>
           </table>
         </div>
       </section>
