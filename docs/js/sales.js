@@ -82,9 +82,11 @@ const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
 const ALL_CRATE_ANALYTICS_FILTER = "__all_crate_items__";
 const ALL_ACCESSORIES_ANALYTICS_FILTER = "__all_accessories__";
 const GENERAL_ANALYTICS_FILTER = "__general_items__";
+const SERVICE_ANALYTICS_FILTER = "__service_analytics__";
 
 function isStaticAnalyticsFilter(filterValue) {
   return isGeneralAnalyticsFilter(filterValue) ||
+    filterValue === SERVICE_ANALYTICS_FILTER ||
     isCombinedAnalyticsFilter(filterValue);
 }
 
@@ -104,8 +106,14 @@ const saleForm = document.getElementById("saleForm");
 const saleItemSearch = document.getElementById("saleItemSearch");
 const saleSearchResults = document.getElementById("saleSearchResults");
 const salePriceInput = document.getElementById("salePrice");
+const salePriceField = document.getElementById("salePriceField");
+const salePriceLabel = document.getElementById("salePriceLabel");
+const serviceTypeField = document.getElementById("serviceTypeField");
+const serviceTypeInput = document.getElementById("serviceType");
 const saleTypeInput = document.getElementById("saleType");
+const saleTypeField = document.getElementById("saleTypeField");
 const saleQuantityInput = document.getElementById("saleQuantity");
+const saleQuantityField = document.getElementById("saleQuantityField");
 const saleCrateStockStatus = document.getElementById("saleCrateStockStatus");
 const saleQuantityUnitField = document.getElementById("saleQuantityUnitField");
 const saleQuantityUnit = document.getElementById("saleQuantityUnit");
@@ -222,6 +230,7 @@ let ordersCollectionRef; // Reference to the orders collection
 let salesSummaryRef = null;
 let clientBusinessName; // The business name of the logged-in client
 let selectedItemId = null;
+const SERVICE_ITEM_ID = "__service__";
 let editSaleId = null;
 let editingOriginalSale = null;
 let editingExpenseId = null;
@@ -1471,6 +1480,7 @@ function handleAnalyticsItemChange() {
 function handleItemSearch() {
   const term = saleItemSearch.value.toLowerCase().trim();
   selectedItemId = null;
+  setServiceSaleFieldsVisible(false);
   setSaleQuantityUnit(null);
   setPetrolDipFieldsVisible(false);
 
@@ -1484,13 +1494,21 @@ function handleItemSearch() {
     (isBoxItem(i) ? getBoxStockUnits(i) :
       isCrateItem(i.name) ? getCrateStockPieces(i) :
         (parseQuantity(i.quantity)?.amount ?? 0)) > 0);
+  const includeService = "service".includes(term);
 
-  if (matches.length === 0) {
+  if (matches.length === 0 && !includeService) {
     saleSearchResults.style.display = "none";
     return;
   }
 
-  saleSearchResults.innerHTML = matches.map(item => `
+  saleSearchResults.innerHTML = [
+    ...(includeService ? [`
+      <div class="search-result-item" onclick="window.selectSaleService()">
+        <strong>Service</strong><br/>
+        <small>Sales only - enter the amount charged. No inventory or stock is used.</small>
+      </div>
+    `] : []),
+    ...matches.map(item => `
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
       ${item.gasType ? `<small class="sale-gas-type">${getGasTypeLabel(item.gasType)}</small><br/>` : ""}
@@ -1506,7 +1524,8 @@ function handleItemSearch() {
           isCrateItem(item.name) ? formatCrateStock(item) : formatDisplayQuantity(item.quantity)
       )}</small>
     </div>
-  `).join("");
+  `)
+  ].join("");
   saleSearchResults.style.display = "block";
 }
 
@@ -1515,6 +1534,7 @@ function handleItemSearch() {
  */
 window.selectSaleItem = (id, name) => {
   selectedItemId = id;
+  setServiceSaleFieldsVisible(false);
   saleItemSearch.value = name;
   saleSearchResults.style.display = "none";
   const selectedItem = itemsArray.find(item => item.id === id);
@@ -1527,6 +1547,32 @@ window.selectSaleItem = (id, name) => {
 
   updateSaleUnitPrice();
   saleQuantityInput.focus();
+}
+
+window.selectSaleService = () => {
+  selectedItemId = SERVICE_ITEM_ID;
+  saleItemSearch.value = "Service";
+  saleSearchResults.style.display = "none";
+  setSaleQuantityUnit(null);
+  setPetrolDipFieldsVisible(false);
+  saleQuantityInput.value = "";
+  salePriceInput.value = "";
+  setServiceSaleFieldsVisible(true);
+  salePriceInput.focus();
+}
+
+function setServiceSaleFieldsVisible(visible) {
+  saleTypeField.classList.toggle("service-sale-hidden", visible);
+  saleQuantityField.classList.toggle("service-sale-hidden", visible);
+  serviceTypeField.classList.toggle("service-sale-hidden", !visible);
+  if (!visible) serviceTypeInput.value = "";
+  saleQuantityInput.required = !visible;
+  salePriceLabel.textContent = visible ? "Amount" : "Price sold";
+  salePriceInput.placeholder = visible ? "Amount charged" : "Price Sold";
+}
+
+function isServiceSale(sale) {
+  return sale?.saleKind === "service" || sale?.itemId === SERVICE_ITEM_ID;
 }
 
 function getGasTypeLabel(gasType) {
@@ -1646,6 +1692,9 @@ function getGroupedAnalyticsSales(filterValue) {
 }
 
 function getAnalyticsSalesForFilter(filterValue) {
+  if (filterValue === SERVICE_ANALYTICS_FILTER) {
+    return allSalesForAnalytics.filter(isServiceSale);
+  }
   if (filterValue === GENERAL_ANALYTICS_FILTER) {
     return allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   }
@@ -2415,7 +2464,11 @@ function buildAnalyticsPdf() {
     ["Expenses and purchases", `KES ${analyticsExpenseTotalEl.textContent}`],
     ["Net sales revenue", `KES ${analyticsNetRevenueTotalEl.textContent}`],
     ["Wholesale discounts", `KES ${analyticsDiscountTotalEl.textContent}`],
-    [isPetrolAnalyticsSelection(analyticsItemFilter.value) ? "Litres sold" : "Quantity sold",
+    [isPetrolAnalyticsSelection(analyticsItemFilter.value)
+      ? "Litres sold"
+      : analyticsItemFilter.value === SERVICE_ANALYTICS_FILTER
+        ? "Service sales"
+        : "Quantity sold",
       analyticsQuantityTotalEl.textContent],
     ...getAnalyticsSaleTypeQuantities(rows.flatMap(row => row.dateKeys)).map(({ type, quantities, isCrateSelection }) => [
       `${type} quantity sold`,
@@ -2432,7 +2485,13 @@ function buildAnalyticsPdf() {
     ? analyticsItemSales
     : allSalesForAnalytics.filter(isIncludedInAllAnalytics);
   drawTable(
-    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts", isPetrolAnalyticsSelection(analyticsItemFilter.value) ? "Litres sold" : "Items sold", "Products and quantities"],
+    ["Period", "Opening stock", "Closing stock", "Gross sales", "Gross profit", "Expenses", "Net revenue", "Wholesale discounts",
+      isPetrolAnalyticsSelection(analyticsItemFilter.value)
+        ? "Litres sold"
+        : analyticsItemFilter.value === SERVICE_ANALYTICS_FILTER
+          ? "Service sales"
+          : "Items sold",
+      "Products and quantities"],
     rows.map(row => {
       const salesByItem = new Map();
       selectedAnalyticsSales.forEach(sale => {
@@ -2440,11 +2499,17 @@ function buildAnalyticsPdf() {
 
         const petrolSelection = isPetrolAnalyticsSelection(analyticsItemFilter.value);
         const unit = sale.quantityUnit || (petrolSelection ? "L" : "");
-        const itemName = petrolSelection ? getPetrolSourceName(sale) : sale.itemName || "Item";
+        const itemName = petrolSelection
+          ? getPetrolSourceName(sale)
+          : isServiceSale(sale) && sale.serviceType
+            ? `Service — ${sale.serviceType}`
+            : sale.itemName || "Item";
         const gasType = getGasTypeForSale(sale);
-        const saleType = sale.saleType === "wholesale" ? "wholesale" : "retail";
+        const saleType = isServiceSale(sale)
+          ? "service"
+          : sale.saleType === "wholesale" ? "wholesale" : "retail";
         const isGroupedCrate = analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER;
-        const itemKey = `${sale.itemId || sale.itemName}|${isGroupedCrate ? "" : gasType.toLowerCase()}|${isGroupedCrate ? "" : unit.toLowerCase()}|${saleType}`;
+        const itemKey = `${sale.itemId || sale.itemName}|${sale.serviceType || ""}|${isGroupedCrate ? "" : gasType.toLowerCase()}|${isGroupedCrate ? "" : unit.toLowerCase()}|${saleType}`;
         const productLabel = `${gasType ? `${itemName} (${gasType})` : itemName} (${saleType})`;
         const existing = salesByItem.get(itemKey) || {
           name: productLabel,
@@ -2468,7 +2533,9 @@ function buildAnalyticsPdf() {
         }
         salesByItem.set(itemKey, existing);
       });
-      const productsAndQuantities = [...salesByItem.values()]
+      const productsAndQuantities = isGeneralAnalyticsFilter(analyticsItemFilter.value)
+        ? getAnalyticsItemDetailsForDateKeys(row.dateKeys, selectedAnalyticsSales).join("\n") || "—"
+        : [...salesByItem.values()]
         .map(item => analyticsItemFilter.value === ALL_CRATE_ANALYTICS_FILTER
         ? `${item.name}: ${formatNumber(item.crates)} full, ${formatNumber(item.halfCrates)} half, ${formatNumber(item.pieces)} pcs`
           : `${item.name}: ${formatSaleQuantity({ quantity: item.quantity, quantityUnit: item.unit })}`)
@@ -2748,7 +2815,10 @@ function updateAnalyticsUI() {
 
   const analyticsSelectedItem = analyticsItemFilter.value;
   const petrolSelected = isPetrolAnalyticsSelection(analyticsSelectedItem);
-  const quantityLabel = petrolSelected ? "Litres Sold" : "Items Sold";
+  const serviceSelected = analyticsSelectedItem === SERVICE_ANALYTICS_FILTER;
+  const quantityLabel = petrolSelected
+    ? "Litres Sold"
+    : serviceSelected ? "Service Sales" : "Items Sold";
   analyticsQuantityHeadingEl.textContent = quantityLabel;
   analyticsSoldQuantityHeadingEl.textContent = quantityLabel;
   const supportsGroupedItemChart = isStaticAnalyticsFilter(analyticsSelectedItem);
@@ -2773,20 +2843,22 @@ function updateAnalyticsUI() {
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML =
-      `<tr><td colspan="9">Choose an analysis view or select an item.</td></tr>`;
+      `<tr><td colspan="10">Choose an analysis view or select an item.</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
   }
   const requiresAccessoryDefinitions = isGeneralAnalyticsFilter(analyticsSelectedItem) ||
     analyticsSelectedItem === ALL_ACCESSORIES_ANALYTICS_FILTER;
-  const analyticsError = expensesError ||
-    (requiresAccessoryDefinitions ? accessoryItemsError : null) ||
-    (petrolSelected
-      ? analyticsAllSalesError || analyticsItemsError
-      : isStaticAnalyticsFilter(analyticsSelectedItem)
-      ? analyticsAllSalesError || analyticsItemsError
-      : analyticsItemSalesError);
+  const analyticsError = serviceSelected
+    ? analyticsAllSalesError
+    : expensesError ||
+      (requiresAccessoryDefinitions ? accessoryItemsError : null) ||
+      (petrolSelected
+        ? analyticsAllSalesError || analyticsItemsError
+        : isStaticAnalyticsFilter(analyticsSelectedItem)
+        ? analyticsAllSalesError || analyticsItemsError
+        : analyticsItemSalesError);
   if (analyticsError) {
     analyticsSalesTotalEl.textContent = "—";
     analyticsGrossProfitTotalEl.textContent = "—";
@@ -2796,7 +2868,7 @@ function updateAnalyticsUI() {
     analyticsQuantityTotalEl.textContent = "—";
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
-    analyticsBreakdownTable.innerHTML = `<tr><td colspan="9">${escapeQuantity(analyticsError)}</td></tr>`;
+    analyticsBreakdownTable.innerHTML = `<tr><td colspan="10">${escapeQuantity(analyticsError)}</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2813,7 +2885,7 @@ function updateAnalyticsUI() {
     analyticsSaleTypeBreakdownEl.textContent = "";
     currentAnalyticsRows = [];
     analyticsBreakdownTable.innerHTML =
-      `<tr><td colspan="9">Choose a valid custom date range.</td></tr>`;
+      `<tr><td colspan="10">Choose a valid custom date range.</td></tr>`;
     renderAnalyticsStockAdditions();
     renderPetrolAnalytics();
     return;
@@ -2858,6 +2930,9 @@ function updateAnalyticsUI() {
         : "—"}</td>
       <td>${formatNumber(row.discount || 0)}</td>
       <td>${getAnalyticsQuantityDisplay(row.dateKeys) || formatNumber(row.quantity)}</td>
+      <td>${getAnalyticsItemDetailsForDateKeys(row.dateKeys)
+        .map(detail => escapeQuantity(detail))
+        .join("<br>") || "—"}</td>
     </tr>
   `).join("");
   currentAnalyticsRows = rows;
@@ -2866,6 +2941,42 @@ function updateAnalyticsUI() {
 
   updateAnalyticsDateLabel();
 
+}
+
+function getAnalyticsItemDetailsForDateKeys(dateKeys, sourceSales = null) {
+  const selectedSales = sourceSales || (analyticsItemSales !== null
+    ? analyticsItemSales
+    : allSalesForAnalytics.filter(isIncludedInAllAnalytics));
+  const selectedDates = new Set(dateKeys);
+  const items = new Map();
+
+  selectedSales.forEach(sale => {
+    const saleDate = new Date(sale.createdAt);
+    if (!Number.isFinite(saleDate.getTime()) || !selectedDates.has(dateKey(saleDate))) return;
+    if (isGeneralAnalyticsFilter(analyticsItemFilter.value) && !isIncludedInAllAnalytics(sale)) return;
+
+    const name = isServiceSale(sale)
+      ? sale.serviceType ? `Service — ${sale.serviceType}` : "Service"
+      : sale.itemName || "Item";
+    const saleType = isServiceSale(sale)
+      ? "service"
+      : sale.saleType === "wholesale" ? "wholesale" : "retail";
+    const unit = String(sale.quantityUnit || "").trim();
+    const key = `${sale.itemId || name}|${sale.serviceType || ""}|${saleType}|${unit.toLowerCase()}`;
+    const existing = items.get(key) || { name, saleType, unit, quantity: 0, revenue: 0 };
+    existing.quantity += Number(sale.quantity) || 0;
+    existing.revenue += Number(sale.revenue) || 0;
+    items.set(key, existing);
+  });
+
+  return [...items.values()].map(item => {
+    const label = `${item.name} (${item.saleType})`;
+    if (item.saleType === "service") return `${label}: KES ${formatNumber(item.revenue)}`;
+    return `${label}: ${formatSaleQuantity({
+      quantity: item.quantity,
+      quantityUnit: item.unit
+    })}`;
+  });
 }
 
 function openSelectedAnalyticsGraphs() {
@@ -3316,6 +3427,7 @@ function renderOverviewSalesChart(start, days, sales) {
 function renderOverviewTopItems(sales) {
   const itemsByUnit = new Map();
   sales.forEach(sale => {
+    if (isServiceSale(sale)) return;
     const inventoryItem = analyticsItemsById.get(sale.itemId) ||
       itemsArray.find(item => item.id === sale.itemId);
     const itemForSale = inventoryItem || { name: sale.itemName };
@@ -3478,6 +3590,7 @@ function getSaleDiscount(sale) {
 }
 
 function isIncludedInAllAnalytics(sale) {
+  if (isServiceSale(sale)) return true;
   const item = analyticsItemsById.get(sale.itemId);
   const itemName = item?.name || sale.itemName;
   if (isStrictlyExcludedFromGeneralAnalyticsName(itemName)) return false;
@@ -3502,6 +3615,15 @@ function getSelectedAnalyticsItemLabel() {
 
 function getAnalyticsQuantityDisplay(dateKeys) {
   const selectedItemId = analyticsItemFilter.value;
+  if (selectedItemId === SERVICE_ANALYTICS_FILTER) {
+    const selectedDates = new Set(dateKeys);
+    const count = (analyticsItemSales || []).filter(sale => {
+      const saleDate = new Date(sale.createdAt);
+      return Number.isFinite(saleDate.getTime()) &&
+        selectedDates.has(dateKey(saleDate));
+    }).length;
+    return `${formatNumber(count)} service${count === 1 ? "" : "s"}`;
+  }
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
     itemsArray.find(item => item.id === selectedItemId);
   if (isPetrolItem(selectedItem)) {
@@ -3574,6 +3696,7 @@ function getAnalyticsSaleTypeQuantities(dateKeys) {
 
   sales.forEach(sale => {
     if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
+    if (isServiceSale(sale)) return;
     if (selectedItemId === ALL_CRATE_ANALYTICS_FILTER && !isCrateItem(sale.itemName || "")) return;
 
     const saleType = sale.saleType === "wholesale" ? "wholesale" : "retail";
@@ -3927,11 +4050,13 @@ function renderSalesTable() {
           hour: '2-digit',
           minute: '2-digit'
         })}</td>
-        <td>${sale.itemName}${getSaleGasType(sale)
+        <td>${escapeQuantity(sale.itemName)}${isServiceSale(sale) && sale.serviceType
+          ? `<br><small>${escapeQuantity(sale.serviceType)}</small>`
+          : ""}${getSaleGasType(sale)
           ? `<br><small class="sale-gas-type">${getGasTypeLabel(getSaleGasType(sale))}</small>`
           : ""}</td>
         <td>${escapeQuantity(formatSaleQuantity(sale))}</td>
-        <td>${sale.saleType === "wholesale" ? "Wholesale" : "Retail"}</td>
+        <td>${isServiceSale(sale) ? "Service" : sale.saleType === "wholesale" ? "Wholesale" : "Retail"}</td>
         <td>${formatNumber(sale.unitPriceSold)}</td>
         <td>${formatNumber(sale.revenue)}</td>
         <td style="color: green; font-weight: bold;">${formatNumber(sale.profit)}</td>
@@ -3972,7 +4097,10 @@ async function deleteSale(saleId, button) {
   const quantity = formatSaleQuantity(sale);
   if (!window.confirm(
     `Delete the ${quantity} sale of ${sale.itemName} recorded on ` +
-    `${new Date(sale.createdAt).toLocaleString()}? The inventory balance and sales totals will be corrected.`
+    `${new Date(sale.createdAt).toLocaleString()}? ` +
+    (isServiceSale(sale)
+      ? "Sales totals will be corrected. Inventory stock is not affected."
+      : "The inventory balance and sales totals will be corrected.")
   )) {
     return;
   }
@@ -3989,6 +4117,16 @@ async function deleteSale(saleId, button) {
       const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
       if (latestSale.uid !== user.uid) {
         throw new Error("You do not have permission to delete this sale.");
+      }
+      if (isServiceSale(latestSale)) {
+        const summarySnapshot = await transaction.get(summaryUpdateRef);
+        transaction.delete(saleRef);
+        transaction.set(summaryUpdateRef, {}, { merge: true });
+        transaction.update(summaryUpdateRef, getSalesSummaryUpdate(latestSale));
+        if (!summarySnapshot.exists()) {
+          console.warn("Sales summary document was missing during Service sale deletion.");
+        }
+        return;
       }
       const itemRef = doc(itemsRef, latestSale.itemId);
       const [itemSnapshot, summarySnapshot] = await Promise.all([
@@ -4023,7 +4161,12 @@ async function deleteSale(saleId, button) {
     });
 
     window.dispatchEvent(new CustomEvent("saleRecorded", { detail: { uid: user.uid } }));
-    showToast(`Deleted the sale and restored ${quantity} to ${sale.itemName}.`, "success");
+    showToast(
+      isServiceSale(sale)
+        ? `Deleted the Service sale of ${sale.itemName}.`
+        : `Deleted the sale and restored ${quantity} to ${sale.itemName}.`,
+      "success"
+    );
   } catch (error) {
     console.error("Unable to delete sale:", error);
     showToast(`Unable to delete sale: ${error.message}`, "error");
@@ -4063,12 +4206,15 @@ async function findDuplicateSale(sale, saleDateKey, uid, excludedSaleId = null) 
   const matchingSales = existingSales.filter(existing => {
     if (existing.id === excludedSaleId) return false;
     const existingDate = new Date(existing.createdAt);
-    return Number.isFinite(existingDate.getTime()) &&
+    const matchesSale = Number.isFinite(existingDate.getTime()) &&
       dateKey(existingDate) === saleDateKey &&
       existing.uid === uid &&
       existing.itemId === sale.itemId &&
       String(existing.saleType || "retail").toLowerCase() ===
         String(sale.saleType || "retail").toLowerCase();
+    return matchesSale && (!isServiceSale(sale) ||
+      String(existing.serviceType || "").trim().toLowerCase() ===
+        String(sale.serviceType || "").trim().toLowerCase());
   });
   const normalizedUnit = value => String(value || "").trim().toLowerCase();
   const duplicate = matchingSales.find(existing =>
@@ -4102,12 +4248,24 @@ async function handleSaleFormSubmit(e) {
     window.showLoadingIndicator(false);
     return;
   }
+  if (selectedItemId === SERVICE_ITEM_ID) {
+    await handleServiceSaleSubmit(selectedSaleDate, selectedSaleDateStart);
+    return;
+  }
   const unitPriceSold = Number(salePriceInput.value);
   const saleQuantity = parseQuantity(saleQuantityInput.value);
   const item = itemsArray.find(i => i.id === selectedItemId);
 
   if (!selectedItemId || !item) {
     alert("Please search and select an item from the list.");
+    window.showLoadingIndicator(false);
+    return;
+  }
+  const originalSaleForEdit = editSaleId
+    ? editingOriginalSale || salesArray.find(sale => sale.id === editSaleId)
+    : null;
+  if (originalSaleForEdit && isServiceSale(originalSaleForEdit)) {
+    alert("A sale cannot be changed between Service and inventory. Delete it and record the correct sale instead.");
     window.showLoadingIndicator(false);
     return;
   }
@@ -4503,6 +4661,131 @@ async function handleSaleFormSubmit(e) {
   }
 }
 
+async function handleServiceSaleSubmit(selectedSaleDate, selectedSaleDateStart) {
+  const amount = Number(salePriceInput.value);
+  const originalSale = editSaleId
+    ? editingOriginalSale || salesArray.find(sale => sale.id === editSaleId)
+    : null;
+  if (originalSale && !isServiceSale(originalSale)) {
+    alert("A sale cannot be changed between Service and inventory. Delete it and record the correct sale instead.");
+    window.showLoadingIndicator(false);
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert("Enter an amount greater than zero.");
+    salePriceInput.focus();
+    window.showLoadingIndicator(false);
+    return;
+  }
+
+  const saleDateTimestamp = new Date(selectedSaleDateStart);
+  const currentTime = new Date();
+  saleDateTimestamp.setHours(
+    currentTime.getHours(),
+    currentTime.getMinutes(),
+    currentTime.getSeconds(),
+    currentTime.getMilliseconds()
+  );
+  const saleData = {
+    itemId: SERVICE_ITEM_ID,
+    itemName: "Service",
+    serviceType: serviceTypeInput.value.trim(),
+    saleKind: "service",
+    saleType: "service",
+    retailUnitPrice: amount,
+    unitPriceSold: amount,
+    discountAmount: 0,
+    quantity: 1,
+    quantityUnit: "SERVICE",
+    revenue: amount,
+    profit: amount,
+    uid: authInstance.currentUser.uid,
+    createdAt: saleDateTimestamp.toISOString()
+  };
+
+  recordSaleBtn.disabled = true;
+  recordSaleBtn.classList.add("loading");
+  try {
+    const duplicateCheck = await findDuplicateSale(
+      saleData,
+      selectedSaleDate,
+      authInstance.currentUser.uid,
+      editSaleId
+    );
+    if (duplicateCheck.duplicate) {
+      const duplicate = duplicateCheck.duplicate;
+      if (window.confirm(
+        `A Service${duplicate.serviceType ? ` (${duplicate.serviceType})` : ""} sale is already recorded for ${selectedSaleDate} ` +
+        `(KES ${formatNumber(duplicate.revenue || duplicate.unitPriceSold)}). ` +
+        "This sale will not be recorded separately. Choose OK to load the existing sale and adjust its amount, or Cancel to return."
+      )) {
+        populateSaleFormForEdit(duplicate);
+      }
+      return;
+    }
+    if (duplicateCheck.historyIncomplete &&
+        !window.confirm(
+          "You are offline and complete sales history is not available on this device. " +
+          "The duplicate check may be incomplete. Continue recording this sale?"
+        )) {
+      return;
+    }
+
+    if (editSaleId) {
+      const saleRef = doc(salesRef, editSaleId);
+      await runTransaction(dbInstance, async transaction => {
+        const [saleSnapshot, summarySnapshot] = await Promise.all([
+          transaction.get(saleRef),
+          transaction.get(salesSummaryRef)
+        ]);
+        if (!saleSnapshot.exists()) throw new Error("This sale no longer exists.");
+        const latestSale = { id: saleSnapshot.id, ...saleSnapshot.data() };
+        if (latestSale.uid !== authInstance.currentUser.uid || !isServiceSale(latestSale)) {
+          throw new Error("This Service sale changed while you were editing it. Refresh and try again.");
+        }
+        transaction.update(saleRef, saleData);
+        transaction.set(salesSummaryRef, {}, { merge: true });
+        transaction.update(salesSummaryRef, getSalesSummaryUpdate(latestSale, saleData));
+        if (!summarySnapshot.exists()) {
+          console.warn("Sales summary document was missing while editing a Service sale.");
+        }
+      });
+    } else {
+      const batch = writeBatch(dbInstance);
+      batch.set(doc(salesRef), saleData);
+      batch.set(salesSummaryRef, {}, { merge: true });
+      batch.update(salesSummaryRef, {
+        [`dailyTotals.${selectedSaleDate}.revenue`]: increment(amount),
+        [`dailyTotals.${selectedSaleDate}.profit`]: increment(amount),
+        [`dailyTotals.${selectedSaleDate}.count`]: increment(1),
+        [`monthlyTotals.${selectedSaleDate.slice(0, 7)}.revenue`]: increment(amount),
+        [`monthlyTotals.${selectedSaleDate.slice(0, 7)}.profit`]: increment(amount),
+        "lifetime.revenue": increment(amount),
+        "lifetime.profit": increment(amount)
+      });
+      await batch.commit();
+    }
+
+    editSaleId = null;
+    editingOriginalSale = null;
+    recordSaleBtn.querySelector(".btn-text").textContent = "Record Sale";
+    saleForm.reset();
+    selectedItemId = null;
+    setServiceSaleFieldsVisible(false);
+    setSaleQuantityUnit(null);
+    window.dispatchEvent(new CustomEvent("saleRecorded", {
+      detail: { uid: authInstance.currentUser.uid }
+    }));
+  } catch (error) {
+    console.error("Error recording Service sale:", error);
+    alert(`Error recording Service sale: ${error.message}`);
+  } finally {
+    recordSaleBtn.disabled = false;
+    recordSaleBtn.classList.remove("loading");
+    window.showLoadingIndicator(false);
+  }
+}
+
 /**
  * Populates the sale form with existing data for editing.
  * @param {string} id - The ID of the sale to edit.
@@ -4514,6 +4797,19 @@ function populateSaleFormForEdit(sale) {
   salesDateFilter.value = dateKey(new Date(sale.createdAt));
 
   if (saleItemSearch) saleItemSearch.value = sale.itemName;
+  if (isServiceSale(sale)) {
+    setServiceSaleFieldsVisible(true);
+    serviceTypeInput.value = sale.serviceType || "";
+    setSaleQuantityUnit(null);
+    setPetrolDipFieldsVisible(false);
+    salePriceInput.value = sale.revenue || sale.unitPriceSold;
+    saleQuantityInput.value = "";
+    const serviceButtonText = recordSaleBtn.querySelector(".btn-text");
+    if (serviceButtonText) serviceButtonText.textContent = "Update Sale";
+    window.scrollTo({ top: saleForm.offsetTop - 100, behavior: "smooth" });
+    return;
+  }
+  setServiceSaleFieldsVisible(false);
   if (saleTypeInput) saleTypeInput.value = sale.saleType === "wholesale" ? "wholesale" : "retail";
   if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
   if (saleQuantityInput) {

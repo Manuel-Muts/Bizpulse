@@ -82,6 +82,7 @@ const featureFuelEnergy = document.getElementById("featureFuelEnergy");
 const featureCrateItems = document.getElementById("featureCrateItems");
 const featureBoxItems = document.getElementById("featureBoxItems");
 const featureAccessories = document.getElementById("featureAccessories");
+const featureBooksStationery = document.getElementById("featureBooksStationery");
 const saveInventoryFeaturesBtn = document.getElementById("saveInventoryFeaturesBtn");
 const closeInventoryFeaturesBtn = document.getElementById("closeInventoryFeaturesBtn");
 
@@ -250,6 +251,7 @@ function openInventoryFeatures(userId) {
   featureCrateItems.checked = features.crateItems !== false;
   featureBoxItems.checked = features.boxItems !== false;
   featureAccessories.checked = features.accessories !== false;
+  featureBooksStationery.checked = features.booksStationery !== false;
   inventoryFeaturesMessage.textContent = "";
   saveInventoryFeaturesBtn.disabled = false;
   inventoryFeaturesModal.style.display = "flex";
@@ -272,7 +274,8 @@ inventoryFeaturesForm.addEventListener("submit", async event => {
         fuelEnergy: featureFuelEnergy.checked,
         crateItems: featureCrateItems.checked,
         boxItems: featureBoxItems.checked,
-        accessories: featureAccessories.checked
+        accessories: featureAccessories.checked,
+        booksStationery: featureBooksStationery.checked
       }
     });
     inventoryFeaturesMessage.textContent = "Inventory features saved.";
@@ -537,7 +540,8 @@ registerForm.addEventListener("submit", async (e) => {
      fuelEnergy: true,
      crateItems: true,
      boxItems: true,
-     accessories: true
+     accessories: true,
+     booksStationery: true
    },
    createdAt: new Date().toISOString(),
   uid: newUser.uid // ✅ ADD THIS

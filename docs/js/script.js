@@ -108,6 +108,7 @@ const customCrateTypesRef = collection(db, "customCrateTypes");
 const customBoxTypesRef = collection(db, "customBoxTypes");
 const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
 const accessoryItemsRef = collection(db, "accessoryItems");
+const booksStationeryItemsRef = collection(db, "booksStationeryItems");
 const usersRef = collection(db, "users");
 const paymentsRef = collection(db, "payments");
 
@@ -150,6 +151,7 @@ const fuelEnergyInventoryFeature = document.getElementById("fuelEnergyInventoryF
 const crateItemsInventoryFeature = document.getElementById("crateItemsInventoryFeature");
 const boxItemsInventoryFeature = document.getElementById("boxItemsInventoryFeature");
 const accessoriesInventoryFeature = document.getElementById("accessoriesInventoryFeature");
+const booksStationeryInventoryFeature = document.getElementById("booksStationeryInventoryFeature");
 const inventoryFeatureStatus = document.getElementById("inventoryFeatureStatus");
 const openAddFuelEnergyItemBtn = document.getElementById("openAddFuelEnergyItemBtn");
 const addFuelEnergyItemModal = document.getElementById("addFuelEnergyItemModal");
@@ -164,6 +166,13 @@ const addAccessoryItemForm = document.getElementById("addAccessoryItemForm");
 const accessoryItemNameInput = document.getElementById("accessoryItemName");
 const saveAccessoryItemBtn = document.getElementById("saveAccessoryItemBtn");
 const cancelAccessoryItemBtn = document.getElementById("cancelAccessoryItemBtn");
+const booksStationeryItemSelect = document.getElementById("booksStationeryItemSelect");
+const openAddBooksStationeryItemBtn = document.getElementById("openAddBooksStationeryItemBtn");
+const addBooksStationeryItemModal = document.getElementById("addBooksStationeryItemModal");
+const addBooksStationeryItemForm = document.getElementById("addBooksStationeryItemForm");
+const booksStationeryItemNameInput = document.getElementById("booksStationeryItemName");
+const saveBooksStationeryItemBtn = document.getElementById("saveBooksStationeryItemBtn");
+const cancelBooksStationeryItemBtn = document.getElementById("cancelBooksStationeryItemBtn");
 const openAddCrateTypeBtn = document.getElementById("openAddCrateTypeBtn");
 const addCrateTypeModal = document.getElementById("addCrateTypeModal");
 const addCrateTypeForm = document.getElementById("addCrateTypeForm");
@@ -412,6 +421,99 @@ accessoryItemSelect.addEventListener("change", () => {
   itemPackagingTypeInput.value = "";
   itemName.value = selectedAccessory.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+booksStationeryItemSelect.addEventListener("change", () => {
+  const selectedItem = customBooksStationeryItems.find(item => item.id === booksStationeryItemSelect.value) || null;
+  if (!selectedItem) return;
+
+  itemPackagingTypeInput.value = "";
+  itemName.value = selectedItem.name;
+  itemName.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+function renderBooksStationeryItemOptions() {
+  booksStationeryItemSelect.querySelectorAll("option[data-books-stationery-item]").forEach(option => option.remove());
+  customBooksStationeryItems
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(item => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.dataset.booksStationeryItem = "true";
+      option.textContent = item.name;
+      booksStationeryItemSelect.appendChild(option);
+    });
+}
+
+function listenToBooksStationeryItems(uid) {
+  if (booksStationeryItemsUnsubscribe) booksStationeryItemsUnsubscribe();
+  const userItemsQuery = query(booksStationeryItemsRef, where("uid", "==", uid));
+  booksStationeryItemsUnsubscribe = onSnapshot(userItemsQuery, snapshot => {
+    customBooksStationeryItems = snapshot.docs.map(itemDoc => ({
+      id: itemDoc.id,
+      ...itemDoc.data()
+    }));
+    renderBooksStationeryItemOptions();
+  }, error => {
+    console.error("Unable to load Books & Stationery items:", error);
+    alert(`Unable to load Books & Stationery items: ${error.message}`);
+  });
+}
+
+openAddBooksStationeryItemBtn.addEventListener("click", () => {
+  addBooksStationeryItemForm.reset();
+  addBooksStationeryItemModal.style.display = "flex";
+  booksStationeryItemNameInput.focus();
+});
+cancelBooksStationeryItemBtn.addEventListener("click", () => {
+  addBooksStationeryItemModal.style.display = "none";
+});
+addBooksStationeryItemModal.addEventListener("click", event => {
+  if (event.target === addBooksStationeryItemModal) addBooksStationeryItemModal.style.display = "none";
+});
+addBooksStationeryItemForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const user = auth.currentUser;
+  const name = booksStationeryItemNameInput.value.trim().replace(/\s+/g, " ");
+  if (!user || !name) {
+    alert("Enter a book or stationery item name.");
+    return;
+  }
+
+  const duplicateExists = customBooksStationeryItems.some(item =>
+    item.name.trim().toLowerCase() === name.toLowerCase()
+  );
+  if (duplicateExists) {
+    alert("That book or stationery item already exists.");
+    return;
+  }
+
+  saveBooksStationeryItemBtn.disabled = true;
+  saveBooksStationeryItemBtn.classList.add("loading");
+  try {
+    const itemRef = await addDoc(booksStationeryItemsRef, {
+      uid: user.uid,
+      name,
+      createdAt: new Date().toISOString()
+    });
+    const item = { id: itemRef.id, uid: user.uid, name };
+    customBooksStationeryItems = [
+      ...customBooksStationeryItems.filter(existing => existing.id !== item.id),
+      item
+    ];
+    renderBooksStationeryItemOptions();
+    booksStationeryItemSelect.value = item.id;
+    booksStationeryItemSelect.dispatchEvent(new Event("change"));
+    addBooksStationeryItemModal.style.display = "none";
+    addBooksStationeryItemForm.reset();
+  } catch (error) {
+    console.error("Unable to save Books & Stationery item:", error);
+    alert(`Unable to save Books & Stationery item: ${error.message}`);
+  } finally {
+    saveBooksStationeryItemBtn.disabled = false;
+    saveBooksStationeryItemBtn.classList.remove("loading");
+  }
 });
 
 function renderAccessoryItemOptions() {
@@ -760,6 +862,8 @@ let customFuelEnergyItems = [];
 let fuelEnergyItemsUnsubscribe = null;
 let customAccessoryItems = [];
 let accessoryItemsUnsubscribe = null;
+let customBooksStationeryItems = [];
+let booksStationeryItemsUnsubscribe = null;
 let inventoryFeaturesUnsubscribe = null;
 
 function applyInventoryFeatures(features = {}) {
@@ -767,6 +871,7 @@ function applyInventoryFeatures(features = {}) {
   crateItemsInventoryFeature.hidden = features.crateItems === false;
   boxItemsInventoryFeature.hidden = features.boxItems === false;
   accessoriesInventoryFeature.hidden = features.accessories === false;
+  booksStationeryInventoryFeature.hidden = features.booksStationery === false;
 }
 
 function listenToInventoryFeatures(uid) {
@@ -1538,7 +1643,7 @@ onAuthStateChanged(auth, async (user) => {
         if (suspendedSection) suspendedSection.style.display = "block";
         if (bizContainer) bizContainer.style.display = "none";
       } else if (userData.role === "admin") {
-        // Redirect Admin to the admin panel
+        window.location.replace("/admin");
         return;
       } else {
         if (bizContainer) bizContainer.style.display = "block";
@@ -1546,6 +1651,7 @@ onAuthStateChanged(auth, async (user) => {
         listenToCustomBoxTypes(user.uid);
         listenToFuelEnergyItems(user.uid);
         listenToAccessoryItems(user.uid);
+        listenToBooksStationeryItems(user.uid);
         applyInventoryFeatures(userData.inventoryFeatures || {});
         listenToInventoryFeatures(user.uid);
         
@@ -1620,9 +1726,16 @@ onAuthStateChanged(auth, async (user) => {
     }
     customAccessoryItems = [];
     renderAccessoryItemOptions();
+    if (booksStationeryItemsUnsubscribe) {
+      booksStationeryItemsUnsubscribe();
+      booksStationeryItemsUnsubscribe = null;
+    }
+    customBooksStationeryItems = [];
+    renderBooksStationeryItemOptions();
     if (bizContainer) bizContainer.style.display = "none";
     if (suspendedSection) suspendedSection.style.display = "none";
     if (passwordChangeModal) passwordChangeModal.style.display = "none";
+    window.location.replace("/login");
 
     items = [];
     orders = [];

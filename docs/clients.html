@@ -272,6 +272,24 @@
     </div>
   </div>
 
+  <div id="addBooksStationeryItemModal" class="modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="addBooksStationeryItemTitle">
+    <div class="modal-content stock-top-up-modal">
+      <h2 id="addBooksStationeryItemTitle">Add Book or Stationery Item</h2>
+      <p>This item will be available in the Books &amp; Stationery inventory dropdown.</p>
+      <form id="addBooksStationeryItemForm" class="stock-top-up-form">
+        <label for="booksStationeryItemName">Book or stationery name</label>
+        <input type="text" id="booksStationeryItemName" maxlength="60" placeholder="e.g. Exercise book" required />
+        <div class="stock-top-up-actions">
+          <button type="submit" id="saveBooksStationeryItemBtn" class="action-btn" style="background:#0f766e;">
+            <span class="btn-text">Save item</span>
+            <span class="spinner" aria-hidden="true"></span>
+          </button>
+          <button type="button" id="cancelBooksStationeryItemBtn" class="action-btn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- PAYMENT CONFIRMATION MODAL -->
   <div id="paymentConfirmModal" class="modal" style="display:none;">
     <div class="modal-content" style="max-width: 400px;">
@@ -507,14 +525,18 @@
             <option id="salePieceOption" value="piece">Piece</option>
           </select>
         </label>
-        <label class="sale-form-field" for="saleType">Sale type
+        <label id="saleTypeField" class="sale-form-field" for="saleType">Sale type
           <select id="saleType">
             <option value="retail" selected>Retail</option>
             <option value="wholesale">Wholesale</option>
           </select>
         </label>
-        <label class="sale-form-field" for="salePrice">Price sold
+        <label id="salePriceField" class="sale-form-field" for="salePrice"><span id="salePriceLabel">Price sold</span>
           <input type="number" id="salePrice" placeholder="Price Sold" required />
+        </label>
+        <label id="serviceTypeField" class="sale-form-field service-sale-hidden" for="serviceType">
+          Specify service type <small>(optional)</small>
+          <input type="text" id="serviceType" placeholder="e.g. Repair, delivery" maxlength="120" />
         </label>
         <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
           Pack size
@@ -523,7 +545,7 @@
             <option id="saleHalfPackOption" value="half">Half crate</option>
           </select>
         </label>
-        <label class="sale-quantity-field sale-form-field" for="saleQuantity">Quantity
+        <label id="saleQuantityField" class="sale-quantity-field sale-form-field" for="saleQuantity">Quantity
           <input type="text" id="saleQuantity" inputmode="decimal" placeholder="Qty (e.g. 2 kg, 3 cartons)" required />
           <small id="saleCrateStockStatus" class="sale-crate-stock-status" hidden></small>
         </label>
@@ -573,6 +595,7 @@
                 <select id="analyticsItemFilter" aria-describedby="analyticsItemPageInfo">
                   <option value="" disabled selected>-- Select --</option>
                   <option value="__general_items__">General Items</option>
+                  <option value="__service_analytics__">Service (sales only)</option>
                   <option value="__all_gas__">All Gas (Refillable + Non-refillable)</option>
                   <option value="__all_soda_300_500__">All Soda (300ml + 500ml)</option>
                   <option value="__all_crate_items__">All Crate Items (crates + pieces)</option>
@@ -637,7 +660,7 @@
           <div id="analyticsSaleTypeBreakdown" class="analytics-sale-type-breakdown" aria-live="polite"></div>
         </div>
       </div>
-      <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
+      <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Service sales are included in General Items and can also be analyzed separately using Service (sales only). Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
       <section id="analyticsItemChartModule" class="analytics-item-chart-module" hidden>
         <button type="button" id="analyticsItemChartToggle" class="analytics-item-chart-toggle">Open item sales graphs</button>
       </section>
@@ -663,7 +686,7 @@
       <div class="analytics-breakdown-table analytics-sales-breakdown">
         <table class="compact-data-table">
           <thead>
-            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per item.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail item price − wholesale item price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th id="analyticsSoldQuantityHeading">Items sold</th></tr>
+            <tr><th>Period</th><th><abbr tabindex="0" title="Opening and closing stock exclude Petrol, which is tracked separately in Petrol Dip Breakdown. Stock balances are tracked from the stock-history start date onward; earlier periods are marked Not tracked. Grouped selections show balances per item because their stock units may differ.">Opening stock</abbr></th><th>Closing stock</th><th><abbr tabindex="0" title="Gross sales = sum of recorded sale quantities × price charged per item.">Gross sales</abbr></th><th><abbr tabindex="0" title="Gross profit = gross sales − cost of the items sold.">Gross profit</abbr></th><th>Expenses</th><th><abbr tabindex="0" title="Net revenue = gross sales − expenses and purchases attributed to the selected analytics scope.">Net revenue</abbr></th><th><abbr tabindex="0" title="Wholesale discounts = sum of recorded discount amounts. If no discount amount was saved, it is calculated as (retail item price − wholesale item price) × quantity, with no negative discounts.">Wholesale discounts</abbr></th><th id="analyticsSoldQuantityHeading">Items sold</th><th>Items and quantities</th></tr>
           </thead>
           <tbody id="analyticsBreakdownTable"></tbody>
         </table>
@@ -881,6 +904,18 @@
           </div>
           <select id="accessoryItemSelect">
             <option value="">Choose accessory...</option>
+          </select>
+        </div>
+        <div id="booksStationeryInventoryFeature" class="inventory-stock-tool-group">
+          <div class="inventory-stock-tool-heading">
+            <label for="booksStationeryItemSelect">Books &amp; Stationery</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddBooksStationeryItemBtn" class="action-btn inventory-stock-tool-add" style="background:#0f766e;" aria-describedby="booksStationeryItemCreateTooltip">Add item</button>
+              <span id="booksStationeryItemCreateTooltip" class="inventory-tooltip" role="tooltip">Create a book or stationery item. It will appear here and in the inventory list.</span>
+            </span>
+          </div>
+          <select id="booksStationeryItemSelect">
+            <option value="">Choose book or stationery...</option>
           </select>
         </div>
       </div>

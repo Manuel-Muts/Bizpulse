@@ -2788,6 +2788,10 @@ form input, form button {
   font-weight: 600;
 }
 
+#saleForm .service-sale-hidden {
+  display: none !important;
+}
+
 #saleForm .sale-quantity-unit-field {
   flex: 0 1 145px;
   min-width: 0;
