@@ -1480,7 +1480,7 @@ function handleAnalyticsItemChange() {
 function handleItemSearch() {
   const term = saleItemSearch.value.toLowerCase().trim();
   selectedItemId = null;
-  setServiceSaleFieldsVisible(false);
+  setServiceSaleFieldsVisible();
   setSaleQuantityUnit(null);
   setPetrolDipFieldsVisible(false);
 
@@ -1534,7 +1534,7 @@ function handleItemSearch() {
  */
 window.selectSaleItem = (id, name) => {
   selectedItemId = id;
-  setServiceSaleFieldsVisible(false);
+  setServiceSaleFieldsVisible();
   saleItemSearch.value = name;
   saleSearchResults.style.display = "none";
   const selectedItem = itemsArray.find(item => item.id === id);
@@ -1557,14 +1557,15 @@ window.selectSaleService = () => {
   setPetrolDipFieldsVisible(false);
   saleQuantityInput.value = "";
   salePriceInput.value = "";
-  setServiceSaleFieldsVisible(true);
+  setServiceSaleFieldsVisible();
   salePriceInput.focus();
 }
 
-function setServiceSaleFieldsVisible(visible) {
+function setServiceSaleFieldsVisible() {
+  const visible = selectedItemId === SERVICE_ITEM_ID;
   saleTypeField.classList.toggle("service-sale-hidden", visible);
   saleQuantityField.classList.toggle("service-sale-hidden", visible);
-  serviceTypeField.classList.toggle("service-sale-hidden", !visible);
+  serviceTypeField.hidden = !visible;
   if (!visible) serviceTypeInput.value = "";
   saleQuantityInput.required = !visible;
   salePriceLabel.textContent = visible ? "Amount" : "Price sold";
@@ -1715,7 +1716,7 @@ function setSaleQuantityUnit(item) {
   saleCrateStockStatus.hidden = !packagedItem;
   saleQuantityInput.placeholder = packagedItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
   salePriceInput.placeholder = packagedItem ? `Selling price per ${packageName}` : "Price Sold";
-  saleQuantityUnit.value = "";
+  saleQuantityUnit.value = packagedItem ? "piece" : "";
   saleCrateSize.value = "full";
   const unitsPerPack = boxItem ? getUnitsPerBox(item) : crateItem ? getPiecesPerCrate(item) : 24;
   saleCrateOption.textContent = `${boxItem ? "Box" : "Crate"} (${formatNumber(unitsPerPack)} pieces)`;
@@ -4771,7 +4772,7 @@ async function handleServiceSaleSubmit(selectedSaleDate, selectedSaleDateStart) 
     recordSaleBtn.querySelector(".btn-text").textContent = "Record Sale";
     saleForm.reset();
     selectedItemId = null;
-    setServiceSaleFieldsVisible(false);
+    setServiceSaleFieldsVisible();
     setSaleQuantityUnit(null);
     window.dispatchEvent(new CustomEvent("saleRecorded", {
       detail: { uid: authInstance.currentUser.uid }
@@ -4798,7 +4799,8 @@ function populateSaleFormForEdit(sale) {
 
   if (saleItemSearch) saleItemSearch.value = sale.itemName;
   if (isServiceSale(sale)) {
-    setServiceSaleFieldsVisible(true);
+    selectedItemId = SERVICE_ITEM_ID;
+    setServiceSaleFieldsVisible();
     serviceTypeInput.value = sale.serviceType || "";
     setSaleQuantityUnit(null);
     setPetrolDipFieldsVisible(false);
@@ -4809,7 +4811,7 @@ function populateSaleFormForEdit(sale) {
     window.scrollTo({ top: saleForm.offsetTop - 100, behavior: "smooth" });
     return;
   }
-  setServiceSaleFieldsVisible(false);
+  setServiceSaleFieldsVisible();
   if (saleTypeInput) saleTypeInput.value = sale.saleType === "wholesale" ? "wholesale" : "retail";
   if (salePriceInput) salePriceInput.value = sale.unitPriceSold;
   if (saleQuantityInput) {

@@ -2346,15 +2346,16 @@ button.loading .btn-text {
   overflow-wrap: anywhere;
 }
 
-.analytics-sales-breakdown th:nth-child(1) { width: 11%; }
+.analytics-sales-breakdown th:nth-child(1) { width: 9%; }
 .analytics-sales-breakdown th:nth-child(2),
-.analytics-sales-breakdown th:nth-child(3) { width: 17%; }
+.analytics-sales-breakdown th:nth-child(3) { width: 15%; }
 .analytics-sales-breakdown th:nth-child(4),
 .analytics-sales-breakdown th:nth-child(5),
-.analytics-sales-breakdown th:nth-child(7) { width: 8%; }
+.analytics-sales-breakdown th:nth-child(7) { width: 7%; }
 .analytics-sales-breakdown th:nth-child(6) { width: 7%; }
-.analytics-sales-breakdown th:nth-child(8) { width: 11%; }
-.analytics-sales-breakdown th:nth-child(9) { width: 13%; }
+.analytics-sales-breakdown th:nth-child(8) { width: 10%; }
+.analytics-sales-breakdown th:nth-child(9) { width: 8%; }
+.analytics-sales-breakdown th:nth-child(10) { width: 15%; }
 
 .analytics-sales-breakdown th abbr {
   font-size: 11px;
@@ -2789,6 +2790,10 @@ form input, form button {
 }
 
 #saleForm .service-sale-hidden {
+  display: none !important;
+}
+
+#saleForm .sale-form-field[hidden] {
   display: none !important;
 }
 
