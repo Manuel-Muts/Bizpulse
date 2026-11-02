@@ -119,10 +119,15 @@ export function getCrateStockPieces(item) {
   return crates * getPiecesPerCrate(item) + loosePieces;
 }
 
-export function adjustCrateStock(item, pieceAdjustment) {
+export function adjustCrateStock(item, pieceAdjustment, allowHalfPieces = false) {
   const totalPieces = getCrateStockPieces(item) + pieceAdjustment;
-  if (totalPieces < 0 || !Number.isInteger(totalPieces)) {
-    throw new Error("Crate stock must remain a non-negative whole number of pieces.");
+  const isValidPieceCount = allowHalfPieces
+    ? Number.isInteger(totalPieces * 2)
+    : Number.isInteger(totalPieces);
+  if (totalPieces < 0 || !isValidPieceCount) {
+    throw new Error(allowHalfPieces
+      ? "Alcohol crate stock must remain a non-negative whole or half number of pieces."
+      : "Crate stock must remain a non-negative whole number of pieces.");
   }
   const piecesPerCrate = getPiecesPerCrate(item);
   const crates = Math.floor(totalPieces / piecesPerCrate);
@@ -140,7 +145,7 @@ export function formatCrateStock(item) {
     parts.push(`${formatNumber(crates)} ${crates === 1 ? "CRATE" : "CRATES"}`);
   }
   if (loosePieces > 0) {
-    parts.push(`${formatNumber(loosePieces)} ${loosePieces === 1 ? "PIECE" : "PIECES"}`);
+    parts.push(`${formatStockQuantity(loosePieces)} ${loosePieces === 1 ? "PIECE" : "PIECES"}`);
   }
   return parts.join(" + ");
 }
@@ -180,6 +185,12 @@ export function formatNumber(value) {
     minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
     maximumFractionDigits: 2
   });
+}
+
+export function formatStockQuantity(value) {
+  return formatNumber(value)
+    .replace(/(\.\d*?)0+$/, "$1")
+    .replace(/\.$/, "");
 }
 
 export function formatDisplayQuantity(value) {

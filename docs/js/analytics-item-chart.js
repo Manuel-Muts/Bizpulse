@@ -16,9 +16,15 @@ function isHalfCrateSale(sale, unit) {
   return sale.crateSize === "half" || unit.startsWith("half crate");
 }
 
+function isHalfPieceSale(sale, unit) {
+  return unit.startsWith("half piece") ||
+    (unit.startsWith("piece") && sale.bottleSize === "half");
+}
+
 function getCrateSalePieces(sale, item, unit, quantity) {
   const piecesPerCrate = Number(sale.piecesPerCrate) ||
     getPiecesPerCrate(item);
+  if (isHalfPieceSale(sale, unit)) return quantity / 2;
   if (unit.startsWith("piece")) return quantity;
   return quantity * (isHalfCrateSale(sale, unit) ? piecesPerCrate / 2 : piecesPerCrate);
 }
@@ -27,6 +33,7 @@ function getCrateSaleDescription(totals) {
   const parts = [];
   if (totals.crates) parts.push(`${formatAmount(totals.crates)} full ${totals.crates === 1 ? "crate" : "crates"}`);
   if (totals.halfCrates) parts.push(`${formatAmount(totals.halfCrates)} half ${totals.halfCrates === 1 ? "crate" : "crates"}`);
+  if (totals.halfPieces) parts.push(`${formatAmount(totals.halfPieces)} half ${totals.halfPieces === 1 ? "piece" : "pieces"}`);
   if (totals.loosePieces) {
     parts.push(`${formatAmount(totals.loosePieces)} ${totals.loosePieces === 1 ? "piece" : "pieces"}`);
   }
@@ -49,10 +56,13 @@ function aggregateCrateSales(sales, itemsById, start, end) {
       pieces: 0,
       crates: 0,
       halfCrates: 0,
+      halfPieces: 0,
       loosePieces: 0
     };
     existing.pieces += getCrateSalePieces(sale, item, unit, quantity);
-    if (unit.startsWith("piece")) {
+    if (isHalfPieceSale(sale, unit)) {
+      existing.halfPieces += quantity;
+    } else if (unit.startsWith("piece")) {
       existing.loosePieces += quantity;
     } else if (isHalfCrateSale(sale, unit)) {
       existing.halfCrates += quantity;

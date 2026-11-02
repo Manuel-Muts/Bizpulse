@@ -336,6 +336,9 @@ function saleEvent(sale, item) {
     if (unit === "PIECES" || unit === "PIECE") {
       return crateSaleDelta(sale, date, quantity);
     }
+    if (unit === "HALF PIECES" || unit === "HALF PIECE") {
+      return crateSaleDelta(sale, date, quantity / 2, item);
+    }
     return { error: `unrecognized crate sale unit "${sale.quantityUnit}"` };
   }
   const saleUnit = normalizeUnit(sale.quantityUnit || itemUnitFromItem(item));
@@ -345,8 +348,11 @@ function saleEvent(sale, item) {
   return { id: sale.id, date, delta: -quantity, source: "sale" };
 }
 
-function crateSaleDelta(sale, date, units) {
-  return Number.isInteger(units)
+function crateSaleDelta(sale, date, units, item = null) {
+  const isValidPieceCount = item?.crateCategory === "alcohol"
+    ? Number.isInteger(units * 2)
+    : Number.isInteger(units);
+  return isValidPieceCount
     ? { id: sale.id, date, delta: -units, source: "sale" }
     : { error: "quantity does not resolve to a whole number of pieces" };
 }
@@ -414,7 +420,10 @@ function getItemStock(item) {
   if (!Number.isInteger(quantity.amount)) return null;
   const piecesPerCrate = getPiecesPerCrate(item);
   const loosePieces = Number(item.loosePieces ?? 0);
-  if (!Number.isInteger(loosePieces) || loosePieces < 0 ||
+  const isValidLoosePieces = item.crateCategory === "alcohol"
+    ? Number.isInteger(loosePieces * 2)
+    : Number.isInteger(loosePieces);
+  if (!isValidLoosePieces || loosePieces < 0 ||
       loosePieces >= piecesPerCrate) return null;
   return quantity.amount * piecesPerCrate + loosePieces;
 }

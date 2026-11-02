@@ -26,6 +26,27 @@
     min-width: 0;
 }
 
+.registration-alcohol-option {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 8px;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.registration-alcohol-option[hidden] {
+    display: none;
+}
+
+.registration-alcohol-option input {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #0f766e;
+}
+
 .phone-input-group {
     display: flex;
     align-items: stretch;

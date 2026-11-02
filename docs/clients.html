@@ -523,6 +523,7 @@
             <option value="" disabled selected>-- Select --</option>
             <option id="saleCrateOption" value="crate">Crate (24 pieces)</option>
             <option id="salePieceOption" value="piece">Piece</option>
+            <option id="saleHalfPieceOption" value="half-piece" hidden>Half piece</option>
           </select>
         </label>
         <label id="saleTypeField" class="sale-form-field" for="saleType">Sale type
@@ -534,7 +535,7 @@
         <label id="salePriceField" class="sale-form-field" for="salePrice"><span id="salePriceLabel">Price sold</span>
           <input type="number" id="salePrice" placeholder="Price Sold" required />
         </label>
-        <label id="serviceTypeField" class="sale-form-field" for="serviceType" hidden>
+        <label id="serviceTypeField" class="sale-form-field service-sale-hidden" for="serviceType">
           Specify service type <small>(optional)</small>
           <input type="text" id="serviceType" placeholder="e.g. Repair, delivery" maxlength="120" />
         </label>
@@ -599,6 +600,7 @@
                   <option value="__all_gas__">All Gas (Refillable + Non-refillable)</option>
                   <option value="__all_soda_300_500__">All Soda (300ml + 500ml)</option>
                   <option value="__all_crate_items__">All Crate Items (crates + pieces)</option>
+                  <option id="allAlcoholAnalyticsOption" value="__all_alcohol_items__" hidden>All Alcohol Items (pieces + half pieces)</option>
                   <option value="__all_accessories__">All Accessories</option>
                 </select>
                 <div class="analytics-item-pagination">
@@ -728,11 +730,12 @@
               <option value="pro-gas">PRO GAS</option>
             </optgroup>
             <option value="crate-item">Crate Items</option>
+            <option id="alcoholCrateExpenseOption" value="alcohol-crate-item" hidden>Alcohol Crates</option>
             <option value="accessory-item">Accessories</option>
           </select>
         </label>
         <label id="expenseCrateItemField" for="expenseCrateItem" hidden>
-          Crate item
+          <span id="expenseCrateItemLabel">Crate item</span>
           <select id="expenseCrateItem">
             <option value="">Choose crate item...</option>
           </select>
@@ -882,6 +885,18 @@
             <option value="yoghurt-250ml">Yoghurt 250ml (18 pieces)</option>
           </select>
         </div>
+        <div id="alcoholCratesInventoryFeature" class="inventory-stock-tool-group" hidden>
+          <div class="inventory-stock-tool-heading">
+            <label for="alcoholCrateTypeSelect">Alcohol crates</label>
+            <span class="inventory-create-tooltip">
+              <button type="button" id="openAddAlcoholCrateTypeBtn" class="action-btn inventory-stock-tool-add" style="background:#7f1d1d;" aria-describedby="alcoholCrateTypeCreateTooltip">Add alcohol crate</button>
+              <span id="alcoholCrateTypeCreateTooltip" class="inventory-tooltip" role="tooltip">Create an alcohol crate preset with its pieces-per-crate setting.</span>
+            </span>
+          </div>
+          <select id="alcoholCrateTypeSelect">
+            <option value="">Choose alcohol crate...</option>
+          </select>
+        </div>
         <div id="boxItemsInventoryFeature" class="inventory-stock-tool-group">
           <div class="inventory-stock-tool-heading">
             <label for="boxTypeSelect">Choose box item</label>
@@ -937,7 +952,7 @@
           <span id="incomingPriceLabel">Buying Price</span>
           <input type="number" id="incomingPrice" placeholder="Buying Price" required />
         </label>
-        <label class="inventory-price-field">
+        <label id="outgoingPriceField" class="inventory-price-field">
           <span id="outgoingPriceLabel">Selling Price</span>
           <input type="number" id="outgoingPrice" placeholder="Selling Price" required />
         </label>

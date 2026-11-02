@@ -2756,6 +2756,10 @@ form input, form button {
   font-weight: 600;
 }
 
+#outgoingPriceField[hidden] {
+  display: none;
+}
+
 .sale-quantity-field {
   min-width: 0;
 }
@@ -2790,10 +2794,6 @@ form input, form button {
 }
 
 #saleForm .service-sale-hidden {
-  display: none !important;
-}
-
-#saleForm .sale-form-field[hidden] {
   display: none !important;
 }
 

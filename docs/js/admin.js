@@ -64,6 +64,7 @@ const newBusName = document.getElementById("newBusName");
 const newBusEmail = document.getElementById("newBusEmail");
 const newBusPhone = document.getElementById("newBusPhone");
 const newBusPassword = document.getElementById("newBusPassword");
+const registrationAlcoholItems = document.getElementById("registrationAlcoholItems");
 const regMessage = document.getElementById("regMessage"); // For registration/update messages
 const adminSearchInput = document.getElementById("adminSearchInput"); // For client search
 const prevPageBtn = document.getElementById("adminPrevPageBtn"); // Pagination
@@ -80,6 +81,7 @@ const inventoryFeaturesBusinessName = document.getElementById("inventoryFeatures
 const inventoryFeaturesMessage = document.getElementById("inventoryFeaturesMessage");
 const featureFuelEnergy = document.getElementById("featureFuelEnergy");
 const featureCrateItems = document.getElementById("featureCrateItems");
+const featureAlcoholItems = document.getElementById("featureAlcoholItems");
 const featureBoxItems = document.getElementById("featureBoxItems");
 const featureAccessories = document.getElementById("featureAccessories");
 const featureBooksStationery = document.getElementById("featureBooksStationery");
@@ -249,6 +251,7 @@ function openInventoryFeatures(userId) {
     `Choose the inventory-taking categories available to ${user.businessName || user.email}.`;
   featureFuelEnergy.checked = features.fuelEnergy !== false;
   featureCrateItems.checked = features.crateItems !== false;
+  featureAlcoholItems.checked = features.alcoholItems !== false;
   featureBoxItems.checked = features.boxItems !== false;
   featureAccessories.checked = features.accessories !== false;
   featureBooksStationery.checked = features.booksStationery !== false;
@@ -273,6 +276,7 @@ inventoryFeaturesForm.addEventListener("submit", async event => {
       inventoryFeatures: {
         fuelEnergy: featureFuelEnergy.checked,
         crateItems: featureCrateItems.checked,
+        alcoholItems: featureAlcoholItems.checked,
         boxItems: featureBoxItems.checked,
         accessories: featureAccessories.checked,
         booksStationery: featureBooksStationery.checked
@@ -521,6 +525,7 @@ registerForm.addEventListener("submit", async (e) => {
       newBusPassword.required = true;
       newBusPassword.disabled = false;
       newBusPhone.required = true;
+      registrationAlcoholItems.parentElement.hidden = false;
     } else {
       // CREATE MODE
       regMessage.textContent = "Creating account...";
@@ -539,6 +544,7 @@ registerForm.addEventListener("submit", async (e) => {
    inventoryFeatures: {
      fuelEnergy: true,
      crateItems: true,
+     alcoholItems: registrationAlcoholItems.checked,
      boxItems: true,
      accessories: true,
      booksStationery: true
@@ -581,6 +587,7 @@ window.editUser = (id) => {
   newBusPassword.value = "";
   newBusPassword.required = false;
   newBusPassword.disabled = true;
+  registrationAlcoholItems.parentElement.hidden = true;
 
   const regBtn = document.getElementById("regBtn");
   regBtn.textContent = "Update Client";

@@ -119,6 +119,7 @@ const form = document.getElementById("itemForm");
 const itemName = document.getElementById("itemName");
 const incomingPrice = document.getElementById("incomingPrice");
 const outgoingPrice = document.getElementById("outgoingPrice");
+const outgoingPriceField = document.getElementById("outgoingPriceField");
 const quantityInput = document.getElementById("quantity");
 const crateLoosePiecesField = document.getElementById("crateLoosePiecesField");
 const crateLoosePiecesInput = document.getElementById("crateLoosePieces");
@@ -145,10 +146,12 @@ const buyingCostPerPieceOutput = document.getElementById("buyingCostPerPiece");
 const pieceSellingPriceField = document.getElementById("pieceSellingPriceField");
 const pieceSellingPriceInput = document.getElementById("pieceSellingPrice");
 const crateTypeSelect = document.getElementById("crateTypeSelect");
+const alcoholCrateTypeSelect = document.getElementById("alcoholCrateTypeSelect");
 const boxTypeSelect = document.getElementById("boxTypeSelect");
 const fuelEnergyItemSelect = document.getElementById("fuelEnergyItemSelect");
 const fuelEnergyInventoryFeature = document.getElementById("fuelEnergyInventoryFeature");
 const crateItemsInventoryFeature = document.getElementById("crateItemsInventoryFeature");
+const alcoholCratesInventoryFeature = document.getElementById("alcoholCratesInventoryFeature");
 const boxItemsInventoryFeature = document.getElementById("boxItemsInventoryFeature");
 const accessoriesInventoryFeature = document.getElementById("accessoriesInventoryFeature");
 const booksStationeryInventoryFeature = document.getElementById("booksStationeryInventoryFeature");
@@ -174,7 +177,9 @@ const booksStationeryItemNameInput = document.getElementById("booksStationeryIte
 const saveBooksStationeryItemBtn = document.getElementById("saveBooksStationeryItemBtn");
 const cancelBooksStationeryItemBtn = document.getElementById("cancelBooksStationeryItemBtn");
 const openAddCrateTypeBtn = document.getElementById("openAddCrateTypeBtn");
+const openAddAlcoholCrateTypeBtn = document.getElementById("openAddAlcoholCrateTypeBtn");
 const addCrateTypeModal = document.getElementById("addCrateTypeModal");
+const addCrateTypeTitle = document.getElementById("addCrateTypeTitle");
 const addCrateTypeForm = document.getElementById("addCrateTypeForm");
 const crateTypeNameInput = document.getElementById("crateTypeName");
 const crateTypePiecesInput = document.getElementById("crateTypePieces");
@@ -283,24 +288,37 @@ itemName.addEventListener("input", () => {
     itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
   updateCrateInventoryFields();
 });
-crateTypeSelect.addEventListener("change", () => {
-  const crateType = getCrateType(crateTypeSelect.value);
+function applyCrateTypeSelection(select, category) {
+  const crateType = getCrateType(select.value);
   if (!crateType) return;
 
+  editId = null;
+  crateTypeSelect.value = select === crateTypeSelect ? select.value : "";
+  alcoholCrateTypeSelect.value = select === alcoholCrateTypeSelect ? select.value : "";
+  boxTypeSelect.value = "";
+  fuelEnergyItemSelect.value = "";
   itemPackagingTypeInput.value = "";
+  selectedCrateCategory = category;
   itemName.value = crateType.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
   quantityInput.value = "0 CRATES";
   crateLoosePiecesInput.value = "0";
   piecesPerCrateInput.value = String(crateType.piecesPerCrate);
   updateCrateInventoryFields();
-  crateLoosePiecesInput.max = String(crateType.piecesPerCrate - 1);
-});
+}
+
+crateTypeSelect.addEventListener("change", () =>
+  applyCrateTypeSelection(crateTypeSelect, "standard"));
+alcoholCrateTypeSelect.addEventListener("change", () =>
+  applyCrateTypeSelection(alcoholCrateTypeSelect, "alcohol"));
 boxTypeSelect.addEventListener("change", () => {
   const boxType = customBoxTypes.find(candidate => candidate.id === boxTypeSelect.value);
   if (!boxType) return;
 
   editId = null;
+  crateTypeSelect.value = "";
+  alcoholCrateTypeSelect.value = "";
+  fuelEnergyItemSelect.value = "";
   itemPackagingTypeInput.value = "box";
   itemName.value = boxType.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
@@ -315,6 +333,9 @@ fuelEnergyItemSelect.addEventListener("change", () => {
   const selectedFuelItem = getFuelEnergyItem(fuelEnergyItemSelect.value);
   if (!selectedFuelItem) return;
 
+  crateTypeSelect.value = "";
+  alcoholCrateTypeSelect.value = "";
+  boxTypeSelect.value = "";
   itemPackagingTypeInput.value = "";
   itemName.value = selectedFuelItem.name;
   itemName.dispatchEvent(new Event("input", { bubbles: true }));
@@ -607,7 +628,9 @@ function getCrateType(crateTypeId) {
 
 function renderCrateTypeOptions() {
   crateTypeSelect.querySelectorAll("option[data-custom-crate-type]").forEach(option => option.remove());
+  alcoholCrateTypeSelect.querySelectorAll("option[data-custom-crate-type]").forEach(option => option.remove());
   customCrateTypes
+    .filter(crateType => crateType.crateCategory !== "alcohol")
     .slice()
     .sort((left, right) => left.label.localeCompare(right.label))
     .forEach(crateType => {
@@ -616,6 +639,17 @@ function renderCrateTypeOptions() {
       option.dataset.customCrateType = "true";
       option.textContent = `${crateType.label} (${formatNumber(crateType.piecesPerCrate)} pieces)`;
       crateTypeSelect.appendChild(option);
+    });
+  customCrateTypes
+    .filter(crateType => crateType.crateCategory === "alcohol")
+    .slice()
+    .sort((left, right) => left.label.localeCompare(right.label))
+    .forEach(crateType => {
+      const option = document.createElement("option");
+      option.value = crateType.id;
+      option.dataset.customCrateType = "true";
+      option.textContent = `${crateType.label} (${formatNumber(crateType.piecesPerCrate)} pieces)`;
+      alcoholCrateTypeSelect.appendChild(option);
     });
 }
 
@@ -721,13 +755,21 @@ addBoxTypeForm.addEventListener("submit", async event => {
   }
 });
 
-openAddCrateTypeBtn.addEventListener("click", () => {
+function openCrateTypeForm(isAlcohol) {
+  creatingAlcoholCrateType = isAlcohol;
   addCrateTypeForm.reset();
+  addCrateTypeTitle.textContent = isAlcohol ? "Add Alcohol Crate" : "Add Crate Type";
+  saveCrateTypeBtn.querySelector(".btn-text").textContent =
+    isAlcohol ? "Save alcohol crate" : "Save crate type";
   addCrateTypeModal.style.display = "flex";
   crateTypeNameInput.focus();
-});
+}
+
+openAddCrateTypeBtn.addEventListener("click", () => openCrateTypeForm(false));
+openAddAlcoholCrateTypeBtn.addEventListener("click", () => openCrateTypeForm(true));
 cancelCrateTypeBtn.addEventListener("click", () => {
   addCrateTypeModal.style.display = "none";
+  creatingAlcoholCrateType = false;
 });
 addCrateTypeModal.addEventListener("click", event => {
   if (event.target === addCrateTypeModal) addCrateTypeModal.style.display = "none";
@@ -769,29 +811,36 @@ addCrateTypeForm.addEventListener("submit", async event => {
       label,
       name: crateItemName,
       piecesPerCrate,
+      crateCategory: creatingAlcoholCrateType ? "alcohol" : "standard",
       createdAt: new Date().toISOString()
     });
     const customCrateType = {
       id: crateTypeRef.id,
       label,
       name: crateItemName,
-      piecesPerCrate
+      piecesPerCrate,
+      crateCategory: creatingAlcoholCrateType ? "alcohol" : "standard"
     };
     customCrateTypes = [
       ...customCrateTypes.filter(crateType => crateType.id !== customCrateType.id),
       customCrateType
     ];
     renderCrateTypeOptions();
-    crateTypeSelect.value = customCrateType.id;
-    crateTypeSelect.dispatchEvent(new Event("change"));
+    const targetSelect = creatingAlcoholCrateType
+      ? alcoholCrateTypeSelect
+      : crateTypeSelect;
+    targetSelect.value = customCrateType.id;
+    targetSelect.dispatchEvent(new Event("change"));
     addCrateTypeModal.style.display = "none";
     addCrateTypeForm.reset();
+    creatingAlcoholCrateType = false;
   } catch (error) {
     console.error("Unable to save custom crate type:", error);
     alert(`Unable to save crate type: ${error.message}`);
   } finally {
     saveCrateTypeBtn.disabled = false;
     saveCrateTypeBtn.classList.remove("loading");
+    saveCrateTypeBtn.querySelector(".btn-text").textContent = "Save crate type";
   }
 });
 quantityInput.addEventListener("input", () => {
@@ -856,6 +905,8 @@ let stockTopUpAdditionsError = null;
 let editingStockAdditionId = null;
 let customCrateTypes = [];
 let customCrateTypesUnsubscribe = null;
+let selectedCrateCategory = "standard";
+let creatingAlcoholCrateType = false;
 let customBoxTypes = [];
 let customBoxTypesUnsubscribe = null;
 let customFuelEnergyItems = [];
@@ -869,9 +920,13 @@ let inventoryFeaturesUnsubscribe = null;
 function applyInventoryFeatures(features = {}) {
   fuelEnergyInventoryFeature.hidden = features.fuelEnergy === false;
   crateItemsInventoryFeature.hidden = features.crateItems === false;
+  alcoholCratesInventoryFeature.hidden = features.alcoholItems === false;
   boxItemsInventoryFeature.hidden = features.boxItems === false;
   accessoriesInventoryFeature.hidden = features.accessories === false;
   booksStationeryInventoryFeature.hidden = features.booksStationery === false;
+  document.documentElement.dataset.alcoholItemsEnabled =
+    features.alcoholItems === false ? "false" : "true";
+  updateCrateInventoryFields();
 }
 
 function listenToInventoryFeatures(uid) {
@@ -1025,7 +1080,9 @@ function getStockTopUpEntry(item, amount, unit) {
 }
 
 function adjustInventoryStock(item, adjustment) {
-  if (isCrateItem(item.name)) return adjustCrateStock(item, adjustment);
+  if (isCrateItem(item.name)) {
+    return adjustCrateStock(item, adjustment, item.crateCategory === "alcohol");
+  }
   if (isBoxItem(item)) return adjustBoxStock(item, adjustment);
 
   const quantity = parseQuantity(item.quantity);
@@ -2070,10 +2127,22 @@ changePasswordBtn.addEventListener("click", async () => {
    BUSINESS LOGIC
    ========================= */
 function calculateSingleItemProfit(item) {
+  if (isAlcoholCrateInventoryItem(item)) {
+    return (Number(item.pieceSellingPrice) || 0) -
+      Number(item.incoming) / getPiecesPerCrate(item);
+  }
   return item.outgoing - item.incoming;
 }
 
+function isAlcoholCrateInventoryItem(item) {
+  return item?.crateCategory === "alcohol" && isCrateItem(item.name);
+}
+
 function calculateProfit(item) {
+  if (isAlcoholCrateInventoryItem(item)) {
+    const stockPieces = getCrateStockPieces(item);
+    return stockPieces * calculateSingleItemProfit(item);
+  }
   if (isBoxItem(item)) {
     const boxes = parseQuantity(item.quantity)?.amount ?? 0;
     const looseUnits = Number(item.looseUnits) || 0;
@@ -2094,8 +2163,14 @@ function updateCrateInventoryFields(item = null) {
   const boxItem = item ? isBoxItem(item) : itemPackagingTypeInput.value === "box";
   const crateItem = !boxItem && isCrateItem(item?.name || itemName.value);
   const showCrateFields = boxItem || crateItem;
+  if (item) {
+    selectedCrateCategory = item.crateCategory === "alcohol" ? "alcohol" : "standard";
+  } else if (!crateItem) {
+    selectedCrateCategory = "standard";
+  }
   const itemNameValue = item?.name || itemName.value;
   const showGasFields = itemNameValue.toLowerCase().includes("gas");
+  const alcoholCrate = crateItem && selectedCrateCategory === "alcohol";
   if (item) {
     gasTypeSelect.value = showGasFields ? item.gasType || "" : "";
   } else if (!showGasFields) {
@@ -2109,6 +2184,9 @@ function updateCrateInventoryFields(item = null) {
   outgoingPriceLabel.textContent = isRefillableGas
     ? "Refilling Cost (Selling Price)"
     : showCrateFields ? `Selling Price per ${packageLabel}` : "Selling Price";
+  outgoingPriceField.hidden = alcoholCrate;
+  outgoingPrice.required = !alcoholCrate;
+  if (alcoholCrate) outgoingPrice.value = "";
   crateLoosePiecesField.hidden = !showCrateFields;
   if (crateLoosePiecesLabel) crateLoosePiecesLabel.textContent = "Loose pieces";
   piecesPerCrateField.hidden = !crateItem;
@@ -2127,6 +2205,7 @@ function updateCrateInventoryFields(item = null) {
     ? boxItem ? "Boxes in stock (e.g. 5 boxes)" : "Crates in stock (e.g. 5 crates)"
     : "Quantity (e.g. 5 L, 3 kg, 5 cartons)";
   crateLoosePiecesInput.required = crateItem;
+  crateLoosePiecesInput.step = crateItem && selectedCrateCategory === "alcohol" ? "0.5" : "1";
   piecesPerCrateInput.required = crateItem;
   boxUnitsInput.required = boxItem;
   pieceSellingPriceInput.required = showCrateFields;
@@ -2142,7 +2221,8 @@ function updateCrateInventoryFields(item = null) {
   const piecesPerCrate = Number(boxItem ? boxUnitsInput.value : piecesPerCrateInput.value);
   crateLoosePiecesInput.max = String(
     Number.isInteger(piecesPerCrate) && piecesPerCrate > 0
-      ? piecesPerCrate - 1
+      ? piecesPerCrate -
+        (crateItem && selectedCrateCategory === "alcohol" ? 0.5 : 1)
       : PIECES_PER_CRATE - 1
   );
   updateBuyingCostPerPiece();
@@ -2305,7 +2385,9 @@ function renderItems(filter = "") {
       <td>${isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.incoming)} / ${isBoxItem(item) ? "box" : "crate"}`
         : formatNumber(item.incoming)}</td>
-      <td>${isBoxItem(item) || isCrateItem(item.name)
+      <td>${isAlcoholCrateInventoryItem(item)
+        ? `KES ${formatCratePiecePrice(item)} / piece<br>KES ${formatNumber((Number(item.pieceSellingPrice) || 0) / 2)} / half piece`
+        : isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"}<br>KES ${formatCratePiecePrice(item)} / ${isBoxItem(item) ? "unit" : "piece"}`
         : formatNumber(item.outgoing)}</td>
       <td>${escapeQuantity(formatInventoryStock(item))}</td>
@@ -2351,7 +2433,9 @@ function renderLowStockAlerts(page = 1) {
       <td>${isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.incoming)} / ${isBoxItem(item) ? "box" : "crate"}`
         : formatNumber(item.incoming)}</td>
-      <td>${isBoxItem(item) || isCrateItem(item.name)
+      <td>${isAlcoholCrateInventoryItem(item)
+        ? `KES ${formatCratePiecePrice(item)} / piece<br>KES ${formatNumber((Number(item.pieceSellingPrice) || 0) / 2)} / half piece`
+        : isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"}<br>KES ${formatCratePiecePrice(item)} / ${isBoxItem(item) ? "unit" : "piece"}`
         : formatNumber(item.outgoing)}</td>
       <td>${escapeQuantity(formatInventoryStock(item))}</td>
@@ -2559,9 +2643,14 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  if (crateItem && (!Number.isInteger(loosePieces) || loosePieces < 0 ||
+  const allowsHalfPieces = crateItem && selectedCrateCategory === "alcohol";
+  if (crateItem && (!(allowsHalfPieces
+    ? Number.isInteger(loosePieces * 2)
+    : Number.isInteger(loosePieces)) || loosePieces < 0 ||
       loosePieces >= piecesPerCrate)) {
-    alert(`Loose pieces must be a whole number between 0 and ${piecesPerCrate - 1}.`);
+    alert(allowsHalfPieces
+      ? `Loose stock must be in whole or half pieces between 0 and ${piecesPerCrate - 0.5}.`
+      : `Loose pieces must be a whole number between 0 and ${piecesPerCrate - 1}.`);
     showLoadingIndicator(false);
     return;
   }
@@ -2570,10 +2659,15 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
-  if ((crateItem || boxItem) && (!Number.isInteger(loosePieces) || loosePieces < 0 ||
+  if ((crateItem || boxItem) && (!(crateItem && allowsHalfPieces
+      ? Number.isInteger(loosePieces * 2)
+      : Number.isInteger(loosePieces)) || loosePieces < 0 ||
       loosePieces >= (boxItem ? unitsPerBox : piecesPerCrate))) {
-    const maxLoose = (boxItem ? unitsPerBox : piecesPerCrate) - 1;
-    alert(`Loose pieces must be a whole number between 0 and ${maxLoose}.`);
+    const maxLoose = (boxItem ? unitsPerBox : piecesPerCrate) -
+      (crateItem && allowsHalfPieces ? 0.5 : 1);
+    alert(crateItem && allowsHalfPieces
+      ? `Loose stock must be in whole or half pieces between 0 and ${maxLoose}.`
+      : `Loose pieces must be a whole number between 0 and ${maxLoose}.`);
     showLoadingIndicator(false);
     return;
   }
@@ -2583,6 +2677,7 @@ form.addEventListener("submit", async e => {
     showLoadingIndicator(false);
     return;
   }
+  const alcoholCrate = crateItem && selectedCrateCategory === "alcohol";
   if (isPetrolName(nameVal) && quantity.unit && !isLiterUnit(quantity.unit)) {
     alert("Petrol inventory quantities must be recorded in liters (L).");
     showLoadingIndicator(false);
@@ -2598,9 +2693,10 @@ form.addEventListener("submit", async e => {
     name: nameVal,
     name_lowercase: nameVal.toLowerCase(),
     incoming: Number(incomingPrice.value),
-    outgoing: Number(outgoingPrice.value),
+    outgoing: alcoholCrate ? 0 : Number(outgoingPrice.value),
     quantity: formatQuantity(quantity.amount, quantityUnit),
     packagingType: boxItem ? "box" : null,
+    crateCategory: crateItem ? selectedCrateCategory : null,
     gasType: gasItem ? gasTypeSelect.value : null,
     loosePieces: crateItem ? loosePieces : null,
     piecesPerCrate: crateItem ? piecesPerCrate : null,
@@ -2710,7 +2806,12 @@ form.addEventListener("submit", async e => {
     crateLoosePiecesInput.value = "0";
     piecesPerCrateInput.value = String(PIECES_PER_CRATE);
     boxUnitsInput.value = "1";
+    crateTypeSelect.value = "";
+    alcoholCrateTypeSelect.value = "";
+    boxTypeSelect.value = "";
+    fuelEnergyItemSelect.value = "";
     itemPackagingTypeInput.value = "";
+    selectedCrateCategory = "standard";
     includeInAllAnalyticsInput.disabled = false;
     updateCrateInventoryFields();
     analyticsInclusionManuallySet = false;
@@ -2755,6 +2856,7 @@ window.editItem = id => {
   crateLoosePiecesInput.value = String(Number(item.loosePieces) || 0);
   if (isBoxItem(item)) crateLoosePiecesInput.value = String(Number(item.looseUnits) || 0);
   piecesPerCrateInput.value = String(getPiecesPerCrate(item));
+  selectedCrateCategory = item.crateCategory === "alcohol" ? "alcohol" : "standard";
   boxUnitsInput.value = String(getUnitsPerBox(item));
   pieceSellingPriceInput.value = item.pieceSellingPrice ?? "";
   updateCrateInventoryFields(item);
@@ -2795,7 +2897,10 @@ exportBtn.addEventListener("click", () => {
     const crateItem = !boxItem && isCrateItem(item.name);
     const unitsPerPackage = boxItem ? getUnitsPerBox(item) :
       crateItem ? getPiecesPerCrate(item) : "";
-    csv += `${item.name},${item.gasType || ""},${boxItem ? "BOX" : crateItem ? "CRATE" : ""},${formatNumber(item.incoming)},${formatNumber(item.outgoing)},${piecePrice},${unitsPerPackage},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
+    const sellingPrice = isAlcoholCrateInventoryItem(item)
+      ? formatNumber(item.pieceSellingPrice)
+      : formatNumber(item.outgoing);
+    csv += `${item.name},${item.gasType || ""},${boxItem ? "BOX" : crateItem ? "CRATE" : ""},${formatNumber(item.incoming)},${sellingPrice},${piecePrice},${unitsPerPackage},${formatInventoryStock(item)},${formatNumber(calculateSingleItemProfit(item))},${formatNumber(calculateProfit(item))}\n`;
   });
 
   const blob = new Blob([csv], { type: "text/csv" });

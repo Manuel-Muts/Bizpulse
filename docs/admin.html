@@ -50,6 +50,10 @@
       </label>
       <input type="password" id="newBusPassword" placeholder="Initial Password" required />
       <button type="submit" id="regBtn" class="action-btn">Create Account</button>
+      <label class="registration-alcohol-option">
+        <input type="checkbox" id="registrationAlcoholItems" checked />
+        <span>Enable Alcohol crate category</span>
+      </label>
     </form>
     <p id="regMessage" style="text-align: center; font-weight: bold;"></p>
     
@@ -94,6 +98,7 @@
       <form id="inventoryFeaturesForm">
         <label><input type="checkbox" id="featureFuelEnergy" /> Fuel &amp; Energy</label>
         <label><input type="checkbox" id="featureCrateItems" /> Crate Items</label>
+        <label><input type="checkbox" id="featureAlcoholItems" /> Alcohol crate category</label>
         <label><input type="checkbox" id="featureBoxItems" /> Box Items</label>
         <label><input type="checkbox" id="featureAccessories" /> Accessories</label>
         <label><input type="checkbox" id="featureBooksStationery" /> Books &amp; Stationery</label>
