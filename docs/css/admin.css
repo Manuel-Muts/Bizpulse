@@ -10,6 +10,21 @@
     background-color: #c0392b;
 }
 
+.admin-body {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 0;
+}
+
+.admin-body > #adminPanel {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+}
+
 .admin-body .analytics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;

@@ -4339,6 +4339,193 @@ table tr:hover {
 /* =========================
    FOOTER STYLES
    ========================= */
+.legal-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  padding: 0;
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(110, 155, 112, 0.13), transparent 38rem),
+    linear-gradient(180deg, #f5f8f5 0%, #edf3ef 100%);
+  color: #24352e;
+}
+
+.legal-page .navbar {
+  position: relative;
+  padding: 12px clamp(20px, 6vw, 84px);
+  border-bottom: 1px solid rgba(35, 75, 58, 0.09);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 4px 18px rgba(27, 55, 42, 0.04);
+  backdrop-filter: blur(12px);
+}
+
+.legal-page .nav-logo {
+  color: #28523f;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.legal-page .nav-links a {
+  color: #3d7054;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.legal-page .nav-links a:hover {
+  color: #254b3c;
+}
+
+.legal-main {
+  box-sizing: border-box;
+  width: min(100% - 40px, 880px);
+  flex: 1;
+  margin: 0 auto;
+  padding: clamp(42px, 7vw, 76px) 0 64px;
+}
+
+.legal-hero {
+  margin-bottom: 26px;
+  text-align: center;
+}
+
+.legal-eyebrow {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: #538367;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.legal-hero h1 {
+  margin: 0;
+  color: #234a38;
+  font-size: clamp(32px, 5vw, 46px);
+  letter-spacing: -0.045em;
+  line-height: 1.12;
+}
+
+.legal-hero p {
+  max-width: 580px;
+  margin: 14px auto 18px;
+  color: #63736a;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.legal-date {
+  display: inline-block;
+  padding: 7px 12px;
+  border: 1px solid #dce9df;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #54705e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.legal-document {
+  padding: clamp(24px, 5vw, 48px);
+  border: 1px solid rgba(220, 232, 223, 0.9);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 18px 48px rgba(40, 74, 54, 0.08);
+}
+
+.legal-section {
+  padding: 0 0 22px;
+}
+
+.legal-section + .legal-section {
+  padding-top: 22px;
+  border-top: 1px solid #e8eee9;
+}
+
+.legal-section h2 {
+  margin: 0 0 9px;
+  color: #2e5a43;
+  font-size: 18px;
+  letter-spacing: -0.015em;
+}
+
+.legal-section p {
+  margin: 0;
+  color: #596960;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.legal-section a {
+  color: #357852;
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+
+.legal-home-link {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  padding: 0 18px;
+  border-radius: 8px;
+  background: #397b55;
+  box-shadow: 0 5px 12px rgba(57, 123, 85, 0.18);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.legal-home-link:hover {
+  transform: translateY(-1px);
+  background: #2e6847;
+}
+
+.legal-page .main-footer {
+  margin-top: 0;
+  padding: 20px 20px;
+  border-top-color: rgba(35, 75, 58, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.legal-page .main-footer .container {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.legal-page .footer-text {
+  margin: 0;
+  color: #718078;
+}
+
+@media (max-width: 600px) {
+  .legal-page .navbar {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .legal-main {
+    width: min(100% - 28px, 880px);
+    padding-top: 40px;
+    padding-bottom: 42px;
+  }
+
+  .legal-document {
+    border-radius: 14px;
+  }
+
+  .legal-section h2 {
+    font-size: 17px;
+  }
+
+  .legal-section p {
+    font-size: 14px;
+  }
+}
+
 .main-footer {
   background-color: #ffffff;
   padding: 30px 0;
@@ -4496,6 +4683,7 @@ table tr:hover {
 }
 
 .login-page #loginForm {
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -4563,8 +4751,12 @@ table tr:hover {
 }
 
 .login-page #loginBtn {
-  min-height: 40px;
-  margin-top: 6px;
+  box-sizing: border-box;
+  width: 42%;
+  min-width: 0;
+  flex: 0 0 42%;
+  min-height: 36px;
+  padding: 8px 12px;
   border-radius: 7px;
   background: linear-gradient(100deg, #4f8c68, #6e9b70 62%, #b18f43);
   font-weight: 700;
@@ -4574,13 +4766,27 @@ table tr:hover {
   background: linear-gradient(100deg, #3f7958, #5d875f 62%, #9d792e);
 }
 
+.login-action-row {
+  align-self: stretch;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  width: 100%;
+  align-items: center;
+  column-gap: 8px;
+  margin-top: 6px;
+}
+
+.login-action-row #loginBtn {
+  width: 100%;
+}
+
 .login-forgot-row {
   display: flex;
   min-height: 18px;
   align-items: center;
-  justify-content: center;
+  justify-self: end;
   gap: 8px;
-  margin-top: 4px;
 }
 
 .login-page #forgotPasswordLink {
