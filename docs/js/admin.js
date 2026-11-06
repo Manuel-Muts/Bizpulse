@@ -303,7 +303,7 @@ function formatPhoneNumber(value) {
   if (digits.startsWith("254") && digits.length === 12) {
     return `+254 ${digits.slice(3, 6)} ${digits.slice(6)}`;
   }
-  if (digits.length === 9 && digits.startsWith("7")) {
+  if (digits.length === 9 && /^[17]/.test(digits)) {
     return `+254 ${digits.slice(0, 3)} ${digits.slice(3)}`;
   }
   return value || "N/A";
