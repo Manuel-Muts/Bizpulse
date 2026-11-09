@@ -5,6 +5,7 @@ import {
   doc,
   query,
   where,
+  getDoc,
   writeBatch,
   limit,
   orderBy,
@@ -47,8 +48,15 @@ import {
   parseQuantity,
   uppercaseInput
 } from "./quantity.js";
+import {
+  isHealthcareMedicine,
+  roundMedicineQuantity,
+  toMedicineDispenseBaseQuantity,
+  validateMedicineConfig
+} from "./healthcare-quantity.js";
+import { allocateMedicineBatches } from "./healthcare-inventory.js";
 
-const EXPENSE_COST_CATEGORIES = new Set([
+const LEGACY_EXPENSE_COST_CATEGORIES = new Set([
   "general",
   "gas-cylinder",
   "k-gas",
@@ -59,10 +67,12 @@ const EXPENSE_COST_CATEGORIES = new Set([
   "soda-300ml",
   "soda-500ml",
   "petrol",
+  "medicine-purchase",
   "crate-item",
   "alcohol-crate-item",
   "accessory-item"
 ]);
+const INVENTORY_ITEM_EXPENSE_PREFIX = "inventory-item:";
 const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
   "gas-cylinder",
   "k-gas",
@@ -70,6 +80,7 @@ const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
   "pro-gas",
   "gas-refillable",
   "gas-nonrefillable",
+  "medicine-purchase",
   "soda-300ml",
   "soda-500ml",
   "crate-item",
@@ -79,6 +90,7 @@ const EXCLUDED_ITEM_PURCHASE_CATEGORIES = new Set([
 const isExcludedItemPurchase = expense =>
   String(expense.type || "").toLowerCase() === "purchase" &&
   (EXCLUDED_ITEM_PURCHASE_CATEGORIES.has(expense.costCategory) ||
+    String(expense.costCategory || "").startsWith(INVENTORY_ITEM_EXPENSE_PREFIX) ||
     Boolean(getCustomFuelCategoryName(expense.costCategory)));
 const ALL_GAS_ANALYTICS_FILTER = "__all_gas__";
 const ALL_SODA_ANALYTICS_FILTER = "__all_soda_300_500__";
@@ -87,11 +99,16 @@ const ALL_ALCOHOL_ANALYTICS_FILTER = "__all_alcohol_items__";
 const ALL_ACCESSORIES_ANALYTICS_FILTER = "__all_accessories__";
 const GENERAL_ANALYTICS_FILTER = "__general_items__";
 const SERVICE_ANALYTICS_FILTER = "__service_analytics__";
+const ALL_MEDICINES_ANALYTICS_FILTER = "__all_medicines__";
+const MEDICINE_ANALYTICS_FILTER_PREFIX = "__medicine_unit__";
+const analyticsMedicineGroups = new Map();
+window.addEventListener("inventory-features-updated", renderAnalyticsItemPageOptions);
 
 function isStaticAnalyticsFilter(filterValue) {
   return isGeneralAnalyticsFilter(filterValue) ||
     filterValue === SERVICE_ANALYTICS_FILTER ||
-    isCombinedAnalyticsFilter(filterValue);
+    isCombinedAnalyticsFilter(filterValue) ||
+    analyticsMedicineGroups.has(filterValue);
 }
 
 function isGeneralAnalyticsFilter(filterValue) {
@@ -103,7 +120,8 @@ function isCombinedAnalyticsFilter(filterValue) {
     filterValue === ALL_SODA_ANALYTICS_FILTER ||
     filterValue === ALL_CRATE_ANALYTICS_FILTER ||
     filterValue === ALL_ALCOHOL_ANALYTICS_FILTER ||
-    filterValue === ALL_ACCESSORIES_ANALYTICS_FILTER;
+    filterValue === ALL_ACCESSORIES_ANALYTICS_FILTER ||
+    analyticsMedicineGroups.has(filterValue);
 }
 
 // DOM Elements (Sales & Analytics)
@@ -117,6 +135,8 @@ const serviceTypeField = document.getElementById("serviceTypeField");
 const serviceTypeInput = document.getElementById("serviceType");
 const saleTypeInput = document.getElementById("saleType");
 const saleTypeField = document.getElementById("saleTypeField");
+const saleDoseSizeField = document.getElementById("saleDoseSizeField");
+const saleDoseSizeInput = document.getElementById("saleDoseSize");
 const saleQuantityInput = document.getElementById("saleQuantity");
 const saleQuantityField = document.getElementById("saleQuantityField");
 const saleCrateStockStatus = document.getElementById("saleCrateStockStatus");
@@ -129,7 +149,6 @@ const saleCrateSizeField = document.getElementById("saleCrateSizeField");
 const saleCrateSize = document.getElementById("saleCrateSize");
 const saleFullPackOption = document.getElementById("saleFullPackOption");
 const saleHalfPackOption = document.getElementById("saleHalfPackOption");
-const allAlcoholAnalyticsOption = document.getElementById("allAlcoholAnalyticsOption");
 const recordSaleBtn = document.getElementById("recordSaleBtn");
 const salesTableBody = document.getElementById("salesTable"); // Renamed to avoid conflict with global sales array
 const salesDateFilter = document.getElementById("salesDateFilter");
@@ -194,10 +213,10 @@ const expenseForm = document.getElementById("expenseForm");
 const expenseDateInput = document.getElementById("expenseDate");
 const expenseTypeInput = document.getElementById("expenseType");
 const expenseCostCategoryInput = document.getElementById("expenseCostCategory");
+const expenseCategoryStatus = document.getElementById("expenseCategoryStatus");
 const expenseCrateItemField = document.getElementById("expenseCrateItemField");
 const expenseCrateItemLabel = document.getElementById("expenseCrateItemLabel");
 const expenseCrateItemInput = document.getElementById("expenseCrateItem");
-const alcoholCrateExpenseOption = document.getElementById("alcoholCrateExpenseOption");
 const expenseAccessoryItemField = document.getElementById("expenseAccessoryItemField");
 const expenseAccessoryItemInput = document.getElementById("expenseAccessoryItem");
 const expenseGasTypeField = document.getElementById("expenseGasTypeField");
@@ -225,6 +244,7 @@ let stockAdditionsRef;
 let stockMovementsRef;
 let expensesRef;
 let itemsRef; // Need itemsRef for batch updates
+let medicineBatchesRef;
 let accessoryItemsRef;
 let analyticsItemsUid = null;
 let analyticsItemPageItems = [];
@@ -307,6 +327,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   salesRef = collection(dbInstance, "sales");
   stockAdditionsRef = collection(dbInstance, "stockAdditions");
   stockMovementsRef = collection(dbInstance, "stockMovements");
+  medicineBatchesRef = collection(dbInstance, "medicineBatches");
   expensesRef = collection(dbInstance, "expenses");
   const fuelEnergyCategoriesRef = collection(dbInstance, "fuelEnergyCategories");
   accessoryItemsRef = collection(dbInstance, "accessoryItems");
@@ -323,7 +344,13 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   saleItemSearch.addEventListener("input", handleItemSearch);
   saleQuantityInput.addEventListener("input", () => {
     const selectedItem = itemsArray.find(item => item.id === selectedItemId);
-    if (isCrateItem(selectedItem?.name)) {
+    if (isHealthcareMedicine(selectedItem)) {
+      appendQuantityUnit(
+        saleQuantityInput,
+        getMedicineSaleQuantityUnit(selectedItem),
+        true
+      );
+    } else if (isCrateItem(selectedItem?.name)) {
       const selectedUnit = getCrateSaleQuantityUnit(selectedItem);
       if (selectedUnit) appendQuantityUnit(saleQuantityInput, selectedUnit, true);
     } else {
@@ -334,6 +361,16 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
     updatePetrolSalePreview();
   });
   saleTypeInput.addEventListener("change", () => {
+    updateSaleUnitPrice();
+  });
+  saleDoseSizeInput.addEventListener("change", () => {
+    const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+    if (isHealthcareMedicine(selectedItem)) {
+      const quantity = parseQuantity(saleQuantityInput.value);
+      saleQuantityInput.value = quantity
+        ? formatQuantity(quantity.amount, getMedicineSaleQuantityUnit(selectedItem))
+        : "";
+    }
     updateSaleUnitPrice();
   });
   saleQuantityUnit.addEventListener("change", () => {
@@ -379,6 +416,11 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
   expenseForm.addEventListener("submit", handleExpenseFormSubmit);
   expenseCostCategoryInput.addEventListener("change", updateExpenseGasTypeField);
   expenseAccessoryItemInput.addEventListener("change", updateExpenseGasTypeField);
+  window.addEventListener("inventory-features-updated", () => {
+    renderExpenseCostCategoryOptions();
+    renderExpensesTable();
+    updateExpenseGasTypeField();
+  });
   expenseDescriptionInput.addEventListener("input", handleExpenseDescriptionInput);
   [expenseVendorInput, expenseNotesInput].forEach(input => {
     input.addEventListener("input", () => uppercaseInput(input));
@@ -482,6 +524,7 @@ export function initSalesModule(db, auth, items, itemsCollectionRef, ordersRef, 
  */
 export function updateSaleDropdown(currentItems) {
   itemsArray = currentItems; // Update local reference
+  renderExpenseCostCategoryOptions();
   renderCrateExpenseItemOptions(expenseCrateItemInput);
   renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
   renderExpensesTable();
@@ -499,6 +542,8 @@ function listenToAnalyticsItems(uid) {
     analyticsItemsById = new Map(analyticsItems.map(item => [item.id, item]));
     analyticsItemsLoaded = true;
     analyticsItemsError = null;
+    renderExpenseCostCategoryOptions();
+    renderExpensesTable();
     ensureStockLedgerBaselines(analyticsItems);
     renderAnalyticsItemPageOptions();
     if (isStaticAnalyticsFilter(analyticsItemFilter.value) ||
@@ -511,6 +556,8 @@ function listenToAnalyticsItems(uid) {
     console.error("Unable to load analytics item settings:", error);
     analyticsItemsLoaded = true;
     analyticsItemsError = "Unable to load item analytics settings. Please try again.";
+    renderExpenseCostCategoryOptions();
+    renderExpensesTable();
     updateAnalyticsUI();
     renderOverview();
   });
@@ -590,7 +637,9 @@ function listenToAccessoryItems(uid) {
     accessoryNames = new Set(accessoryExpenseItems
       .map(accessory => accessory.name.toLowerCase()));
     renderAccessoryExpenseItemOptions(expenseAccessoryItemInput);
+    renderExpenseCostCategoryOptions();
     renderExpensesTable();
+    renderAnalyticsItemPageOptions();
     accessoryItemsError = null;
     if (analyticsItemFilter.value === GENERAL_ANALYTICS_FILTER ||
         analyticsItemFilter.value === ALL_ACCESSORIES_ANALYTICS_FILTER) {
@@ -692,18 +741,15 @@ async function loadAnalyticsItemPage() {
 
 function renderAnalyticsItemPageOptions() {
   const selectedValue = analyticsItemFilter.value;
-  allAlcoholAnalyticsOption.hidden =
-    document.documentElement.dataset.alcoholItemsEnabled === "false" ||
-    ![...analyticsItemsById.values()].some(isAlcoholAnalyticsItem);
-  const selectedOption = [...analyticsItemFilter.options]
-    .find(option => option.value === selectedValue);
-  const selectedLabel = selectedOption?.textContent || "";
   [...analyticsItemFilter.options]
-    .filter(option => option.value !== "" && !isStaticAnalyticsFilter(option.value))
+    .filter(option => option.value !== "")
     .forEach(option => option.remove());
 
+  const inventoryItems = [...analyticsItemsById.values()];
+  renderAnalyticsGroupOptions(inventoryItems);
+
   const renderedItemIds = new Set();
-  [...analyticsItemsById.values()]
+  inventoryItems
     .filter(isPetrolItem)
     .forEach(item => {
       const option = document.createElement("option");
@@ -725,15 +771,120 @@ function renderAnalyticsItemPageOptions() {
     renderedItemIds.add(item.id);
   });
 
-  if (selectedValue && !isStaticAnalyticsFilter(selectedValue) &&
+  if (selectedValue && analyticsItemsById.has(selectedValue) &&
       !renderedItemIds.has(selectedValue)) {
     const selectedItem = analyticsItemsById.get(selectedValue);
     const option = document.createElement("option");
     option.value = selectedValue;
-    option.textContent = selectedItem ? getAnalyticsItemLabel(selectedItem) : selectedLabel;
+    option.textContent = getAnalyticsItemLabel(selectedItem);
     analyticsItemFilter.appendChild(option);
+    renderedItemIds.add(selectedValue);
   }
-  analyticsItemFilter.value = selectedValue;
+
+  const selectedValueIsAvailable = [...analyticsItemFilter.options]
+    .some(option => option.value === selectedValue);
+  if (selectedValue && !selectedValueIsAvailable) analyticsItemFilter.value = "";
+  else analyticsItemFilter.value = selectedValue;
+
+  if (selectedValue && !selectedValueIsAvailable) handleAnalyticsItemChange();
+}
+
+function renderAnalyticsGroupOptions(inventoryItems) {
+  analyticsMedicineGroups.clear();
+
+  const medicineItems = inventoryItems.filter(isHealthcareMedicine);
+  if (medicineItems.length) {
+    analyticsMedicineGroups.set(ALL_MEDICINES_ANALYTICS_FILTER, {
+      label: "All Medicines",
+      itemIds: new Set(medicineItems.map(item => item.id))
+    });
+
+    const stockUnits = new Map();
+    medicineItems.forEach(item => {
+      const unit = String(item.healthcare.stockUnit || "").trim();
+      const normalizedUnit = unit.toLocaleLowerCase();
+      if (!normalizedUnit) return;
+      if (!stockUnits.has(normalizedUnit)) {
+        stockUnits.set(normalizedUnit, { unit, itemIds: new Set() });
+      }
+      stockUnits.get(normalizedUnit).itemIds.add(item.id);
+    });
+    stockUnits.forEach(({ unit, itemIds }) => {
+      const filterValue =
+        `${MEDICINE_ANALYTICS_FILTER_PREFIX}stock__${encodeURIComponent(unit.toLocaleLowerCase())}`;
+      analyticsMedicineGroups.set(filterValue, {
+        label: `All ${formatMedicineAnalyticsUnit(unit)}`,
+        itemIds
+      });
+    });
+
+    const bottledMedicineItems = medicineItems.filter(item =>
+      String(item.healthcare.purchaseUnit || "").trim().toLocaleLowerCase() === "bottle"
+    );
+    if (bottledMedicineItems.length) {
+      analyticsMedicineGroups.set(`${MEDICINE_ANALYTICS_FILTER_PREFIX}purchase__bottle`, {
+        label: "All Bottled Medicines",
+        itemIds: new Set(bottledMedicineItems.map(item => item.id))
+      });
+    }
+  }
+
+  const groups = [
+    [ALL_MEDICINES_ANALYTICS_FILTER, analyticsMedicineGroups.get(ALL_MEDICINES_ANALYTICS_FILTER)?.label],
+    [ALL_GAS_ANALYTICS_FILTER, "All Gas (Refillable + Non-refillable)",
+      isAnalyticsInventoryFeatureEnabled("fuelEnergy") &&
+        inventoryItems.some(isGasAnalyticsItem)],
+    [ALL_SODA_ANALYTICS_FILTER, "All Soda (300ml + 500ml)",
+      isAnalyticsInventoryFeatureEnabled("crateItems") &&
+        inventoryItems.some(isSodaAnalyticsItem)],
+    [ALL_CRATE_ANALYTICS_FILTER, "All Crate Items (crates + pieces)",
+      isAnalyticsInventoryFeatureEnabled("crateItems") &&
+        inventoryItems.some(isCrateAnalyticsItem)],
+    [ALL_ALCOHOL_ANALYTICS_FILTER, "All Alcohol Items (pieces + half pieces)",
+      isAnalyticsInventoryFeatureEnabled("alcoholItems") &&
+        inventoryItems.some(isAlcoholAnalyticsItem)],
+    [ALL_ACCESSORIES_ANALYTICS_FILTER, "All Accessories",
+      isAnalyticsInventoryFeatureEnabled("accessories") &&
+        inventoryItems.some(isAccessoryAnalyticsItem)],
+    [GENERAL_ANALYTICS_FILTER, "General Items",
+      document.documentElement.dataset.pharmacyOnlyInventory !== "true" &&
+        inventoryItems.some(item => !isHealthcareMedicine(item) &&
+        isIncludedInAllAnalytics({ itemId: item.id, itemName: item.name }))],
+    [SERVICE_ANALYTICS_FILTER, "Service (sales only)",
+      allSalesForAnalytics.some(isServiceSale)]
+  ];
+
+  groups.forEach(([value, label, available]) => {
+    if (!label || available === false) return;
+    appendAnalyticsGroupOption(value, label);
+  });
+  [...analyticsMedicineGroups.entries()]
+    .filter(([value]) => value !== ALL_MEDICINES_ANALYTICS_FILTER)
+    .sort((left, right) => left[1].label.localeCompare(right[1].label))
+    .forEach(([value, group]) => appendAnalyticsGroupOption(value, group.label));
+}
+
+function isAnalyticsInventoryFeatureEnabled(feature) {
+  const datasetKey =
+    `inventory${feature.charAt(0).toLocaleUpperCase()}${feature.slice(1)}Enabled`;
+  return document.documentElement.dataset[datasetKey] === "true";
+}
+
+function appendAnalyticsGroupOption(value, label) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.dataset.analyticsGroup = "true";
+  option.textContent = label;
+  analyticsItemFilter.appendChild(option);
+}
+
+function formatMedicineAnalyticsUnit(unit) {
+  const normalized = unit.trim();
+  if (normalized.toLocaleLowerCase() === "ml") return "mL";
+  const display = normalized;
+  const title = `${display.charAt(0).toLocaleUpperCase()}${display.slice(1)}`;
+  if (display.toLocaleLowerCase().endsWith("s")) return title;
+  return `${title}s`;
 }
 
 function getAnalyticsItemLabel(item) {
@@ -805,34 +956,209 @@ function listenToFuelEnergyCategories(categoriesRef, uid) {
 }
 
 function renderExpenseCostCategoryOptions() {
-  const fuelOptions = document.getElementById("fuelEnergyExpenseOptions");
-  fuelOptions.querySelectorAll("option[data-custom-fuel-category]").forEach(option => option.remove());
-  customFuelEnergyCategories
-    .slice()
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .forEach(category => {
-      const option = document.createElement("option");
-      option.value = `fuel:${category.id}`;
-      option.dataset.customFuelCategory = "true";
-      option.textContent = category.name;
-      fuelOptions.appendChild(option);
-    });
+  const categories = getExpenseCostCategoryOptions();
+  updateExpenseCategoryStatus(categories);
+  const currentSelection = expenseCostCategoryInput.value;
+  const selectedCategory = editingExpenseId
+    ? currentSelection
+    : categories.some(category => category.value === currentSelection)
+      ? currentSelection
+      : "general";
+  expenseCostCategoryInput.replaceChildren();
+  categories.forEach(category => {
+    let parent = expenseCostCategoryInput;
+    if (category.group) {
+      let group = [...expenseCostCategoryInput.children]
+        .find(child => child.tagName === "OPTGROUP" && child.label === category.group);
+      if (!group) {
+        group = document.createElement("optgroup");
+        group.label = category.group;
+        if (category.group === "Fuel & Energy") group.id = "fuelEnergyExpenseOptions";
+        expenseCostCategoryInput.appendChild(group);
+      }
+      parent = group;
+    }
+    const option = document.createElement("option");
+    option.value = category.value;
+    option.textContent = category.label;
+    if (category.fuelEnergy) option.dataset.fuelEnergyCategory = "true";
+    parent.appendChild(option);
+  });
+  if (editingExpenseId && selectedCategory &&
+      !categories.some(category => category.value === selectedCategory)) {
+    const legacyOption = document.createElement("option");
+    legacyOption.value = selectedCategory;
+    legacyOption.textContent = `Legacy: ${selectedCategory}`;
+    legacyOption.dataset.legacyExpenseCategory = "true";
+    expenseCostCategoryInput.appendChild(legacyOption);
+  }
+  expenseCostCategoryInput.value = selectedCategory || "general";
   updateExpenseGasTypeField();
 }
 
+function updateExpenseCategoryStatus(categories) {
+  if (!expenseCategoryStatus) return;
+  if (!analyticsItemsLoaded) {
+    expenseCategoryStatus.textContent = "Loading categories from this business's inventory...";
+    return;
+  }
+  if (analyticsItemsError) {
+    expenseCategoryStatus.textContent =
+      "Inventory categories could not be loaded. Check the inventory connection and try refreshing.";
+    return;
+  }
+  const inventoryItems = getAllExpenseInventoryItems();
+  if (categories.length > 1) {
+    expenseCategoryStatus.textContent =
+      `${categories.length - 1} inventory-linked cost categories available.` +
+      (inventoryItems.some(isHealthcareMedicine)
+        ? " Medicine purchases must be recorded with a batch receipt in Inventory."
+        : "");
+    return;
+  }
+  expenseCategoryStatus.textContent =
+    "No eligible stock items were found in this business's inventory; General remains available.";
+}
+
+function getExpenseCostCategoryOptions() {
+  const categories = [{ value: "general", label: "General" }];
+  const addCategory = (value, label, options = {}) => {
+    if (categories.some(category => category.value === value)) return;
+    categories.push({ value, label, ...options });
+  };
+  const inventoryItems = getAllExpenseInventoryItems();
+  const fuelItems = inventoryItems.filter(item =>
+    isPetrolItem(item) || isGasAnalyticsItem(item) || Boolean(getCustomFuelCategoryForItem(item))
+  );
+  const customFuelIds = new Set(
+    fuelItems.map(getCustomFuelCategoryForItem)
+      .filter(Boolean)
+      .map(category => category.id)
+  );
+  const presetFuelCategories = [
+    ["k-gas", "K GAS"],
+    ["total-gas", "TOTAL GAS"],
+    ["pro-gas", "PRO GAS"]
+  ];
+
+  presetFuelCategories.forEach(([value, label]) => {
+    if (fuelItems.some(item =>
+      String(item.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+        .includes(label.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    )) {
+      addCategory(value, label, { group: "Fuel & Energy", fuelEnergy: true });
+    }
+  });
+  customFuelEnergyCategories
+    .filter(category => customFuelIds.has(category.id))
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .forEach(category => addCategory(`fuel:${category.id}`, category.name, {
+      group: "Fuel & Energy",
+      fuelEnergy: true
+    }));
+
+  if (fuelItems.some(isPetrolItem)) {
+    addCategory("petrol", "Petrol", { group: "Fuel & Energy", fuelEnergy: true });
+  }
+  if (fuelItems.some(isGasAnalyticsItem)) {
+    addCategory("gas-refillable", "Gas: Refillable", { group: "Fuel & Energy", fuelEnergy: true });
+    addCategory("gas-nonrefillable", "Gas: Non-refillable", { group: "Fuel & Energy", fuelEnergy: true });
+  }
+
+  if (inventoryItems.some(item => isSodaAnalyticsItem(item) && /\b300\s*ml\b/i.test(item.name))) {
+    addCategory("soda-300ml", "Soda 300 mL");
+  }
+  if (inventoryItems.some(item => isSodaAnalyticsItem(item) && /\b500\s*ml\b/i.test(item.name))) {
+    addCategory("soda-500ml", "Soda 500 mL");
+  }
+
+  if (getCrateExpenseItems("crate-item").length) {
+    addCategory("crate-item", "Crate Items");
+  }
+  if (getCrateExpenseItems("alcohol-crate-item").length) {
+    addCategory("alcohol-crate-item", "Alcohol Crates");
+  }
+  if (inventoryItems.some(isAccessoryAnalyticsItem)) {
+    addCategory("accessory-item", "Accessories");
+  }
+  inventoryItems
+    .filter(item => !isPetrolItem(item) &&
+      !isGasAnalyticsItem(item) &&
+      !isCrateAnalyticsItem(item) &&
+      !isAccessoryAnalyticsItem(item) &&
+      !isSodaAnalyticsItem(item))
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")))
+    .forEach(item => {
+      const isMedicine = isHealthcareMedicine(item);
+      addCategory(
+        `${INVENTORY_ITEM_EXPENSE_PREFIX}${item.id}`,
+        `${isMedicine ? "Medicine cost" : "Purchase"}: ${item.name}`,
+        {
+          group: isMedicine ? "Medicines" : "Inventory Items",
+          inventoryItemId: item.id
+        }
+      );
+    });
+  return categories;
+}
+
+function getAllExpenseInventoryItems() {
+  const items = new Map();
+  [...analyticsItemsById.values(), ...itemsArray].forEach(item => {
+    if (item?.id && item.name) items.set(item.id, item);
+  });
+  return [...items.values()];
+}
+
+function renderExpenseCostCategorySelectOptions(selectedCategory, includeUnclassified = false) {
+  const categories = getExpenseCostCategoryOptions();
+  const options = [];
+  if (includeUnclassified) {
+    options.push(`<option value=""${selectedCategory ? "" : " selected"}>Unclassified</option>`);
+  }
+  const renderOption = category =>
+    `<option value="${escapeQuantity(category.value)}"${category.value === selectedCategory ? " selected" : ""}>${escapeQuantity(category.label)}</option>`;
+  categories.filter(category => !category.group).forEach(category => {
+    options.push(renderOption(category));
+  });
+  [...new Set(categories.map(category => category.group).filter(Boolean))].forEach(group => {
+    const groupOptions = categories.filter(category => category.group === group);
+    options.push(`<optgroup label="${escapeQuantity(group)}">${groupOptions.map(renderOption).join("")}</optgroup>`);
+  });
+  if (selectedCategory && !categories.some(category => category.value === selectedCategory)) {
+    options.push(
+      `<option value="${escapeQuantity(selectedCategory)}" selected>Legacy: ${escapeQuantity(selectedCategory)}</option>`
+    );
+  }
+  return options.join("");
+}
+
 function isValidExpenseCostCategory(category) {
-  return EXPENSE_COST_CATEGORIES.has(category) ||
-    customFuelEnergyCategories.some(fuelCategory => `fuel:${fuelCategory.id}` === category);
+  return getExpenseCostCategoryOptions().some(option => option.value === category) ||
+    LEGACY_EXPENSE_COST_CATEGORIES.has(category) ||
+    Boolean(getExpenseInventoryItem(category));
+}
+
+function canUseSelectedExpenseCostCategory(category) {
+  if (getExpenseCostCategoryOptions().some(option => option.value === category)) return true;
+  if (!editingExpenseId) return false;
+  const originalExpense = expensesForAnalytics.find(expense => expense.id === editingExpenseId);
+  return originalExpense?.costCategory === category;
+}
+
+function getExpenseInventoryItem(category) {
+  if (!String(category || "").startsWith(INVENTORY_ITEM_EXPENSE_PREFIX)) return null;
+  const itemId = category.slice(INVENTORY_ITEM_EXPENSE_PREFIX.length);
+  return getAllExpenseInventoryItems().find(item => item.id === itemId) || null;
 }
 
 function updateExpenseGasTypeField() {
   const category = expenseCostCategoryInput.value;
-  alcoholCrateExpenseOption.hidden =
-    document.documentElement.dataset.alcoholItemsEnabled === "false";
   const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"].includes(category) ||
     getSelectedExpenseCategoryName().toLowerCase().includes("gas");
-  const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
-    ?.parentElement?.id === "fuelEnergyExpenseOptions";
+  const isFuelEnergyCategory =
+    expenseCostCategoryInput.selectedOptions[0]?.dataset.fuelEnergyCategory === "true";
   const requiresGasType = !isPetrolExpenseCategory() && (isFuelEnergyCategory || isGasCategory);
   const isCrateItemCategory = ["crate-item", "alcohol-crate-item"].includes(category);
   const isAccessoryItemCategory = category === "accessory-item";
@@ -865,7 +1191,7 @@ function formatCrateExpenseDescription() {
 }
 
 function getCrateExpenseItems(category = "crate-item") {
-  return itemsArray
+  return getAllExpenseInventoryItems()
     .filter(item => category === "alcohol-crate-item"
       ? isAlcoholAnalyticsItem(item)
       : (isCrateItem(item.name) || isSodaAnalyticsItem(item)) &&
@@ -1039,11 +1365,22 @@ async function handleExpenseFormSubmit(event) {
     return;
   }
   const selectedCategoryName = getSelectedExpenseCategoryName();
+  const selectedCostCategory = expenseCostCategoryInput.value;
+  if (!selectedCostCategory || !canUseSelectedExpenseCostCategory(selectedCostCategory)) {
+    expenseFormMessage.textContent = "Choose a cost category available for this business's current inventory.";
+    return;
+  }
+  const inventoryItem = getExpenseInventoryItem(selectedCostCategory);
+  if (expenseTypeInput.value === "Purchase" && isHealthcareMedicine(inventoryItem)) {
+    expenseFormMessage.textContent =
+      "Record medicine purchases by receiving a medicine batch in Inventory so stock, lot, expiry, and supplier details stay linked.";
+    return;
+  }
   const isGasCategory = ["gas-cylinder", "gas-refillable", "gas-nonrefillable"]
     .includes(expenseCostCategoryInput.value) ||
     selectedCategoryName.toLowerCase().includes("gas");
-  const isFuelEnergyCategory = expenseCostCategoryInput.selectedOptions[0]
-    ?.parentElement?.id === "fuelEnergyExpenseOptions";
+  const isFuelEnergyCategory =
+    expenseCostCategoryInput.selectedOptions[0]?.dataset.fuelEnergyCategory === "true";
   const requiresGasType = !isPetrolExpenseCategory() && (isFuelEnergyCategory || isGasCategory);
   if (requiresGasType && !expenseGasTypeInput.value) {
     expenseFormMessage.textContent = "Choose whether this Fuel & Energy cost is refillable or non-refillable.";
@@ -1052,7 +1389,7 @@ async function handleExpenseFormSubmit(event) {
   const isCrateItemCategory = ["crate-item", "alcohol-crate-item"]
     .includes(expenseCostCategoryInput.value);
   const crateItem = isCrateItemCategory
-    ? itemsArray.find(item => item.id === expenseCrateItemInput.value)
+    ? getAllExpenseInventoryItems().find(item => item.id === expenseCrateItemInput.value)
     : null;
   if (isCrateItemCategory && !crateItem) {
     expenseFormMessage.textContent = expenseCostCategoryInput.value === "alcohol-crate-item"
@@ -1089,6 +1426,10 @@ async function handleExpenseFormSubmit(event) {
     amount,
     notes: expenseNotesInput.value.trim()
   };
+  if (inventoryItem) {
+    expenseData.itemId = inventoryItem.id;
+    expenseData.itemName = inventoryItem.name;
+  }
   const expenseForDuplicateCheck = {
     ...expenseData,
     ...(crateItem ? { crateItemId: crateItem.id, crateItemName: crateItem.name } : {}),
@@ -1132,6 +1473,8 @@ async function handleExpenseFormSubmit(event) {
           crateItemName: crateItem ? crateItem.name : deleteField(),
           accessoryItemId: accessoryItem ? accessoryItem.id : deleteField(),
           accessoryItemName: accessoryItem ? accessoryItem.name : deleteField(),
+          itemId: inventoryItem ? inventoryItem.id : deleteField(),
+          itemName: inventoryItem ? inventoryItem.name : deleteField(),
           gasType: gasType || deleteField(),
           updatedAt: serverTimestamp()
         });
@@ -1187,6 +1530,7 @@ async function findDuplicateExpense(expense, uid, excludedExpenseId = null) {
 
 function getExpenseDuplicateItemKey(expense) {
   const normalize = value => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (expense.itemId) return `inventory:${expense.itemId}`;
   if (["crate-item", "alcohol-crate-item"].includes(expense.costCategory)) {
     return `crate:${expense.crateItemId || normalize(expense.crateItemName)}`;
   }
@@ -1244,35 +1588,19 @@ function renderExpensesTable() {
       const date = expense.date || dateKey(new Date(expense.createdAt));
       const selectedCategory = isValidExpenseCostCategory(expense.costCategory)
         ? expense.costCategory
+        : String(expense.costCategory || "").startsWith(INVENTORY_ITEM_EXPENSE_PREFIX) &&
+          expense.itemId
+          ? expense.costCategory
         : "";
+      const purchaseBatchLinked = Boolean(expense.purchaseBatchId);
       return `<tr>
         <td>${escapeQuantity(date)}</td>
         <td>${escapeQuantity(expense.type || "Expense")}</td>
         <td>${escapeQuantity(expense.description || "")}</td>
         <td>
           <div class="expense-category-fields">
-          <select class="expense-category-select" data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}">
-            <option value=""${selectedCategory ? "" : " selected"}>Unclassified</option>
-            <option value="general"${selectedCategory === "general" ? " selected" : ""}>General</option>
-            <optgroup label="Fuel & Energy">
-              <option value="k-gas"${selectedCategory === "k-gas" ? " selected" : ""}>K GAS</option>
-              <option value="total-gas"${selectedCategory === "total-gas" ? " selected" : ""}>TOTAL GAS</option>
-              <option value="pro-gas"${selectedCategory === "pro-gas" ? " selected" : ""}>PRO GAS</option>
-              ${customFuelEnergyCategories.map(category =>
-                `<option value="fuel:${escapeQuantity(category.id)}"${selectedCategory === `fuel:${category.id}` ? " selected" : ""}>${escapeQuantity(category.name)}</option>`
-              ).join("")}
-            </optgroup>
-            ${selectedCategory === "gas-cylinder"
-              ? `<option value="gas-cylinder" selected>Legacy: Gas cylinder</option>`
-              : ""}
-            <option value="gas-refillable"${selectedCategory === "gas-refillable" ? " selected" : ""}>Gas: Refillable</option>
-            <option value="gas-nonrefillable"${selectedCategory === "gas-nonrefillable" ? " selected" : ""}>Gas: Non-refillable</option>
-            <option value="crate-item"${selectedCategory === "crate-item" ? " selected" : ""}>Crate Items</option>
-            ${document.documentElement.dataset.alcoholItemsEnabled === "false" &&
-              selectedCategory !== "alcohol-crate-item"
-              ? ""
-              : `<option value="alcohol-crate-item"${selectedCategory === "alcohol-crate-item" ? " selected" : ""}>Alcohol Crates</option>`}
-            <option value="accessory-item"${selectedCategory === "accessory-item" ? " selected" : ""}>Accessories</option>
+          <select class="expense-category-select" data-expense-category="${escapeQuantity(expense.id)}" aria-label="Cost category for ${escapeQuantity(expense.description || "expense")}"${purchaseBatchLinked ? " disabled" : ""}>
+            ${renderExpenseCostCategorySelectOptions(selectedCategory, true)}
           </select>
           ${renderCrateExpenseItemSelect(expense)}
           ${renderAccessoryExpenseItemSelect(expense)}
@@ -1283,9 +1611,11 @@ function renderExpensesTable() {
         <td>${formatNumber(expense.amount)}</td>
         <td>${escapeQuantity(expense.notes || "—")}</td>
         <td><div class="expense-row-actions">
-          <button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save category</button>
-          <button type="button" data-edit-expense="${escapeQuantity(expense.id)}">Edit</button>
-          <button type="button" data-delete-expense="${escapeQuantity(expense.id)}">Delete</button>
+          ${purchaseBatchLinked
+            ? "Linked to medicine batch"
+            : `<button type="button" data-save-expense-category="${escapeQuantity(expense.id)}">Save category</button>
+              <button type="button" data-edit-expense="${escapeQuantity(expense.id)}">Edit</button>
+              <button type="button" data-delete-expense="${escapeQuantity(expense.id)}">Delete</button>`}
         </div></td>
       </tr>`;
     }).join("")
@@ -1316,9 +1646,14 @@ function startExpenseEdit(expenseId) {
     expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
     return;
   }
+  if (expense.purchaseBatchId) {
+    expenseFormMessage.textContent = "This purchase is linked to a medicine batch. Remove its unused batch from Inventory to reverse the purchase.";
+    return;
+  }
 
   const category = expense.costCategory || "";
-  if (!isValidExpenseCostCategory(category)) {
+  if (!isValidExpenseCostCategory(category) &&
+      !(category.startsWith(INVENTORY_ITEM_EXPENSE_PREFIX) && expense.itemId)) {
     expenseFormMessage.textContent = "This cost has an unsupported category. Save a valid category in the table before editing.";
     return;
   }
@@ -1365,6 +1700,10 @@ async function deleteExpense(expenseId, button) {
   const user = authInstance.currentUser;
   if (!expense || !user || expense.uid !== user.uid) {
     expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
+    return;
+  }
+  if (expense.purchaseBatchId) {
+    expenseFormMessage.textContent = "This purchase is linked to a medicine batch. Remove its unused batch from Inventory to reverse the purchase.";
     return;
   }
 
@@ -1415,7 +1754,7 @@ async function handleExpenseCategorySave(event) {
     .find(select => select.closest("tr")?.querySelector("[data-expense-category]")?.dataset.expenseCategory === expenseId);
   const isCrateItemCategory = ["crate-item", "alcohol-crate-item"].includes(category);
   const crateItem = isCrateItemCategory
-    ? itemsArray.find(item => item.id === crateItemInput?.value)
+    ? getAllExpenseInventoryItems().find(item => item.id === crateItemInput?.value)
     : null;
   if (isCrateItemCategory && !crateItem) {
     expenseFormMessage.textContent = category === "alcohol-crate-item"
@@ -1443,9 +1782,19 @@ async function handleExpenseCategorySave(event) {
     expenseFormMessage.textContent = "This cost is no longer available. Refresh the list and try again.";
     return;
   }
+  const inventoryItem = getExpenseInventoryItem(category);
+  if (String(existingExpense.type || "").toLowerCase() === "purchase" &&
+      isHealthcareMedicine(inventoryItem)) {
+    expenseFormMessage.textContent =
+      "Medicine purchases must be recorded through a medicine batch receipt in Inventory.";
+    return;
+  }
   const updatedExpense = {
     ...existingExpense,
     costCategory: category,
+    ...(inventoryItem
+      ? { itemId: inventoryItem.id, itemName: inventoryItem.name }
+      : { itemId: "", itemName: "" }),
     ...(crateItem
       ? { crateItemId: crateItem.id, crateItemName: crateItem.name }
       : { crateItemId: "", crateItemName: "" }),
@@ -1472,6 +1821,8 @@ async function handleExpenseCategorySave(event) {
 
     await updateDoc(doc(expensesRef, expenseId), {
       costCategory: category,
+      itemId: inventoryItem ? inventoryItem.id : deleteField(),
+      itemName: inventoryItem ? inventoryItem.name : deleteField(),
       crateItemId: crateItem ? crateItem.id : deleteField(),
       crateItemName: crateItem ? crateItem.name : deleteField(),
       accessoryItemId: accessoryItem ? accessoryItem.id : deleteField(),
@@ -1566,7 +1917,9 @@ function handleItemSearch() {
     <div class="search-result-item" onclick="window.selectSaleItem('${item.id}', '${item.name.replace(/'/g, "\\'")}')">
       <strong>${item.name}</strong> <br/>
       ${item.gasType ? `<small class="sale-gas-type">${getGasTypeLabel(item.gasType)}</small><br/>` : ""}
-      <small>${isAlcoholCrateItem(item)
+      <small>${isHealthcareMedicine(item)
+        ? `Price: KES ${formatNumber(item.outgoing)} / ${escapeQuantity(item.healthcare.dispenseUnit)}`
+        : isAlcoholCrateItem(item)
         ? `Price: KES ${formatNumber(item.pieceSellingPrice)} / piece | KES ${
           formatNumber((Number(item.pieceSellingPrice) || 0) * 0.5)
         } / half piece`
@@ -1597,6 +1950,10 @@ window.selectSaleItem = (id, name) => {
   saleSearchResults.style.display = "none";
   const selectedItem = itemsArray.find(item => item.id === id);
   setSaleQuantityUnit(selectedItem);
+  if (isHealthcareMedicine(selectedItem)) {
+    saleDoseSizeInput.value = "full";
+    saleQuantityInput.placeholder = `Quantity (${getMedicineSaleQuantityUnit(selectedItem)})`;
+  }
   updateCrateSaleStockPreview();
   setPetrolDipFieldsVisible(isPetrolItem(selectedItem));
   if (isPetrolItem(selectedItem)) {
@@ -1621,13 +1978,31 @@ window.selectSaleService = () => {
 
 function setServiceSaleFieldsVisible() {
   const visible = selectedItemId === SERVICE_ITEM_ID;
-  saleTypeField.classList.toggle("service-sale-hidden", visible);
+  const selectedItem = itemsArray.find(item => item.id === selectedItemId);
+  const medicine = isHealthcareMedicine(selectedItem);
+  saleTypeField.classList.toggle("service-sale-hidden", visible || medicine);
+  saleTypeField.hidden = medicine;
+  saleTypeInput.value = "retail";
+  saleDoseSizeField.hidden = !isHalfDoseMedicine(selectedItem);
   saleQuantityField.classList.toggle("service-sale-hidden", visible);
   serviceTypeField.classList.toggle("service-sale-hidden", !visible);
   if (!visible) serviceTypeInput.value = "";
   saleQuantityInput.required = !visible;
   salePriceLabel.textContent = visible ? "Amount" : "Price sold";
   salePriceInput.placeholder = visible ? "Amount charged" : "Price Sold";
+}
+
+function isHalfDoseMedicine(item) {
+  if (!isHealthcareMedicine(item)) return false;
+  const stockUnit = String(item.healthcare.stockUnit || "").trim().toLowerCase();
+  return ["tablet", "tablets", "tab", "tabs", "capsule", "capsules", "cap", "caps"]
+    .includes(stockUnit);
+}
+
+function getMedicineSaleQuantityUnit(item) {
+  return isHalfDoseMedicine(item) && saleDoseSizeInput.value === "half"
+    ? "HALF DOSES"
+    : item.healthcare.dispenseUnit;
 }
 
 function isServiceSale(sale) {
@@ -1740,6 +2115,8 @@ function isAccessoryAnalyticsItem(item) {
 }
 
 function matchesAnalyticsGroup(item, filterValue) {
+  const medicineGroup = analyticsMedicineGroups.get(filterValue);
+  if (medicineGroup) return medicineGroup.itemIds.has(item?.id);
   if (filterValue === ALL_GAS_ANALYTICS_FILTER) return isGasAnalyticsItem(item);
   if (filterValue === ALL_SODA_ANALYTICS_FILTER) return isSodaAnalyticsItem(item);
   if (filterValue === ALL_CRATE_ANALYTICS_FILTER) return isCrateAnalyticsItem(item);
@@ -1791,10 +2168,16 @@ function setSaleQuantityUnit(item) {
   const crateItem = !boxItem && isCrateItem(item?.name);
   const packagedItem = crateItem || boxItem;
   const alcoholItem = isAlcoholCrateItem(item);
+  const medicine = isHealthcareMedicine(item);
   const packageName = boxItem ? "box" : "crate";
   saleQuantityUnitField.hidden = !packagedItem;
+  saleDoseSizeField.hidden = !isHalfDoseMedicine(item);
   saleCrateStockStatus.hidden = !packagedItem;
   saleQuantityInput.placeholder = packagedItem ? "Enter quantity" : "Qty (e.g. 2 kg, 3 cartons)";
+  if (medicine) {
+    saleDoseSizeInput.value = "full";
+    saleQuantityInput.placeholder = `Quantity (${getMedicineSaleQuantityUnit(item)})`;
+  }
   salePriceInput.placeholder = alcoholItem
     ? "Selling price per piece"
     : packagedItem ? `Selling price per ${packageName}` : "Price Sold";
@@ -1928,6 +2311,22 @@ function updateSaleUnitPrice() {
   }
   const boxItem = isBoxItem(item);
   const crateItem = !boxItem && isCrateItem(item.name);
+  if (isHealthcareMedicine(item)) {
+    const doseSize = isHalfDoseMedicine(item) && saleDoseSizeInput.value === "half"
+      ? "half"
+      : "full";
+    const unitLabel = doseSize === "half"
+      ? "half dose"
+      : item.healthcare.dispenseUnit;
+    salePriceLabel.textContent = `Price per ${unitLabel}`;
+    salePriceInput.placeholder = `Price per ${unitLabel}`;
+    salePriceInput.readOnly = false;
+    salePriceInput.value = doseSize === "half"
+      ? Number(item.outgoing) / 2
+      : item.outgoing;
+    return;
+  }
+  salePriceLabel.textContent = "Price sold";
   if (!crateItem && !boxItem) {
     salePriceInput.placeholder = saleTypeInput.value === "wholesale"
       ? "Wholesale price"
@@ -2889,6 +3288,7 @@ function listenToAnalytics(uid) {
     }));
     analyticsAllSalesError = null;
     analyticsAllSalesLoaded = true;
+    renderAnalyticsItemPageOptions();
     if (isStaticAnalyticsFilter(analyticsItemFilter.value) ||
         isPetrolAnalyticsSelection(analyticsItemFilter.value)) {
       analyticsItemSales = getAnalyticsSalesForFilter(analyticsItemFilter.value);
@@ -2909,6 +3309,8 @@ export async function refreshSalesSection(section) {
   if (!uid) throw new Error("No signed-in user is available to refresh dashboard data.");
 
   if (section === "expenses") {
+    listenToAnalyticsItems(uid);
+    listenToAccessoryItems(uid);
     listenToExpenses(uid);
     listenToFuelEnergyCategories(collection(dbInstance, "fuelEnergyCategories"), uid);
     return;
@@ -3371,6 +3773,17 @@ function getExpensesForAnalyticsSelection(expenses) {
   if (selectedValue === ALL_ACCESSORIES_ANALYTICS_FILTER) {
     return expenses.filter(expense => expense.costCategory === "accessory-item");
   }
+  if (selectedItem && !isPetrolItem(selectedItem) &&
+      !isGasAnalyticsItem(selectedItem) &&
+      !isSodaAnalyticsItem(selectedItem) &&
+      !isCrateAnalyticsItem(selectedItem) &&
+      !isAccessoryAnalyticsItem(selectedItem)) {
+    return expenses.filter(expense => {
+      if (isHealthcareMedicine(selectedItem) && expense.purchaseBatchId) return false;
+      return expense.itemId === selectedItem.id ||
+        expense.costCategory === `${INVENTORY_ITEM_EXPENSE_PREFIX}${selectedItem.id}`;
+    });
+  }
   if (isGasAnalyticsItem(selectedItem)) {
     const gasCategory = selectedItem.gasType === "refillable"
       ? "gas-refillable"
@@ -3402,11 +3815,15 @@ function isAnalyticsNetAvailable() {
   if (isGeneralAnalyticsFilter(selectedValue) || isCombinedAnalyticsFilter(selectedValue)) return true;
   const selectedItem = analyticsItemsById.get(selectedValue) ||
     itemsArray.find(item => item.id === selectedValue);
-  return isPetrolItem(selectedItem) ||
+  return isHealthcareMedicine(selectedItem) ||
+    isPetrolItem(selectedItem) ||
     isGasAnalyticsItem(selectedItem) ||
     isSodaAnalyticsItem(selectedItem) ||
     isCrateAnalyticsItem(selectedItem) ||
-    isAccessoryAnalyticsItem(selectedItem);
+    isAccessoryAnalyticsItem(selectedItem) ||
+    Boolean(selectedItem && expensesForAnalytics.some(expense =>
+      expense.itemId === selectedItem.id
+    ));
 }
 
 function getExpensesForDateRange(start, end) {
@@ -3729,6 +4146,7 @@ function getSaleDiscount(sale) {
 function isIncludedInAllAnalytics(sale) {
   if (isServiceSale(sale)) return true;
   const item = analyticsItemsById.get(sale.itemId);
+  if (sale.saleKind === "medicine" || isHealthcareMedicine(item)) return false;
   const itemName = item?.name || sale.itemName;
   if (isStrictlyExcludedFromGeneralAnalyticsName(itemName)) return false;
   if (accessoryNames.has(String(itemName || "").trim().toLowerCase()) &&
@@ -3763,6 +4181,27 @@ function getAnalyticsQuantityDisplay(dateKeys) {
   }
   const selectedItem = analyticsItemsById.get(selectedItemId) ||
     itemsArray.find(item => item.id === selectedItemId);
+  const medicineGroup = analyticsMedicineGroups.get(selectedItemId);
+  if (medicineGroup) {
+    const selectedDates = new Set(dateKeys);
+    const quantitiesByUnit = new Map();
+    (analyticsItemSales || []).forEach(sale => {
+      if (!medicineGroup.itemIds.has(sale.itemId)) return;
+      const saleDate = new Date(sale.createdAt);
+      if (!Number.isFinite(saleDate.getTime()) || !selectedDates.has(dateKey(saleDate))) return;
+      const item = analyticsItemsById.get(sale.itemId);
+      const unit = String(sale.quantityUnit ||
+        item?.healthcare?.dispenseUnit ||
+        item?.healthcare?.stockUnit || "units").trim();
+      const normalizedUnit = unit.toLocaleLowerCase();
+      const entry = quantitiesByUnit.get(normalizedUnit) || { unit, quantity: 0 };
+      entry.quantity += Number(sale.quantity) || 0;
+      quantitiesByUnit.set(normalizedUnit, entry);
+    });
+    return [...quantitiesByUnit.values()]
+      .map(({ unit, quantity }) => `${formatNumber(quantity)} ${unit}`)
+      .join(" · ") || "0";
+  }
   if (isPetrolItem(selectedItem)) {
     const selectedDates = new Set(dateKeys);
     const quantity = (analyticsItemSales || []).reduce((total, sale) => {
@@ -4311,6 +4750,64 @@ async function deleteSale(saleId, button) {
       if (item.uid !== user.uid) {
         throw new Error("You do not have permission to update this inventory item.");
       }
+      if (latestSale.saleKind === "medicine" || isHealthcareMedicine(item)) {
+        const allocations = Array.isArray(latestSale.batchAllocations)
+          ? latestSale.batchAllocations
+          : [];
+        const stockQuantityBase = Number(latestSale.stockQuantityBase);
+        const allocatedQuantity = allocations.reduce(
+          (total, allocation) => total + Number(allocation.quantity || 0),
+          0
+        );
+        if (!allocations.length || !Number.isFinite(stockQuantityBase) ||
+            stockQuantityBase <= 0 ||
+            Math.abs(allocatedQuantity - stockQuantityBase) > 1e-6) {
+          throw new Error("This medicine sale has incomplete batch history, so its stock cannot be safely restored.");
+        }
+        const batchRefs = allocations.map(allocation =>
+          doc(medicineBatchesRef, allocation.batchId)
+        );
+        const batchSnapshots = await Promise.all(batchRefs.map(ref => transaction.get(ref)));
+        const batches = batchSnapshots.map((snapshot, index) => {
+          if (!snapshot.exists()) {
+            throw new Error("A medicine batch used by this sale is missing. Stock was not changed.");
+          }
+          const batch = snapshot.data();
+          if (batch.uid !== user.uid || batch.itemId !== item.id) {
+            throw new Error("A medicine batch no longer belongs to this item. Stock was not changed.");
+          }
+          return { ref: batchRefs[index], batch, allocation: allocations[index] };
+        });
+        const itemStock = parseQuantity(item.quantity)?.amount ?? 0;
+        transaction.update(itemRef, {
+          ...getItemStockUpdate(item, stockQuantityBase),
+          healthcareBatchVersion: (Number(item.healthcareBatchVersion) || 0) + 1
+        });
+        batches.forEach(({ ref, batch, allocation }) => {
+          const restored = roundMedicineQuantity(
+            Number(batch.remainingQuantity) + Number(allocation.quantity)
+          );
+          if (restored > Number(batch.receivedQuantity) + 1e-6 ||
+              Number(batch.remainingQuantity) < 0) {
+            throw new Error("A medicine batch balance is inconsistent. Stock was not changed.");
+          }
+          transaction.update(ref, { remainingQuantity: restored });
+        });
+        if (!Number.isFinite(itemStock)) {
+          throw new Error("The medicine stock balance is invalid.");
+        }
+        transaction.delete(saleRef);
+        transaction.set(
+          doc(stockMovementsRef),
+          createStockMovement(item, stockQuantityBase, "medicine-sale-delete")
+        );
+        transaction.set(summaryUpdateRef, {}, { merge: true });
+        transaction.update(summaryUpdateRef, getSalesSummaryUpdate(latestSale));
+        if (!summarySnapshot.exists()) {
+          console.warn("Sales summary document was missing during medicine sale deletion.");
+        }
+        return;
+      }
       const stockUnits = getCrateSaleStockUnits(latestSale, item);
       if (!Number.isFinite(stockUnits) || stockUnits <= 0) {
         throw new Error("The sale quantity is invalid, so inventory cannot be reconciled.");
@@ -4455,6 +4952,15 @@ async function handleSaleFormSubmit(e) {
   if (!saleQuantity || saleQuantity.amount <= 0) {
     alert("Enter a valid quantity greater than zero, such as 2, 2 kg, or 3 cartons.");
     window.showLoadingIndicator(false);
+    return;
+  }
+  if (isHealthcareMedicine(item)) {
+    await handleMedicineSaleSubmit(
+      selectedSaleDate,
+      selectedSaleDateStart,
+      item,
+      saleQuantity
+    );
     return;
   }
 
@@ -4854,6 +5360,180 @@ async function handleSaleFormSubmit(e) {
   }
 }
 
+async function handleMedicineSaleSubmit(selectedSaleDate, selectedSaleDateStart, item, saleQuantity) {
+  recordSaleBtn.disabled = true;
+  recordSaleBtn.classList.add("loading");
+  try {
+    if (editSaleId) {
+      throw new Error("Medicine sales cannot be edited because batch traceability must stay intact. Delete the sale and record it again.");
+    }
+    const healthcare = validateMedicineConfig(item.healthcare);
+    const doseSize = isHalfDoseMedicine(item) && saleDoseSizeInput.value === "half"
+      ? "half"
+      : "full";
+    const saleQuantityUnit = doseSize === "half"
+      ? "HALF DOSES"
+      : healthcare.dispenseUnit;
+    if (saleQuantity.unit &&
+        saleQuantity.unit.toLowerCase() !== saleQuantityUnit.toLowerCase()) {
+      throw new Error(`Enter this sale in ${saleQuantityUnit}.`);
+    }
+    const quantity = saleQuantity.amount;
+    const stockQuantityBase = toMedicineDispenseBaseQuantity(
+      healthcare,
+      quantity * (doseSize === "half" ? 0.5 : 1),
+      healthcare.dispenseUnit
+    );
+    const retailUnitPrice = Number(item.outgoing) *
+      (doseSize === "half" ? 0.5 : 1);
+    const unitPriceSold = Number(salePriceInput.value);
+    if (!Number.isFinite(retailUnitPrice) || retailUnitPrice <= 0 ||
+        !Number.isFinite(unitPriceSold) || unitPriceSold <= 0) {
+      throw new Error("Enter a valid retail price for this medicine.");
+    }
+    const revenue = quantity * unitPriceSold;
+    const saleDateTimestamp = new Date(selectedSaleDateStart);
+    const now = new Date();
+    saleDateTimestamp.setHours(
+      now.getHours(),
+      now.getMinutes(),
+      now.getSeconds(),
+      now.getMilliseconds()
+    );
+    const uid = authInstance.currentUser.uid;
+    const itemRef = doc(itemsRef, item.id);
+    const itemSnapshot = await getDoc(itemRef);
+    if (!itemSnapshot.exists() || itemSnapshot.data().uid !== uid ||
+        !isHealthcareMedicine(itemSnapshot.data())) {
+      throw new Error("This medicine is no longer available. Refresh inventory and try again.");
+    }
+    const batchVersion = Number(itemSnapshot.data().healthcareBatchVersion) || 0;
+    const batchSnapshot = await getDocs(query(
+      medicineBatchesRef,
+      where("uid", "==", uid)
+    ));
+    const batches = batchSnapshot.docs
+      .filter(batchDoc => batchDoc.data().itemId === item.id)
+      .map(batchDoc => ({ id: batchDoc.id, ...batchDoc.data() }));
+    allocateMedicineBatches(batches, stockQuantityBase, selectedSaleDateStart);
+    const batchRefs = batches.map(batch => doc(medicineBatchesRef, batch.id));
+    const saleRef = doc(salesRef);
+    const summaryDate = selectedSaleDate;
+    const month = summaryDate.slice(0, 7);
+    const summaryUpdate = {
+      [`dailyTotals.${summaryDate}.revenue`]: increment(revenue),
+      [`dailyTotals.${summaryDate}.count`]: increment(quantity),
+      [`monthlyTotals.${month}.revenue`]: increment(revenue),
+      "lifetime.revenue": increment(revenue),
+    };
+    let medicineOutOfStock = false;
+
+    await runTransaction(dbInstance, async transaction => {
+      const currentItemSnapshot = await transaction.get(itemRef);
+      if (!currentItemSnapshot.exists()) throw new Error("The medicine no longer exists.");
+      const currentItem = { id: currentItemSnapshot.id, ...currentItemSnapshot.data() };
+      if (currentItem.uid !== uid || !isHealthcareMedicine(currentItem) ||
+          (Number(currentItem.healthcareBatchVersion) || 0) !== batchVersion) {
+        throw new Error("Medicine batches changed while recording the sale. Refresh the stock and try again.");
+      }
+      const currentBatchSnapshots = await Promise.all(batchRefs.map(ref => transaction.get(ref)));
+      const currentBatches = currentBatchSnapshots
+        .filter(snapshot => snapshot.exists())
+        .map(snapshot => ({ id: snapshot.id, ...snapshot.data() }));
+      const currentAllocations = allocateMedicineBatches(
+        currentBatches,
+        stockQuantityBase,
+        selectedSaleDateStart
+      );
+      const cost = currentAllocations.reduce((total, allocation) => total + allocation.cost, 0);
+      const profit = revenue - cost;
+      const latestStock = parseQuantity(currentItem.quantity)?.amount ?? 0;
+      if (latestStock + 1e-9 < stockQuantityBase) {
+        throw new Error("There is not enough current medicine stock to record this sale.");
+      }
+      medicineOutOfStock = latestStock - stockQuantityBase <= 1e-9;
+      const saleData = {
+        itemId: item.id,
+        itemName: currentItem.name,
+        saleKind: "medicine",
+        saleType: "retail",
+        doseSize,
+        retailUnitPrice,
+        unitPriceSold,
+        discountAmount: 0,
+        quantity,
+        quantityUnit: saleQuantityUnit,
+        stockQuantityBase,
+        stockUnit: healthcare.stockUnit,
+        batchAllocations: currentAllocations.map(allocation => ({
+          batchId: allocation.batchId,
+          quantity: allocation.quantity,
+          unitCost: allocation.unitCost,
+          cost: allocation.cost
+        })),
+        revenue,
+        cost,
+        profit,
+        uid,
+        createdAt: saleDateTimestamp.toISOString()
+      };
+
+      transaction.update(itemRef, {
+        ...getItemStockUpdate(currentItem, -stockQuantityBase),
+        healthcareBatchVersion: batchVersion + 1
+      });
+      currentAllocations.forEach(allocation => {
+        const batchRef = doc(medicineBatchesRef, allocation.batchId);
+        const currentBatch = currentBatches.find(batch => batch.id === allocation.batchId);
+        const remainingQuantity = roundMedicineQuantity(
+          Number(currentBatch.remainingQuantity) - allocation.quantity
+        );
+        transaction.update(batchRef, { remainingQuantity });
+      });
+      transaction.set(saleRef, saleData);
+      transaction.set(doc(stockMovementsRef), createStockMovement(
+        currentItem,
+        -stockQuantityBase,
+        "medicine-dispensing"
+      ));
+      transaction.set(salesSummaryRef, {}, { merge: true });
+      transaction.update(salesSummaryRef, {
+        ...summaryUpdate,
+        [`dailyTotals.${summaryDate}.profit`]: increment(profit),
+        [`monthlyTotals.${month}.profit`]: increment(profit),
+        "lifetime.profit": increment(profit)
+      });
+      if (medicineOutOfStock) {
+        transaction.set(doc(ordersCollectionRef), {
+          customerName: clientBusinessName,
+          itemName: currentItem.name,
+          quantity: `1 ${healthcare.purchaseUnit}`,
+          notes: "Medicine stock reached 0. Review batch expiry and reorder quantity.",
+          date: new Date().toISOString(),
+          uid,
+          createdAt: new Date().toISOString()
+        });
+      }
+    });
+
+    saleForm.reset();
+    selectedItemId = null;
+    setSaleQuantityUnit(null);
+    setServiceSaleFieldsVisible();
+    if (medicineOutOfStock) {
+      showToast(`Stock Alert: ${item.name} is out of stock. An order has been created.`, "info");
+    }
+    window.dispatchEvent(new CustomEvent("saleRecorded", { detail: { uid } }));
+  } catch (error) {
+    console.error("Error recording medicine sale:", error);
+    alert(`Unable to record medicine sale: ${error.message}`);
+  } finally {
+    recordSaleBtn.disabled = false;
+    recordSaleBtn.classList.remove("loading");
+    window.showLoadingIndicator(false);
+  }
+}
+
 async function handleServiceSaleSubmit(selectedSaleDate, selectedSaleDateStart) {
   const amount = Number(salePriceInput.value);
   const originalSale = editSaleId
@@ -4984,6 +5664,11 @@ async function handleServiceSaleSubmit(selectedSaleDate, selectedSaleDateStart) 
  * @param {string} id - The ID of the sale to edit.
  */
 function populateSaleFormForEdit(sale) {
+  const saleItem = itemsArray.find(candidate => candidate.id === sale.itemId);
+  if (sale.saleKind === "medicine" || isHealthcareMedicine(saleItem)) {
+    showToast("To correct a medicine sale, delete it and record it again so the batch trail stays accurate.", "error");
+    return;
+  }
   editSaleId = sale.id;
   editingOriginalSale = sale;
   selectedItemId = sale.itemId;

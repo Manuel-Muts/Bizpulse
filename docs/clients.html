@@ -148,6 +148,17 @@
             <input type="date" id="stockTopUpDate" required />
             <label for="stockTopUpQuantity">Quantity to add</label>
             <input type="number" id="stockTopUpQuantity" min="0.01" step="any" required />
+            <fieldset id="medicineBatchFields" hidden>
+              <legend>Medicine batch details</legend>
+              <label for="medicineBatchNumber">Batch / lot number</label>
+              <input type="text" id="medicineBatchNumber" maxlength="80" />
+              <label for="medicineBatchExpiry">Expiry date</label>
+              <input type="date" id="medicineBatchExpiry" />
+              <label for="medicineBatchSupplier">Supplier</label>
+              <input type="text" id="medicineBatchSupplier" maxlength="120" />
+              <label for="medicineBatchPurchaseCost">Cost per purchase unit (KES)</label>
+              <input type="number" id="medicineBatchPurchaseCost" min="0" step="0.01" />
+            </fieldset>
             <label id="stockTopUpUnitField" for="stockTopUpUnit" hidden>Add stock as</label>
             <select id="stockTopUpUnit" hidden>
               <option value="crate">Crates</option>
@@ -526,6 +537,13 @@
             <option id="saleHalfPieceOption" value="half-piece" hidden>Half piece</option>
           </select>
         </label>
+        <label id="saleDoseSizeField" class="sale-quantity-unit-field" hidden>
+          Dose size
+          <select id="saleDoseSize">
+            <option value="full" selected>Full dose</option>
+            <option value="half">Half dose</option>
+          </select>
+        </label>
         <label id="saleTypeField" class="sale-form-field" for="saleType">Sale type
           <select id="saleType">
             <option value="retail" selected>Retail</option>
@@ -537,7 +555,7 @@
         </label>
         <label id="serviceTypeField" class="sale-form-field service-sale-hidden" for="serviceType">
           Specify service type <small>(optional)</small>
-          <input type="text" id="serviceType" placeholder="e.g. Repair, delivery" maxlength="120" />
+          <input type="text" id="serviceType" placeholder="e.g. Consultation, lab test, dressing" maxlength="120" />
         </label>
         <label id="saleCrateSizeField" class="sale-quantity-unit-field" hidden>
           Pack size
@@ -595,13 +613,6 @@
                 <label for="analyticsItemFilter">Item</label>
                 <select id="analyticsItemFilter" aria-describedby="analyticsItemPageInfo">
                   <option value="" disabled selected>-- Select --</option>
-                  <option value="__general_items__">General Items</option>
-                  <option value="__service_analytics__">Service (sales only)</option>
-                  <option value="__all_gas__">All Gas (Refillable + Non-refillable)</option>
-                  <option value="__all_soda_300_500__">All Soda (300ml + 500ml)</option>
-                  <option value="__all_crate_items__">All Crate Items (crates + pieces)</option>
-                  <option id="allAlcoholAnalyticsOption" value="__all_alcohol_items__" hidden>All Alcohol Items (pieces + half pieces)</option>
-                  <option value="__all_accessories__">All Accessories</option>
                 </select>
                 <div class="analytics-item-pagination">
                   <button type="button" id="analyticsItemPrevBtn" aria-label="Previous item page" disabled>Previous</button>
@@ -662,7 +673,7 @@
           <div id="analyticsSaleTypeBreakdown" class="analytics-sale-type-breakdown" aria-live="polite"></div>
         </div>
       </div>
-      <p class="analytics-expense-note">General Items is the broad business view, not a total of every category: crate items and Soda 300ml/500ml are always excluded, while Petrol, Gas-named items, and items listed as Accessories are excluded by default. Service sales are included in General Items and can also be analyzed separately using Service (sales only). Use the grouped options to analyze those categories together, or select Petrol for individual analysis. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses & Purchases and select the matching item to attribute its cost.</p>
+      <p class="analytics-expense-note">Analysis groups are based on the inventory and sales recorded for this business. Select an individual inventory item or an available group to review its performance. Net figures use costs categorized to the selected scope; choose Crate Items or Accessories in Expenses &amp; Purchases and select the matching item to attribute its cost.</p>
       <section id="analyticsItemChartModule" class="analytics-item-chart-module" hidden>
         <button type="button" id="analyticsItemChartToggle" class="analytics-item-chart-toggle">Open item sales graphs</button>
       </section>
@@ -723,17 +734,10 @@
         </label>
         <label for="expenseCostCategory">Cost category
           <select id="expenseCostCategory" required>
-            <option value="general">General</option>
-            <optgroup id="fuelEnergyExpenseOptions" label="Fuel & Energy">
-              <option value="k-gas">K GAS</option>
-              <option value="total-gas">TOTAL GAS</option>
-              <option value="pro-gas">PRO GAS</option>
-            </optgroup>
-            <option value="crate-item">Crate Items</option>
-            <option id="alcoholCrateExpenseOption" value="alcohol-crate-item" hidden>Alcohol Crates</option>
-            <option value="accessory-item">Accessories</option>
+            <option value="general" selected>General</option>
           </select>
         </label>
+        <p id="expenseCategoryStatus" class="expense-analysis-hint" role="status" aria-live="polite"></p>
         <label id="expenseCrateItemField" for="expenseCrateItem" hidden>
           <span id="expenseCrateItemLabel">Crate item</span>
           <select id="expenseCrateItem">
@@ -936,6 +940,115 @@
       </div>
       <form id="itemForm">
         <input type="hidden" id="itemPackagingType" value="" />
+        <div id="healthcareMedicineInventoryFeature" hidden>
+          <label class="analytics-inclusion-option">
+            <input type="checkbox" id="healthcareMedicineEnabled" />
+            <span>Track this inventory item as a medicine</span>
+          </label>
+          <fieldset id="healthcareMedicineFields" class="medicine-config-panel" hidden>
+            <legend>Medicine setup</legend>
+            <p class="medicine-config-intro">Choose how this medicine is stocked and sold. The app converts everything to the smallest stock unit and tracks each batch by its lot number and expiry date.</p>
+            <div class="medicine-config-grid">
+              <label class="medicine-config-field" for="medicineStockUnit">
+                <span>Smallest unit you keep in stock</span>
+                <select id="medicineStockUnit">
+                  <option value="">Choose a stock unit...</option>
+                  <option value="tablet">Tablet</option>
+                  <option value="capsule">Capsule</option>
+                  <option value="mL">Millilitre (mL)</option>
+                  <option value="dose">Dose</option>
+                  <option value="sachet">Sachet</option>
+                  <option value="vial">Vial</option>
+                  <option value="ampoule">Ampoule</option>
+                  <option value="puff">Puff</option>
+                  <option value="drop">Drop</option>
+                  <option value="gram">Gram</option>
+                  <option value="unit">Unit</option>
+                  <option value="other">Other...</option>
+                </select>
+                <input type="text" id="medicineStockUnitOther" maxlength="32" placeholder="Type the stock unit" aria-label="Custom stock unit" hidden />
+              </label>
+              <label class="medicine-config-field" for="medicinePurchaseUnit">
+                <span>How you buy it</span>
+                <select id="medicinePurchaseUnit">
+                  <option value="">Choose a purchase unit...</option>
+                  <option value="pack">Pack</option>
+                  <option value="blister">Blister</option>
+                  <option value="bottle">Bottle</option>
+                  <option value="box">Box</option>
+                  <option value="carton">Carton</option>
+                  <option value="vial">Vial</option>
+                  <option value="ampoule">Ampoule</option>
+                  <option value="tube">Tube</option>
+                  <option value="sachet">Sachet</option>
+                  <option value="inhaler">Inhaler</option>
+                  <option value="other">Other...</option>
+                </select>
+                <input type="text" id="medicinePurchaseUnitOther" maxlength="32" placeholder="Type the purchase unit" aria-label="Custom purchase unit" hidden />
+              </label>
+              <label class="medicine-config-field" for="medicinePurchaseToBase">
+                <span>Smallest units in one purchase unit</span>
+                <input type="number" id="medicinePurchaseToBase" min="0.000001" step="any" placeholder="For example, 6 tablets in a pack" />
+                <small>Example: enter 6 if one pack contains 6 tablets, or 100 if one bottle contains 100 mL.</small>
+              </label>
+              <label class="medicine-config-field" for="medicineDispenseUnit">
+                <span>How you sell or dispense it</span>
+                <select id="medicineDispenseUnit">
+                  <option value="">Choose a dispensing unit...</option>
+                  <option value="dose">Dose</option>
+                  <option value="tablet">Tablet</option>
+                  <option value="capsule">Capsule</option>
+                  <option value="mL">Millilitre (mL)</option>
+                  <option value="sachet">Sachet</option>
+                  <option value="vial">Vial</option>
+                  <option value="ampoule">Ampoule</option>
+                  <option value="puff">Puff</option>
+                  <option value="drop">Drop</option>
+                  <option value="unit">Unit</option>
+                  <option value="other">Other...</option>
+                </select>
+                <input type="text" id="medicineDispenseUnitOther" maxlength="32" placeholder="Type the dispensing unit" aria-label="Custom dispensing unit" hidden />
+              </label>
+              <label class="medicine-config-field" for="medicineDispenseToBase">
+                <span>Smallest units in one dispensing unit</span>
+                <select id="medicineDispenseToBase">
+                  <option value="">Choose amount...</option>
+                  <option value="1">1</option><option value="2">2</option>
+                  <option value="3">3</option><option value="4">4</option>
+                  <option value="5">5</option><option value="6">6</option>
+                  <option value="7">7</option><option value="8">8</option>
+                  <option value="9">9</option><option value="10">10</option>
+                  <option value="11">11</option><option value="12">12</option>
+                  <option value="13">13</option><option value="14">14</option>
+                  <option value="15">15</option><option value="16">16</option>
+                  <option value="17">17</option><option value="18">18</option>
+                  <option value="19">19</option><option value="20">20</option>
+                  <option value="21">21</option><option value="22">22</option>
+                  <option value="23">23</option><option value="24">24</option>
+                  <option value="25">25</option><option value="26">26</option>
+                  <option value="27">27</option><option value="28">28</option>
+                  <option value="29">29</option><option value="30">30</option>
+                </select>
+                <small>Choose how many smallest stock units make up one dose or sale, such as 2 tablets or 5 mL.</small>
+              </label>
+              <label class="medicine-config-field" for="medicineOpeningBatch">
+                <span>Opening batch / lot number</span>
+                <input type="text" id="medicineOpeningBatch" maxlength="80" placeholder="Printed batch code, e.g. AB123" />
+                <small>Use the batch code printed on the medicine package.</small>
+              </label>
+              <label class="medicine-config-field" for="medicineOpeningExpiry">
+                <span>Opening batch expiry date</span>
+                <input type="date" id="medicineOpeningExpiry" />
+              </label>
+              <label class="medicine-config-field" for="medicineOpeningSupplier">
+                <span>Supplier you bought it from</span>
+                <input type="text" id="medicineOpeningSupplier" maxlength="120" placeholder="Supplier or wholesaler name" />
+                <small>This is the supplier's name, not the batch code.</small>
+              </label>
+            </div>
+            <small class="medicine-config-note">Enter opening quantity in the purchase unit. The buying price above is the cost for one purchase unit.</small>
+          </fieldset>
+        </div>
         <label class="inventory-price-field">
           <span>Item</span>
           <input type="text" id="itemName" placeholder="Item Name" required />
@@ -980,7 +1093,7 @@
           Selling price per piece
           <input type="number" id="pieceSellingPrice" min="0" step="0.01" />
         </label>
-        <label class="analytics-inclusion-option">
+        <label id="analyticsInclusionOption" class="analytics-inclusion-option">
           <input type="checkbox" id="includeInAllAnalytics" />
           <span class="analytics-inclusion-copy" tabindex="0" aria-describedby="analyticsInclusionTooltip">
             <span>Include the item above in General Items</span>

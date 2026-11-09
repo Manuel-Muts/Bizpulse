@@ -2267,6 +2267,10 @@ button.loading .btn-text {
   font-size: 14px;
 }
 
+.analytics-inclusion-option[hidden] {
+  display: none;
+}
+
 .analytics-inclusion-copy {
   position: relative;
   display: grid;
@@ -2754,6 +2758,110 @@ form input, form button {
   color: #475569;
   font-size: 13px;
   font-weight: 600;
+}
+
+.medicine-config-panel {
+  box-sizing: border-box;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #f8fafc, #f0f9ff);
+}
+
+#healthcareMedicineInventoryFeature {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+#healthcareMedicineInventoryFeature > .analytics-inclusion-option,
+#analyticsInclusionOption {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #dbe5ed;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.medicine-config-panel legend {
+  padding: 0 8px;
+  color: #123c56;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.medicine-config-intro,
+.medicine-config-note {
+  grid-column: 1 / -1;
+  margin: 0 0 14px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.medicine-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.medicine-config-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.medicine-config-field input,
+.medicine-config-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #1e293b;
+  font: inherit;
+}
+
+.medicine-config-field small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.medicine-config-note {
+  margin: 14px 0 0;
+}
+
+@media (min-width: 1201px) {
+  .medicine-config-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .medicine-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+  .medicine-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 #outgoingPriceField[hidden] {
@@ -4131,6 +4239,18 @@ table tr:hover {
   #inventorySection #itemForm .inventory-price-field,
   #inventorySection #itemForm .inventory-crate-field {
     gap: 4px;
+    font-size: 12px;
+  }
+
+  .medicine-config-panel {
+    padding: 13px;
+  }
+
+  .medicine-config-grid {
+    gap: 10px;
+  }
+
+  .medicine-config-field {
     font-size: 12px;
   }
 

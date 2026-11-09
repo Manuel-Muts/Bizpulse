@@ -79,6 +79,7 @@ const inventoryFeaturesModal = document.getElementById("inventoryFeaturesModal")
 const inventoryFeaturesForm = document.getElementById("inventoryFeaturesForm");
 const inventoryFeaturesBusinessName = document.getElementById("inventoryFeaturesBusinessName");
 const inventoryFeaturesMessage = document.getElementById("inventoryFeaturesMessage");
+const featureHealthcareMedicine = document.getElementById("featureHealthcareMedicine");
 const featureFuelEnergy = document.getElementById("featureFuelEnergy");
 const featureCrateItems = document.getElementById("featureCrateItems");
 const featureAlcoholItems = document.getElementById("featureAlcoholItems");
@@ -197,7 +198,7 @@ async function loadAdminDashboard(direction = 'initial', search = '') {
             Edit
           </button>
           <button class="action-btn" style="background: #0f766e;" data-inventory-features-user="${escapeHtml(u.id)}">
-            Inventory features
+            Business features
           </button>
           <button class="action-btn" style="background: #8b5cf6;" onclick="viewPayments('${u.id}', '${businessName.replace(/'/g, "\\'")}')">
             Payments
@@ -248,7 +249,8 @@ function openInventoryFeatures(userId) {
   const features = user.inventoryFeatures || {};
   inventoryFeaturesUserId = userId;
   inventoryFeaturesBusinessName.textContent =
-    `Choose the inventory-taking categories available to ${user.businessName || user.email}.`;
+    `Choose the inventory and pharmacy tools available to ${user.businessName || user.email}.`;
+  featureHealthcareMedicine.checked = features.healthcareMedicine === true;
   featureFuelEnergy.checked = features.fuelEnergy !== false;
   featureCrateItems.checked = features.crateItems !== false;
   featureAlcoholItems.checked = features.alcoholItems !== false;
@@ -258,7 +260,7 @@ function openInventoryFeatures(userId) {
   inventoryFeaturesMessage.textContent = "";
   saveInventoryFeaturesBtn.disabled = false;
   inventoryFeaturesModal.style.display = "flex";
-  featureFuelEnergy.focus();
+  featureHealthcareMedicine.focus();
 }
 
 function closeInventoryFeatures() {
@@ -270,10 +272,11 @@ inventoryFeaturesForm.addEventListener("submit", async event => {
   event.preventDefault();
   if (!inventoryFeaturesUserId) return;
   saveInventoryFeaturesBtn.disabled = true;
-  inventoryFeaturesMessage.textContent = "Saving inventory features…";
+  inventoryFeaturesMessage.textContent = "Saving business features…";
   try {
     await updateDoc(doc(db, "users", inventoryFeaturesUserId), {
       inventoryFeatures: {
+        healthcareMedicine: featureHealthcareMedicine.checked,
         fuelEnergy: featureFuelEnergy.checked,
         crateItems: featureCrateItems.checked,
         alcoholItems: featureAlcoholItems.checked,
@@ -282,12 +285,12 @@ inventoryFeaturesForm.addEventListener("submit", async event => {
         booksStationery: featureBooksStationery.checked
       }
     });
-    inventoryFeaturesMessage.textContent = "Inventory features saved.";
+    inventoryFeaturesMessage.textContent = "Business features saved.";
     await loadAdminDashboard("initial", adminSearchInput.value);
   } catch (error) {
     console.error("Unable to save client inventory features:", error);
     inventoryFeaturesMessage.textContent =
-      `Unable to save inventory features: ${error.message}`;
+      `Unable to save business features: ${error.message}`;
   } finally {
     saveInventoryFeaturesBtn.disabled = false;
   }
@@ -542,6 +545,7 @@ registerForm.addEventListener("submit", async (e) => {
   suspended: false,
   firstLogin: true,
    inventoryFeatures: {
+     healthcareMedicine: false,
      fuelEnergy: true,
      crateItems: true,
      alcoholItems: registrationAlcoholItems.checked,

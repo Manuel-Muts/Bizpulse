@@ -60,6 +60,11 @@ import {
   adjustBoxStock,
   uppercaseInput
 } from "./quantity.js";
+import {
+  isHealthcareMedicine,
+  toMedicineBaseQuantity,
+  validateMedicineConfig
+} from "./healthcare-quantity.js";
 
 import {
   getAuth,
@@ -104,6 +109,8 @@ const itemsRef = collection(db, "items");
 const ordersRef = collection(db, "orders");
 const stockAdditionsRef = collection(db, "stockAdditions");
 const stockMovementsRef = collection(db, "stockMovements");
+const medicineBatchesRef = collection(db, "medicineBatches");
+const expensesRef = collection(db, "expenses");
 const customCrateTypesRef = collection(db, "customCrateTypes");
 const customBoxTypesRef = collection(db, "customBoxTypes");
 const fuelEnergyCategoriesRef = collection(db, "fuelEnergyCategories");
@@ -117,6 +124,20 @@ const paymentsRef = collection(db, "payments");
    ========================= */
 const form = document.getElementById("itemForm");
 const itemName = document.getElementById("itemName");
+const healthcareMedicineInventoryFeature = document.getElementById("healthcareMedicineInventoryFeature");
+const healthcareMedicineEnabled = document.getElementById("healthcareMedicineEnabled");
+const healthcareMedicineFields = document.getElementById("healthcareMedicineFields");
+const medicineStockUnit = document.getElementById("medicineStockUnit");
+const medicineStockUnitOther = document.getElementById("medicineStockUnitOther");
+const medicinePurchaseUnit = document.getElementById("medicinePurchaseUnit");
+const medicinePurchaseUnitOther = document.getElementById("medicinePurchaseUnitOther");
+const medicinePurchaseToBase = document.getElementById("medicinePurchaseToBase");
+const medicineDispenseUnit = document.getElementById("medicineDispenseUnit");
+const medicineDispenseUnitOther = document.getElementById("medicineDispenseUnitOther");
+const medicineDispenseToBase = document.getElementById("medicineDispenseToBase");
+const medicineOpeningBatch = document.getElementById("medicineOpeningBatch");
+const medicineOpeningExpiry = document.getElementById("medicineOpeningExpiry");
+const medicineOpeningSupplier = document.getElementById("medicineOpeningSupplier");
 const incomingPrice = document.getElementById("incomingPrice");
 const outgoingPrice = document.getElementById("outgoingPrice");
 const outgoingPriceField = document.getElementById("outgoingPriceField");
@@ -186,7 +207,11 @@ const crateTypePiecesInput = document.getElementById("crateTypePieces");
 const saveCrateTypeBtn = document.getElementById("saveCrateTypeBtn");
 const cancelCrateTypeBtn = document.getElementById("cancelCrateTypeBtn");
 const includeInAllAnalyticsInput = document.getElementById("includeInAllAnalytics");
+const analyticsInclusionOption = document.getElementById("analyticsInclusionOption");
 const saveItemBtn = document.getElementById("saveItemBtn");
+if (form && healthcareMedicineInventoryFeature && analyticsInclusionOption) {
+  form.insertBefore(healthcareMedicineInventoryFeature, analyticsInclusionOption);
+}
 const table = document.getElementById("itemTable");
 const searchInput = document.getElementById("searchInput");
 const totalProfitEl = document.getElementById("totalProfit");
@@ -232,6 +257,11 @@ const stockTopUpForm = document.getElementById("stockTopUpForm");
 const stockTopUpItemName = document.getElementById("stockTopUpItemName");
 const stockTopUpDate = document.getElementById("stockTopUpDate");
 const stockTopUpQuantity = document.getElementById("stockTopUpQuantity");
+const medicineBatchFields = document.getElementById("medicineBatchFields");
+const medicineBatchNumber = document.getElementById("medicineBatchNumber");
+const medicineBatchExpiry = document.getElementById("medicineBatchExpiry");
+const medicineBatchSupplier = document.getElementById("medicineBatchSupplier");
+const medicineBatchPurchaseCost = document.getElementById("medicineBatchPurchaseCost");
 const stockTopUpUnitField = document.getElementById("stockTopUpUnitField");
 const stockTopUpUnit = document.getElementById("stockTopUpUnit");
 const stockTopUpUnitDescription = document.getElementById("stockTopUpUnitDescription");
@@ -263,6 +293,7 @@ const orderExportBtn = document.getElementById("orderExportBtn");
 const orderSearchMessage = document.getElementById("orderSearchMessage");
 
 let analyticsInclusionManuallySet = false;
+let pharmacyOnlyInventory = false;
 includeInAllAnalyticsInput.addEventListener("change", () => {
   analyticsInclusionManuallySet = true;
 });
@@ -273,19 +304,26 @@ boxTypeNameInput.addEventListener("input", () => uppercaseInput(boxTypeNameInput
 itemName.addEventListener("input", () => {
   uppercaseInput(itemName);
   const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(itemName.value);
-  includeInAllAnalyticsInput.disabled = strictlyExcluded;
-  if (strictlyExcluded) {
+  includeInAllAnalyticsInput.disabled = pharmacyOnlyInventory || strictlyExcluded;
+  if (pharmacyOnlyInventory || strictlyExcluded) {
     includeInAllAnalyticsInput.checked = false;
     analyticsInclusionManuallySet = false;
   }
-  if (!editId && !analyticsInclusionManuallySet) {
+  if (!pharmacyOnlyInventory && !editId && !analyticsInclusionManuallySet) {
     includeInAllAnalyticsInput.checked = !strictlyExcluded &&
       !isExcludedFromAllAnalyticsName(itemName.value) &&
       !isAccessoryItemName(itemName.value);
   }
-  appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
-  appendQuantityUnit(quantityInput, itemPackagingTypeInput.value === "box" ? "BOXES" : "CRATES",
-    itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
+  if (healthcareMedicineEnabled.checked) {
+    appendQuantityUnit(quantityInput, getMedicineUnitValue(
+      medicinePurchaseUnit,
+      medicinePurchaseUnitOther
+    ), true);
+  } else {
+    appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
+    appendQuantityUnit(quantityInput, itemPackagingTypeInput.value === "box" ? "BOXES" : "CRATES",
+      itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
+  }
   updateCrateInventoryFields();
 });
 function applyCrateTypeSelection(select, category) {
@@ -293,6 +331,7 @@ function applyCrateTypeSelection(select, category) {
   if (!crateType) return;
 
   editId = null;
+  healthcareMedicineEnabled.checked = false;
   crateTypeSelect.value = select === crateTypeSelect ? select.value : "";
   alcoholCrateTypeSelect.value = select === alcoholCrateTypeSelect ? select.value : "";
   boxTypeSelect.value = "";
@@ -316,6 +355,7 @@ boxTypeSelect.addEventListener("change", () => {
   if (!boxType) return;
 
   editId = null;
+  healthcareMedicineEnabled.checked = false;
   crateTypeSelect.value = "";
   alcoholCrateTypeSelect.value = "";
   fuelEnergyItemSelect.value = "";
@@ -333,6 +373,7 @@ fuelEnergyItemSelect.addEventListener("change", () => {
   const selectedFuelItem = getFuelEnergyItem(fuelEnergyItemSelect.value);
   if (!selectedFuelItem) return;
 
+  healthcareMedicineEnabled.checked = false;
   crateTypeSelect.value = "";
   alcoholCrateTypeSelect.value = "";
   boxTypeSelect.value = "";
@@ -844,10 +885,46 @@ addCrateTypeForm.addEventListener("submit", async event => {
   }
 });
 quantityInput.addEventListener("input", () => {
+  if (healthcareMedicineEnabled.checked) {
+    appendQuantityUnit(quantityInput, getMedicineUnitValue(
+      medicinePurchaseUnit,
+      medicinePurchaseUnitOther
+    ), true);
+    uppercaseInput(quantityInput);
+    return;
+  }
   appendQuantityUnit(quantityInput, "L", isPetrolName(itemName.value));
   appendQuantityUnit(quantityInput, itemPackagingTypeInput.value === "box" ? "BOXES" : "CRATES",
     itemPackagingTypeInput.value === "box" || isCrateItem(itemName.value));
   uppercaseInput(quantityInput);
+});
+healthcareMedicineEnabled.addEventListener("change", () => {
+  if (editId) {
+    healthcareMedicineEnabled.checked = isHealthcareMedicine(items.find(item => item.id === editId));
+    return;
+  }
+  if (healthcareMedicineEnabled.checked) {
+    itemPackagingTypeInput.value = "";
+    crateTypeSelect.value = "";
+    alcoholCrateTypeSelect.value = "";
+    boxTypeSelect.value = "";
+    gasTypeSelect.value = "";
+    quantityInput.value = "";
+  }
+  updateCrateInventoryFields();
+});
+[medicineStockUnit, medicinePurchaseUnit, medicineDispenseUnit].forEach(select => {
+  select.addEventListener("change", () => updateCrateInventoryFields());
+});
+[
+  medicineStockUnitOther,
+  medicinePurchaseUnitOther,
+  medicineDispenseUnitOther
+].forEach(input => {
+  input.addEventListener("input", () => {
+    uppercaseInput(input);
+    updateCrateInventoryFields();
+  });
 });
 piecesPerCrateInput.addEventListener("input", () => updateCrateInventoryFields());
 boxUnitsInput.addEventListener("input", () => updateCrateInventoryFields());
@@ -901,6 +978,8 @@ let ordersUnsubscribe = null;
 let stockTopUpItemId = null;
 let stockTopUpAdditions = [];
 let stockTopUpAdditionsUnsubscribe = null;
+let medicineBatchesUnsubscribe = null;
+let medicineBatchesForStockTopUp = [];
 let stockTopUpAdditionsError = null;
 let editingStockAdditionId = null;
 let customCrateTypes = [];
@@ -916,8 +995,87 @@ let accessoryItemsUnsubscribe = null;
 let customBooksStationeryItems = [];
 let booksStationeryItemsUnsubscribe = null;
 let inventoryFeaturesUnsubscribe = null;
+let healthcareMedicineFeatureEnabled = false;
+
+function getMedicineUnitValue(select, otherInput) {
+  return select.value === "other" ? otherInput.value.trim() : select.value;
+}
+
+function clearSavedMedicineOptions() {
+  [
+    medicineStockUnit,
+    medicinePurchaseUnit,
+    medicineDispenseUnit,
+    medicineDispenseToBase
+  ].forEach(select => {
+    select.querySelectorAll('option[data-saved-setting="true"]').forEach(option => option.remove());
+  });
+}
+
+function setMedicineUnitValue(select, otherInput, value) {
+  const savedValue = String(value || "");
+  const matchingOption = [...select.options].find(option =>
+    option.value.toLowerCase() === savedValue.toLowerCase()
+  );
+  if (matchingOption && matchingOption.value !== "other") {
+    select.value = matchingOption.value;
+    otherInput.value = "";
+    return;
+  }
+  if (!savedValue) {
+    select.value = "";
+    otherInput.value = "";
+    return;
+  }
+  const savedOption = document.createElement("option");
+  savedOption.value = savedValue;
+  savedOption.textContent = `${savedValue} (saved setting)`;
+  savedOption.dataset.savedSetting = "true";
+  select.add(savedOption);
+  select.value = savedValue;
+  otherInput.value = "";
+}
 
 function applyInventoryFeatures(features = {}) {
+  healthcareMedicineFeatureEnabled = features.healthcareMedicine === true;
+  pharmacyOnlyInventory = healthcareMedicineFeatureEnabled &&
+    ["fuelEnergy", "crateItems", "alcoholItems", "boxItems", "accessories", "booksStationery"]
+      .every(feature => features[feature] !== true);
+  document.documentElement.dataset.pharmacyOnlyInventory = String(pharmacyOnlyInventory);
+  [
+    "fuelEnergy",
+    "crateItems",
+    "alcoholItems",
+    "boxItems",
+    "accessories",
+    "booksStationery"
+  ].forEach(feature => {
+    const datasetKey = `inventory${feature.charAt(0).toUpperCase()}${feature.slice(1)}Enabled`;
+    const value = features[feature];
+    if (typeof value === "boolean") {
+      document.documentElement.dataset[datasetKey] = String(value);
+    } else {
+      delete document.documentElement.dataset[datasetKey];
+    }
+  });
+  window.dispatchEvent(new CustomEvent("inventory-features-updated"));
+  analyticsInclusionOption.hidden = pharmacyOnlyInventory;
+  if (pharmacyOnlyInventory) {
+    includeInAllAnalyticsInput.checked = false;
+    analyticsInclusionManuallySet = false;
+  }
+  includeInAllAnalyticsInput.disabled = pharmacyOnlyInventory ||
+    isStrictlyExcludedFromGeneralAnalyticsName(itemName.value);
+  const editingMedicine = Boolean(
+    editId && isHealthcareMedicine(items.find(item => item.id === editId))
+  );
+  healthcareMedicineInventoryFeature.hidden =
+    !healthcareMedicineFeatureEnabled && !editingMedicine;
+  if (!healthcareMedicineFeatureEnabled && !editingMedicine) {
+    healthcareMedicineEnabled.checked = false;
+  }
+  healthcareMedicineEnabled.disabled =
+    Boolean(editId) || !healthcareMedicineFeatureEnabled;
   fuelEnergyInventoryFeature.hidden = features.fuelEnergy === false;
   crateItemsInventoryFeature.hidden = features.crateItems === false;
   alcoholCratesInventoryFeature.hidden = features.alcoholItems === false;
@@ -937,7 +1095,7 @@ function listenToInventoryFeatures(uid) {
   }, error => {
     console.error("Unable to load inventory feature settings:", error);
     inventoryFeatureStatus.textContent =
-      "Unable to load inventory feature settings. Category shortcuts remain visible.";
+      "Unable to load business feature settings. Optional shortcuts remain visible.";
     inventoryFeatureStatus.hidden = false;
     applyInventoryFeatures();
   });
@@ -1021,6 +1179,13 @@ function getStockAdditionDelta(item, addition) {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("This stock addition has an invalid quantity and cannot be corrected.");
   }
+  if (isHealthcareMedicine(item)) {
+    const baseQuantity = Number(addition.medicineBaseQuantity);
+    if (!Number.isFinite(baseQuantity) || baseQuantity <= 0) {
+      throw new Error("This medicine receipt has no valid stock-unit quantity.");
+    }
+    return baseQuantity;
+  }
 
   if (isCrateItem(item.name)) {
     if (Number.isFinite(Number(addition.piecesAdded)) && addition.piecesAdded !== null) {
@@ -1047,6 +1212,19 @@ function getStockAdditionDelta(item, addition) {
 }
 
 function getStockTopUpEntry(item, amount, unit) {
+  if (isHealthcareMedicine(item)) {
+    const config = validateMedicineConfig(item.healthcare);
+    const stockDelta = toMedicineBaseQuantity(config, amount, config.purchaseUnit);
+    return {
+      quantityUnit: config.purchaseUnit.toUpperCase(),
+      normalizedUnit: config.purchaseUnit.toUpperCase(),
+      piecesPerCrate: null,
+      unitsPerBox: null,
+      piecesAdded: null,
+      unitsAdded: null,
+      stockDelta
+    };
+  }
   const boxItem = isBoxItem(item);
   const crateItem = !boxItem && isCrateItem(item.name);
   const packagedItem = crateItem || boxItem;
@@ -1149,7 +1327,8 @@ function resetStockTopUpEditor() {
 
 function renderStockTopUpHistory() {
   if (!stockTopUpHistoryBody || !stockTopUpHistoryStatus) return;
-  if (stockTopUpAdditionsError) {
+  const currentItem = items.find(item => item.id === stockTopUpItemId);
+  if (stockTopUpAdditionsError && !isHealthcareMedicine(currentItem)) {
     stockTopUpHistoryStatus.textContent = stockTopUpAdditionsError;
     stockTopUpHistoryBody.innerHTML =
       `<tr><td class="stock-top-up-empty" colspan="3">${escapeQuantity(stockTopUpAdditionsError)}</td></tr>`;
@@ -1181,6 +1360,37 @@ function renderStockTopUpHistory() {
     stockTopUpHistoryStatus.textContent = "Choose a valid date range up to today.";
     stockTopUpHistoryBody.innerHTML =
       '<tr><td class="stock-top-up-empty" colspan="3">The start date must be on or before the end date.</td></tr>';
+    return;
+  }
+
+  if (isHealthcareMedicine(currentItem)) {
+    const batches = medicineBatchesForStockTopUp
+      .filter(batch => batch.itemId === stockTopUpItemId)
+      .filter(batch => !fromDate || String(batch.receivedDate || "") >= fromDate)
+      .filter(batch => !toDate || String(batch.receivedDate || "") <= toDate)
+      .sort((left, right) =>
+        String(left.expiryDate || "9999-12-31").localeCompare(String(right.expiryDate || "9999-12-31")) ||
+        String(left.receivedDate || "").localeCompare(String(right.receivedDate || "")));
+    stockTopUpHistoryStatus.textContent = batches.length
+      ? `${formatNumber(batches.length)} medicine batch${batches.length === 1 ? "" : "es"}`
+      : "No medicine batches match this date range.";
+    stockTopUpHistoryBody.innerHTML = batches.length
+      ? batches.map(batch => {
+        const addition = stockTopUpAdditions.find(candidate => candidate.batchId === batch.id);
+        const unused = Number(batch.remainingQuantity) === Number(batch.receivedQuantity);
+        const action = addition && unused
+          ? `<button type="button" class="stock-top-up-delete-button" data-stock-addition-action="delete" data-addition-id="${escapeQuantity(addition.id)}">Remove unused batch</button>`
+          : addition
+            ? "Dispensing history locked"
+            : "Opening batch";
+        return `<tr>
+          <td>${escapeQuantity(batch.receivedDate || "Date not recorded")}</td>
+          <td>${formatNumber(batch.remainingQuantity)} / ${formatNumber(batch.receivedQuantity)} ${escapeQuantity(batch.stockUnit)} remaining<br>
+            <small>Lot ${escapeQuantity(batch.lotNumber || "not recorded")} - Expires ${escapeQuantity(batch.expiryDate || "not recorded")} - Cost ${formatNumber(Number(batch.unitCost) * Number(currentItem.healthcare.purchaseToBase))} per ${escapeQuantity(currentItem.healthcare.purchaseUnit)}</small></td>
+          <td>${action}</td>
+        </tr>`;
+      }).join("")
+      : '<tr><td class="stock-top-up-empty" colspan="3">No medicine batches match this date range.</td></tr>';
     return;
   }
 
@@ -1234,6 +1444,28 @@ function listenToStockTopUpAdditions(uid) {
   );
 }
 
+function listenToMedicineBatches(uid) {
+  if (medicineBatchesUnsubscribe) medicineBatchesUnsubscribe();
+  medicineBatchesForStockTopUp = [];
+  stockTopUpHistoryStatus.textContent = "Loading medicine batches...";
+  medicineBatchesUnsubscribe = onSnapshot(
+    query(medicineBatchesRef, where("uid", "==", uid)),
+    snapshot => {
+      medicineBatchesForStockTopUp = snapshot.docs.map(batchDoc => ({
+        id: batchDoc.id,
+        ...batchDoc.data()
+      }));
+      renderStockTopUpHistory();
+    },
+    error => {
+      console.error("Unable to load medicine batches:", error);
+      stockTopUpHistoryStatus.textContent = "Unable to load medicine batches. Check your connection and try again.";
+      stockTopUpHistoryBody.innerHTML =
+        '<tr><td class="stock-top-up-empty" colspan="3">Medicine batch history could not be loaded.</td></tr>';
+    }
+  );
+}
+
 window.openStockTopUp = itemId => {
   const item = items.find(candidate => candidate.id === itemId);
   const user = auth.currentUser;
@@ -1253,21 +1485,39 @@ window.openStockTopUp = itemId => {
   stockTopUpToDate.removeAttribute("min");
   const boxItem = isBoxItem(item);
   const crateItem = !boxItem && isCrateItem(item.name);
+  const medicine = isHealthcareMedicine(item);
   stockTopUpUnitField.hidden = !crateItem && !boxItem;
   stockTopUpUnit.hidden = !crateItem && !boxItem;
+  medicineBatchFields.hidden = !medicine;
+  [medicineBatchNumber, medicineBatchExpiry, medicineBatchPurchaseCost].forEach(input => {
+    input.required = medicine;
+  });
+  medicineBatchSupplier.required = false;
+  medicineBatchNumber.value = "";
+  medicineBatchExpiry.value = "";
+  medicineBatchSupplier.value = "";
+  medicineBatchPurchaseCost.value = medicine ? String(item.incoming || "") : "";
   stockTopUpUnit.options[0].value = boxItem ? "box" : "crate";
   stockTopUpUnit.options[0].textContent = boxItem ? "Boxes" : "Crates";
   stockTopUpUnit.options[1].value = boxItem ? "unit" : "piece";
   stockTopUpUnit.options[1].textContent = "Pieces";
   stockTopUpUnit.value = stockTopUpUnit.options[0].value;
-  stockTopUpUnitDescription.textContent = crateItem
+  stockTopUpUnitDescription.textContent = medicine
+    ? `Enter quantity in ${item.healthcare.purchaseUnit}. Each purchase unit contains ${formatNumber(item.healthcare.purchaseToBase)} ${item.healthcare.stockUnit}; each ${item.healthcare.dispenseUnit} uses ${formatNumber(item.healthcare.dispenseToBase)} ${item.healthcare.stockUnit}.`
+    : crateItem
     ? `${formatNumber(getPiecesPerCrate(item))} pieces per crate`
     : boxItem
     ? `${formatNumber(getUnitsPerBox(item))} pieces per box`
     : `Quantity will be added in ${parseQuantity(item.quantity)?.unit || "the item's current unit"}.`;
   resetStockTopUpEditor();
+  medicineBatchFields.hidden = !medicine;
+  [medicineBatchNumber, medicineBatchExpiry, medicineBatchPurchaseCost].forEach(input => {
+    input.required = medicine;
+  });
+  medicineBatchPurchaseCost.value = medicine ? String(item.incoming || "") : "";
   stockTopUpModal.style.display = "flex";
   listenToStockTopUpAdditions(user.uid);
+  if (medicine) listenToMedicineBatches(user.uid);
   stockTopUpQuantity.focus();
 };
 
@@ -1279,7 +1529,13 @@ function closeStockTopUpModal() {
     stockTopUpAdditionsUnsubscribe();
     stockTopUpAdditionsUnsubscribe = null;
   }
+  if (medicineBatchesUnsubscribe) {
+    medicineBatchesUnsubscribe();
+    medicineBatchesUnsubscribe = null;
+  }
+  medicineBatchesForStockTopUp = [];
   stockTopUpAdditions = [];
+  stockTopUpAdditionsError = null;
 }
 
 cancelStockTopUpBtn?.addEventListener("click", closeStockTopUpModal);
@@ -1314,6 +1570,10 @@ stockTopUpHistoryBody?.addEventListener("click", async event => {
   }
 
   if (button.dataset.stockAdditionAction === "edit") {
+    if (isHealthcareMedicine(item)) {
+      alert("Medicine receipt details cannot be edited after recording. Remove the unused batch and receive it again.");
+      return;
+    }
     editingStockAdditionId = addition.id;
     stockTopUpDate.value = addition.stockDate || localDateKey(new Date());
     stockTopUpQuantity.value = addition.quantity;
@@ -1345,9 +1605,17 @@ stockTopUpHistoryBody?.addEventListener("click", async event => {
     const additionRef = doc(stockAdditionsRef, addition.id);
     const itemRef = doc(itemsRef, item.id);
     await runTransaction(db, async transaction => {
-      const [additionSnapshot, itemSnapshot] = await Promise.all([
+      const batchRef = isHealthcareMedicine(item) && addition.batchId
+        ? doc(medicineBatchesRef, addition.batchId)
+        : null;
+      const purchaseExpenseRef = addition.purchaseExpenseId
+        ? doc(expensesRef, addition.purchaseExpenseId)
+        : null;
+      const [additionSnapshot, itemSnapshot, batchSnapshot, expenseSnapshot] = await Promise.all([
         transaction.get(additionRef),
-        transaction.get(itemRef)
+        transaction.get(itemRef),
+        batchRef ? transaction.get(batchRef) : Promise.resolve(null),
+        purchaseExpenseRef ? transaction.get(purchaseExpenseRef) : Promise.resolve(null)
       ]);
       if (!additionSnapshot.exists() || !itemSnapshot.exists()) {
         throw new Error("The stock addition or inventory item no longer exists.");
@@ -1368,7 +1636,29 @@ stockTopUpHistoryBody?.addEventListener("click", async event => {
           (movementRef && !isStockAdditionMovement(movement, latestItem, user.uid, delta))) {
         throw new Error("The matching stock movement is missing or changed. No changes were made.");
       }
-      transaction.update(itemRef, adjustInventoryStock(latestItem, -delta));
+      if (isHealthcareMedicine(latestItem)) {
+        if (!batchRef || !batchSnapshot?.exists()) {
+          throw new Error("The medicine batch for this receipt is missing. No changes were made.");
+        }
+        const batch = batchSnapshot.data();
+        if (Number(batch.remainingQuantity) !== Number(batch.receivedQuantity)) {
+          throw new Error("This batch has already been dispensed and cannot be removed.");
+        }
+        transaction.delete(batchRef);
+      }
+      if (purchaseExpenseRef) {
+        if (!expenseSnapshot?.exists() || expenseSnapshot.data().uid !== user.uid ||
+            expenseSnapshot.data().purchaseBatchId !== addition.batchId) {
+          throw new Error("The medicine purchase record is missing or changed. No changes were made.");
+        }
+        transaction.delete(purchaseExpenseRef);
+      }
+      transaction.update(itemRef, {
+        ...adjustInventoryStock(latestItem, -delta),
+        ...(isHealthcareMedicine(latestItem) ? {
+          healthcareBatchVersion: (Number(latestItem.healthcareBatchVersion) || 0) + 1
+        } : {})
+      });
       transaction.delete(additionRef);
       if (movementRef) transaction.delete(movementRef);
     });
@@ -1402,6 +1692,13 @@ stockTopUpForm?.addEventListener("submit", async event => {
     alert("Enter a stock quantity greater than zero.");
     return;
   }
+  if (isHealthcareMedicine(item) &&
+      (!medicineBatchNumber.value.trim() || !medicineBatchExpiry.value ||
+       !Number.isFinite(Number(medicineBatchPurchaseCost.value)) ||
+       Number(medicineBatchPurchaseCost.value) < 0)) {
+    alert("Medicine receipts require a batch/lot number, expiry date, and valid purchase cost.");
+    return;
+  }
 
   let entry;
   try {
@@ -1427,7 +1724,7 @@ stockTopUpForm?.addEventListener("submit", async event => {
       stockAdditionsRef,
       where("uid", "==", user.uid)
     ));
-    const hasDuplicate = existingAdditions.docs.some(additionDoc => {
+    const hasDuplicate = !isHealthcareMedicine(item) && existingAdditions.docs.some(additionDoc => {
       if (additionDoc.id === editingStockAdditionId) return false;
       const addition = additionDoc.data();
       const existingUnit = String(addition.quantityUnit || "").trim().toUpperCase();
@@ -1444,10 +1741,17 @@ stockTopUpForm?.addEventListener("submit", async event => {
     const itemRef = doc(itemsRef, item.id);
     if (!isEditing) {
       const movementRef = doc(stockMovementsRef);
+      const medicineBatchRef = isHealthcareMedicine(item) ? doc(medicineBatchesRef) : null;
+      const purchaseTotal = medicineBatchRef
+        ? amount * Number(medicineBatchPurchaseCost.value)
+        : 0;
+      const purchaseExpenseRef = purchaseTotal > 0 ? doc(expensesRef) : null;
       const duplicateKey = encodeURIComponent(
         `${user.uid}|${item.id}|${selectedDate}|${amount}|${entry.normalizedUnit}`
       );
-      const additionRef = doc(stockAdditionsRef, duplicateKey);
+      const additionRef = medicineBatchRef
+        ? doc(stockAdditionsRef)
+        : doc(stockAdditionsRef, duplicateKey);
       await runTransaction(db, async transaction => {
         const [latestItemSnapshot, existingAdditionSnapshot] = await Promise.all([
           transaction.get(itemRef),
@@ -1482,12 +1786,63 @@ stockTopUpForm?.addEventListener("submit", async event => {
           unitsPerBox: latestEntry.unitsPerBox,
           piecesAdded: latestEntry.piecesAdded,
           unitsAdded: latestEntry.unitsAdded,
-          buyingPricePerUnit: Number(latestItem.incoming) || 0,
+          buyingPricePerUnit: medicineBatchRef
+            ? Number(medicineBatchPurchaseCost.value)
+            : Number(latestItem.incoming) || 0,
+          ...(medicineBatchRef ? {
+            purchaseCostTotal: amount * Number(medicineBatchPurchaseCost.value)
+          } : {}),
+          ...(medicineBatchRef ? {
+            medicineBaseQuantity: latestEntry.stockDelta,
+            batchId: medicineBatchRef.id,
+            purchaseExpenseId: purchaseExpenseRef?.id || null
+          } : {}),
           createdAt: new Date().toISOString(),
           movementId: isPetrolName(latestItem.name) ? null : movementRef.id
         };
-        transaction.update(itemRef, adjustInventoryStock(latestItem, latestEntry.stockDelta));
+        transaction.update(itemRef, {
+          ...adjustInventoryStock(latestItem, latestEntry.stockDelta),
+          ...(medicineBatchRef ? {
+            healthcareBatchVersion: (Number(latestItem.healthcareBatchVersion) || 0) + 1,
+            incoming: Number(medicineBatchPurchaseCost.value)
+          } : {})
+        });
         transaction.set(additionRef, additionData);
+        if (medicineBatchRef) {
+          const healthcare = validateMedicineConfig(latestItem.healthcare);
+          const purchaseCost = Number(medicineBatchPurchaseCost.value);
+          transaction.set(medicineBatchRef, {
+            uid: user.uid,
+            itemId: latestItem.id,
+            itemName: latestItem.name,
+            lotNumber: medicineBatchNumber.value.trim(),
+            expiryDate: medicineBatchExpiry.value,
+            supplier: medicineBatchSupplier.value.trim(),
+            receivedDate: selectedDate,
+            purchaseQuantity: amount,
+            purchaseUnit: healthcare.purchaseUnit,
+            receivedQuantity: latestEntry.stockDelta,
+            remainingQuantity: latestEntry.stockDelta,
+            stockUnit: healthcare.stockUnit,
+            unitCost: purchaseCost / healthcare.purchaseToBase,
+            createdAt: new Date().toISOString()
+          });
+        }
+        if (purchaseExpenseRef) {
+          transaction.set(purchaseExpenseRef, {
+            uid: user.uid,
+            date: selectedDate,
+            type: "Purchase",
+            costCategory: "medicine-purchase",
+            description: `Medicine stock purchase: ${latestItem.name} (Lot ${medicineBatchNumber.value.trim()})`,
+            paidToSupplier: "",
+            vendor: medicineBatchSupplier.value.trim(),
+            amount: purchaseTotal,
+            notes: `Linked to medicine batch ${medicineBatchRef.id}. Inventory cost is recognized as medicines are dispensed.`,
+            purchaseBatchId: medicineBatchRef.id,
+            createdAt: new Date().toISOString()
+          });
+        }
         if (!isPetrolName(latestItem.name)) {
           transaction.set(movementRef, {
             uid: user.uid,
@@ -1937,6 +2292,16 @@ function switchTab(tabId) {
   // Cache the selection in LocalStorage
   localStorage.setItem('bizPulse_activeTab', tabId);
   closeDashboardNavigation();
+  if (tabId === "expenses" && auth.currentUser) {
+    refreshSalesSection("expenses").catch(error => {
+      console.error("Unable to load expense inventory categories:", error);
+      const categoryStatus = document.getElementById("expenseCategoryStatus");
+      if (categoryStatus) {
+        categoryStatus.textContent =
+          `Unable to load inventory categories: ${error.message}`;
+      }
+    });
+  }
 }
 
 const dashboardRefreshButton = document.getElementById("dashboardRefreshButton");
@@ -2127,6 +2492,11 @@ changePasswordBtn.addEventListener("click", async () => {
    BUSINESS LOGIC
    ========================= */
 function calculateSingleItemProfit(item) {
+  if (isHealthcareMedicine(item)) {
+    const healthcare = validateMedicineConfig(item.healthcare);
+    return Number(item.outgoing) -
+      (Number(item.incoming) / healthcare.purchaseToBase) * healthcare.dispenseToBase;
+  }
   if (isAlcoholCrateInventoryItem(item)) {
     return (Number(item.pieceSellingPrice) || 0) -
       Number(item.incoming) / getPiecesPerCrate(item);
@@ -2139,6 +2509,12 @@ function isAlcoholCrateInventoryItem(item) {
 }
 
 function calculateProfit(item) {
+  if (isHealthcareMedicine(item)) {
+    const healthcare = validateMedicineConfig(item.healthcare);
+    const stockAmount = parseQuantity(item.quantity)?.amount ?? 0;
+    return (stockAmount / healthcare.dispenseToBase) *
+      calculateSingleItemProfit(item);
+  }
   if (isAlcoholCrateInventoryItem(item)) {
     const stockPieces = getCrateStockPieces(item);
     return stockPieces * calculateSingleItemProfit(item);
@@ -2160,6 +2536,57 @@ function calculateProfit(item) {
 }
 
 function updateCrateInventoryFields(item = null) {
+  const isMedicine = healthcareMedicineEnabled.checked;
+  const editingMedicine = isMedicine && Boolean(
+    item || (editId && isHealthcareMedicine(items.find(candidate => candidate.id === editId)))
+  );
+  healthcareMedicineInventoryFeature.hidden =
+    !healthcareMedicineFeatureEnabled && !editingMedicine;
+  healthcareMedicineEnabled.disabled =
+    Boolean(editId || editingMedicine) || !healthcareMedicineFeatureEnabled;
+  healthcareMedicineFields.hidden = !isMedicine;
+  [
+    medicineStockUnit,
+    medicinePurchaseUnit,
+    medicineDispenseUnit,
+    medicineDispenseToBase,
+    medicinePurchaseToBase
+  ].forEach(input => {
+    input.required = isMedicine;
+  });
+  [
+    [medicineStockUnit, medicineStockUnitOther],
+    [medicinePurchaseUnit, medicinePurchaseUnitOther],
+    [medicineDispenseUnit, medicineDispenseUnitOther]
+  ].forEach(([select, otherInput]) => {
+    const usesOtherUnit = select.value === "other";
+    otherInput.hidden = !usesOtherUnit;
+    otherInput.required = isMedicine && usesOtherUnit;
+  });
+  medicineOpeningBatch.required = isMedicine && !item;
+  medicineOpeningExpiry.required = isMedicine && !item;
+  if (isMedicine) {
+    gasTypeField.hidden = true;
+    gasTypeSelect.required = false;
+    outgoingPriceField.hidden = false;
+    outgoingPrice.required = true;
+    crateLoosePiecesField.hidden = true;
+    piecesPerCrateField.hidden = true;
+    boxUnitsField.hidden = true;
+    buyingCostPerPieceField.hidden = true;
+    pieceSellingPriceField.hidden = true;
+    const purchaseUnit = getMedicineUnitValue(medicinePurchaseUnit, medicinePurchaseUnitOther);
+    const dispenseUnit = getMedicineUnitValue(medicineDispenseUnit, medicineDispenseUnitOther);
+    incomingPriceLabel.textContent = `Buying Price per ${purchaseUnit || "purchase unit"}`;
+    outgoingPriceLabel.textContent = `Selling Price per ${dispenseUnit || "dispensing unit"}`;
+    quantityInput.placeholder = `Opening stock in ${purchaseUnit || "purchase units"}`;
+    if (purchaseUnit) appendQuantityUnit(quantityInput, purchaseUnit, true);
+    return;
+  }
+  medicineOpeningBatch.required = false;
+  medicineOpeningExpiry.required = false;
+  incomingPriceLabel.textContent = "Buying Price";
+  outgoingPriceLabel.textContent = "Selling Price";
   const boxItem = item ? isBoxItem(item) : itemPackagingTypeInput.value === "box";
   const crateItem = !boxItem && isCrateItem(item?.name || itemName.value);
   const showCrateFields = boxItem || crateItem;
@@ -2382,11 +2809,15 @@ function renderItems(filter = "") {
       <td>${item.name}${item.gasType
         ? `<br><small>${item.gasType === "refillable" ? "Refillable" : "Non-refillable"}</small>`
         : ""}</td>
-      <td>${isBoxItem(item) || isCrateItem(item.name)
+      <td>${isHealthcareMedicine(item)
+        ? `KES ${formatNumber(item.incoming)} / ${escapeQuantity(item.healthcare.purchaseUnit)}`
+        : isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.incoming)} / ${isBoxItem(item) ? "box" : "crate"}`
         : formatNumber(item.incoming)}</td>
       <td>${isAlcoholCrateInventoryItem(item)
         ? `KES ${formatCratePiecePrice(item)} / piece<br>KES ${formatNumber((Number(item.pieceSellingPrice) || 0) / 2)} / half piece`
+        : isHealthcareMedicine(item)
+        ? `KES ${formatNumber(item.outgoing)} / ${escapeQuantity(item.healthcare.dispenseUnit)}`
         : isBoxItem(item) || isCrateItem(item.name)
         ? `KES ${formatNumber(item.outgoing)} / ${isBoxItem(item) ? "box" : "crate"}<br>KES ${formatCratePiecePrice(item)} / ${isBoxItem(item) ? "unit" : "piece"}`
         : formatNumber(item.outgoing)}</td>
@@ -2614,9 +3045,62 @@ form.addEventListener("submit", async e => {
 
   const nameVal = itemName.value.trim();
   const quantity = parseQuantity(quantityInput.value);
+  let healthcare = null;
+  let inventoryAmount = quantity?.amount ?? 0;
+  if (healthcareMedicineEnabled.checked && !healthcareMedicineFeatureEnabled &&
+      !(editId && isHealthcareMedicine(items.find(item => item.id === editId)))) {
+    alert("Pharmacy and medicine dispensing is not enabled for this business. Ask your administrator to enable it.");
+    showLoadingIndicator(false);
+    return;
+  }
+  if (healthcareMedicineEnabled.checked) {
+    try {
+      healthcare = validateMedicineConfig({
+        stockUnit: getMedicineUnitValue(medicineStockUnit, medicineStockUnitOther),
+        purchaseUnit: getMedicineUnitValue(medicinePurchaseUnit, medicinePurchaseUnitOther),
+        purchaseToBase: medicinePurchaseToBase.value,
+        dispenseUnit: getMedicineUnitValue(medicineDispenseUnit, medicineDispenseUnitOther),
+        dispenseToBase: medicineDispenseToBase.value
+      });
+      if (isCrateItem(nameVal) || isBoxItem(nameVal) ||
+          itemPackagingTypeInput.value === "box") {
+        throw new Error("A medicine cannot also use crate or box inventory tracking.");
+      }
+      if (!quantity || (quantity.amount <= 0 && !editId)) {
+        throw new Error("Enter opening stock greater than zero in the purchase unit.");
+      }
+      if (quantity.unit && quantity.unit.toLowerCase() !== healthcare.purchaseUnit.toLowerCase()) {
+        throw new Error(`Opening stock must be entered in ${healthcare.purchaseUnit}.`);
+      }
+      if (editId) {
+        const existingMedicine = items.find(candidate => candidate.id === editId);
+        const existingQuantity = parseQuantity(existingMedicine?.quantity);
+        if (!isHealthcareMedicine(existingMedicine) || !existingQuantity) {
+          throw new Error("The medicine stock balance could not be verified. Refresh and try again.");
+        }
+        inventoryAmount = existingQuantity.amount;
+      } else {
+        inventoryAmount = toMedicineBaseQuantity(
+          healthcare,
+          quantity.amount,
+          healthcare.purchaseUnit
+        );
+      }
+      if (!editId && !medicineOpeningBatch.value.trim()) {
+        throw new Error("Enter the opening batch or lot number.");
+      }
+      if (!editId && !medicineOpeningExpiry.value) {
+        throw new Error("Enter the opening batch expiry date.");
+      }
+    } catch (error) {
+      alert(error.message);
+      showLoadingIndicator(false);
+      return;
+    }
+  }
   const boxItem = itemPackagingTypeInput.value === "box";
   const crateItem = !boxItem && isCrateItem(nameVal);
-  const gasItem = nameVal.toLowerCase().includes("gas");
+  const gasItem = !healthcare && nameVal.toLowerCase().includes("gas");
   if (gasItem && !gasTypeSelect.value) {
     alert("Choose whether this gas item is refillable or non-refillable.");
     showLoadingIndicator(false);
@@ -2678,13 +3162,14 @@ form.addEventListener("submit", async e => {
     return;
   }
   const alcoholCrate = crateItem && selectedCrateCategory === "alcohol";
-  if (isPetrolName(nameVal) && quantity.unit && !isLiterUnit(quantity.unit)) {
+  if (!healthcare && isPetrolName(nameVal) && quantity.unit && !isLiterUnit(quantity.unit)) {
     alert("Petrol inventory quantities must be recorded in liters (L).");
     showLoadingIndicator(false);
     return;
   }
-  const quantityUnit = isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" :
-    boxItem ? "BOXES" : quantity.unit;
+  const quantityUnit = healthcare?.stockUnit || (isPetrolName(nameVal) ? "L" : crateItem ? "CRATES" :
+    boxItem ? "BOXES" : quantity.unit);
+  const stockAmount = healthcare ? inventoryAmount : quantity.amount;
   const createdAt = new Date();
   const stockLedgerStartDate = new Date(createdAt);
   stockLedgerStartDate.setDate(stockLedgerStartDate.getDate() + 1);
@@ -2694,8 +3179,10 @@ form.addEventListener("submit", async e => {
     name_lowercase: nameVal.toLowerCase(),
     incoming: Number(incomingPrice.value),
     outgoing: alcoholCrate ? 0 : Number(outgoingPrice.value),
-    quantity: formatQuantity(quantity.amount, quantityUnit),
+    quantity: formatQuantity(stockAmount, quantityUnit),
+    ...(healthcare ? { healthcare } : {}),
     packagingType: boxItem ? "box" : null,
+    ...(healthcare && !editId ? { healthcareBatchVersion: 1 } : {}),
     crateCategory: crateItem ? selectedCrateCategory : null,
     gasType: gasItem ? gasTypeSelect.value : null,
     loosePieces: crateItem ? loosePieces : null,
@@ -2703,17 +3190,22 @@ form.addEventListener("submit", async e => {
     unitsPerBox: boxItem ? unitsPerBox : null,
     looseUnits: boxItem ? loosePieces : null,
     pieceSellingPrice: crateItem || boxItem ? Number(pieceSellingPriceInput.value) : null,
-    includeInAllAnalytics: includeInAllAnalyticsInput.checked,
-    includeInAllAnalyticsManuallySet: analyticsInclusionManuallySet,
+    includeInAllAnalytics: !pharmacyOnlyInventory && includeInAllAnalyticsInput.checked,
+    includeInAllAnalyticsManuallySet:
+      !pharmacyOnlyInventory && analyticsInclusionManuallySet,
     uid: user.uid, // ✅ REQUIRED
     createdAt: createdAt.toISOString(),
-    ...(!isPetrolName(nameVal) ? {
-      stockLedgerBaselineUnits: crateItem
+    ...(!isPetrolName(nameVal) || healthcare ? {
+      stockLedgerBaselineUnits: healthcare
+        ? inventoryAmount
+        : crateItem
         ? quantity.amount * piecesPerCrate + loosePieces
         : boxItem
         ? quantity.amount * unitsPerBox + loosePieces
         : quantity.amount,
-      stockLedgerUnit: crateItem ? "PIECES" : boxItem ? "UNITS" : quantityUnit.toUpperCase(),
+      stockLedgerUnit: healthcare
+        ? healthcare.stockUnit.toUpperCase()
+        : crateItem ? "PIECES" : boxItem ? "UNITS" : quantityUnit.toUpperCase(),
       stockLedgerBaselineAt: createdAt.toISOString(),
       stockLedgerStartDate: localDateKey(stockLedgerStartDate),
       stockLedgerValid: true
@@ -2799,10 +3291,51 @@ form.addEventListener("submit", async e => {
       });
       editId = null;
     } else {
-      await addDoc(itemsRef, data);
+      if (healthcare) {
+        const itemRef = doc(itemsRef);
+        const batchRef = doc(medicineBatchesRef);
+        const write = writeBatch(db);
+        write.set(itemRef, data);
+        write.set(batchRef, {
+          uid: user.uid,
+          itemId: itemRef.id,
+          itemName: nameVal,
+          lotNumber: medicineOpeningBatch.value.trim(),
+          expiryDate: medicineOpeningExpiry.value,
+          supplier: medicineOpeningSupplier.value.trim(),
+          receivedDate: localDateKey(createdAt),
+          purchaseQuantity: quantity.amount,
+          purchaseUnit: healthcare.purchaseUnit,
+          receivedQuantity: inventoryAmount,
+          remainingQuantity: inventoryAmount,
+          stockUnit: healthcare.stockUnit,
+          unitCost: Number(incomingPrice.value) / healthcare.purchaseToBase,
+          createdAt: createdAt.toISOString()
+        });
+        await write.commit();
+      } else {
+        await addDoc(itemsRef, data);
+      }
     }
 
     form.reset();
+    clearSavedMedicineOptions();
+    healthcareMedicineEnabled.checked = false;
+    healthcareMedicineEnabled.disabled = false;
+    [
+      medicineStockUnit,
+      medicineStockUnitOther,
+      medicinePurchaseUnit,
+      medicinePurchaseUnitOther,
+      medicinePurchaseToBase,
+      medicineDispenseUnit,
+      medicineDispenseUnitOther,
+      medicineDispenseToBase
+    ].forEach(input => {
+      input.disabled = false;
+      input.readOnly = false;
+    });
+    quantityInput.readOnly = false;
     crateLoosePiecesInput.value = "0";
     piecesPerCrateInput.value = String(PIECES_PER_CRATE);
     boxUnitsInput.value = "1";
@@ -2812,7 +3345,8 @@ form.addEventListener("submit", async e => {
     fuelEnergyItemSelect.value = "";
     itemPackagingTypeInput.value = "";
     selectedCrateCategory = "standard";
-    includeInAllAnalyticsInput.disabled = false;
+    includeInAllAnalyticsInput.disabled = pharmacyOnlyInventory ||
+      isStrictlyExcludedFromGeneralAnalyticsName(itemName.value);
     updateCrateInventoryFields();
     analyticsInclusionManuallySet = false;
     loadItems(user.uid);
@@ -2832,13 +3366,45 @@ window.editItem = id => {
   const item = items.find(i => i.id === id);
   if (!item) return;
 
+  clearSavedMedicineOptions();
+  healthcareMedicineEnabled.checked = isHealthcareMedicine(item);
+  healthcareMedicineEnabled.disabled = true;
+  const healthcare = item.healthcare;
+  setMedicineUnitValue(medicineStockUnit, medicineStockUnitOther, healthcare?.stockUnit);
+  setMedicineUnitValue(medicinePurchaseUnit, medicinePurchaseUnitOther, healthcare?.purchaseUnit);
+  medicinePurchaseToBase.value = healthcare?.purchaseToBase ?? "";
+  setMedicineUnitValue(medicineDispenseUnit, medicineDispenseUnitOther, healthcare?.dispenseUnit);
+  medicineDispenseToBase.value = healthcare?.dispenseToBase ?? "";
+  if (healthcare && ![...medicineDispenseToBase.options].some(option =>
+    Number(option.value) === Number(healthcare.dispenseToBase)
+  )) {
+    const savedRatio = document.createElement("option");
+    savedRatio.value = String(healthcare.dispenseToBase);
+    savedRatio.textContent = `${healthcare.dispenseToBase} (saved setting)`;
+    savedRatio.dataset.savedSetting = "true";
+    medicineDispenseToBase.add(savedRatio);
+  }
+  medicineDispenseToBase.value = healthcare?.dispenseToBase ?? "";
+  [
+    medicineStockUnit,
+    medicineStockUnitOther,
+    medicinePurchaseUnit,
+    medicinePurchaseUnitOther,
+    medicinePurchaseToBase,
+    medicineDispenseUnit,
+    medicineDispenseUnitOther,
+    medicineDispenseToBase
+  ].forEach(input => {
+    input.disabled = Boolean(healthcare);
+    input.readOnly = Boolean(healthcare);
+  });
   itemName.value = item.name;
   itemPackagingTypeInput.value = isBoxItem(item) ? "box" : "";
   const strictlyExcluded = isStrictlyExcludedFromGeneralAnalyticsName(item.name);
-  includeInAllAnalyticsInput.disabled = strictlyExcluded;
-  analyticsInclusionManuallySet = !strictlyExcluded &&
+  includeInAllAnalyticsInput.disabled = pharmacyOnlyInventory || strictlyExcluded;
+  analyticsInclusionManuallySet = !pharmacyOnlyInventory && !strictlyExcluded &&
     item.includeInAllAnalyticsManuallySet === true;
-  includeInAllAnalyticsInput.checked = strictlyExcluded
+  includeInAllAnalyticsInput.checked = pharmacyOnlyInventory || strictlyExcluded
     ? false
     : isAccessoryItemName(item.name) && !analyticsInclusionManuallySet
       ? false
@@ -2847,12 +3413,18 @@ window.editItem = id => {
         : !isExcludedFromAllAnalyticsName(item.name) && !isAccessoryItemName(item.name);
   incomingPrice.value = item.incoming;
   outgoingPrice.value = item.outgoing;
-  quantityInput.value = typeof item.quantity === "string"
-    ? item.quantity
-    : String(item.quantity);
-  appendQuantityUnit(quantityInput, "L", isPetrolName(item.name));
-  appendQuantityUnit(quantityInput, isBoxItem(item) ? "BOXES" : "CRATES",
-    isBoxItem(item) || isCrateItem(item.name));
+  const currentQuantity = parseQuantity(item.quantity);
+  quantityInput.value = healthcare && currentQuantity
+    ? `${currentQuantity.amount / healthcare.purchaseToBase} ${healthcare.purchaseUnit}`
+    : typeof item.quantity === "string"
+      ? item.quantity
+      : String(item.quantity);
+  quantityInput.readOnly = Boolean(healthcare);
+  if (!healthcare) {
+    appendQuantityUnit(quantityInput, "L", isPetrolName(item.name));
+    appendQuantityUnit(quantityInput, isBoxItem(item) ? "BOXES" : "CRATES",
+      isBoxItem(item) || isCrateItem(item.name));
+  }
   crateLoosePiecesInput.value = String(Number(item.loosePieces) || 0);
   if (isBoxItem(item)) crateLoosePiecesInput.value = String(Number(item.looseUnits) || 0);
   piecesPerCrateInput.value = String(getPiecesPerCrate(item));
@@ -2868,6 +3440,11 @@ window.editItem = id => {
    DELETE
    ========================= */
 window.deleteItem = async (id) => {
+  const item = items.find(candidate => candidate.id === id);
+  if (isHealthcareMedicine(item)) {
+    alert("Medicine items with batch and dispensing history cannot be deleted. Keep the record for traceability.");
+    return;
+  }
   if (confirm("Delete this item?")) {
     showLoadingIndicator(true);
     try {
@@ -2992,7 +3569,7 @@ importCsvInput.addEventListener("change", (event) => {
         gasType: ["refillable", "non-refillable"].includes(
           String(itemData["gas type"] || "").toLowerCase()
         ) ? String(itemData["gas type"]).toLowerCase() : null,
-        includeInAllAnalytics:
+        includeInAllAnalytics: !pharmacyOnlyInventory &&
           !isExcludedFromAllAnalyticsName(itemNameFromCsv) &&
           !isAccessoryItemName(itemNameFromCsv),
         includeInAllAnalyticsManuallySet: false,
