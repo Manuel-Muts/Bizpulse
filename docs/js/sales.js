@@ -838,8 +838,7 @@ function renderAnalyticsGroupOptions(inventoryItems) {
       isAnalyticsInventoryFeatureEnabled("crateItems") &&
         inventoryItems.some(isSodaAnalyticsItem)],
     [ALL_CRATE_ANALYTICS_FILTER, "All Crate Items (crates + pieces)",
-      isAnalyticsInventoryFeatureEnabled("crateItems") &&
-        inventoryItems.some(isCrateAnalyticsItem)],
+      inventoryItems.some(isCrateAnalyticsItem)],
     [ALL_ALCOHOL_ANALYTICS_FILTER, "All Alcohol Items (pieces + half pieces)",
       isAnalyticsInventoryFeatureEnabled("alcoholItems") &&
         inventoryItems.some(isAlcoholAnalyticsItem)],
@@ -2090,18 +2089,30 @@ function isSodaAnalyticsItem(item) {
 }
 
 function isCrateAnalyticsItem(item) {
-  return Boolean(item && isCrateItem(item.name));
+  return Boolean(item && (
+    isCrateItem(item.name) ||
+    item.crateCategory === "standard" ||
+    item.crateCategory === "alcohol"
+  ));
 }
 
 function isAlcoholAnalyticsItem(item) {
-  return Boolean(item && item.crateCategory === "alcohol" && isCrateItem(item.name));
+  return Boolean(item && item.crateCategory === "alcohol" && isCrateAnalyticsItem(item));
 }
 
 function isAlcoholAnalyticsSale(sale) {
   const item = analyticsItemsById.get(sale.itemId) ||
     itemsArray.find(candidate => candidate.id === sale.itemId);
   return isAlcoholAnalyticsItem(item) ||
-    (sale.crateCategory === "alcohol" && isCrateItem(sale.itemName || ""));
+    (sale.crateCategory === "alcohol" &&
+      isCrateAnalyticsItem({ name: sale.itemName, crateCategory: sale.crateCategory }));
+}
+
+function isCrateAnalyticsSale(sale) {
+  const item = analyticsItemsById.get(sale.itemId) ||
+    itemsArray.find(candidate => candidate.id === sale.itemId) ||
+    { name: sale.itemName, crateCategory: sale.crateCategory };
+  return isCrateAnalyticsItem(item);
 }
 
 function isHalfPieceSale(sale) {
@@ -2140,7 +2151,11 @@ function getGroupedAnalyticsSales(filterValue) {
   return allSalesForAnalytics.filter(sale => {
     const item = analyticsItemsById.get(sale.itemId) ||
       itemsArray.find(candidate => candidate.id === sale.itemId) ||
-      { name: sale.itemName, gasType: sale.gasType };
+      {
+        name: sale.itemName,
+        gasType: sale.gasType,
+        crateCategory: sale.crateCategory
+      };
     return matchesAnalyticsGroup(item, filterValue);
   });
 }
@@ -4230,7 +4245,7 @@ function getAnalyticsQuantityDisplay(dateKeys) {
     const quantity = Number(sale.quantity) || 0;
     const unit = String(sale.quantityUnit || "CRATES").toLowerCase();
     if (isAllCratesSelected) {
-      if (!isCrateItem(sale.itemName || "")) return;
+      if (!isCrateAnalyticsSale(sale)) return;
     }
     if (selectedItemId === ALL_ALCOHOL_ANALYTICS_FILTER &&
         !isAlcoholAnalyticsSale(sale)) return;
@@ -4292,7 +4307,7 @@ function getAnalyticsSaleTypeQuantities(dateKeys) {
   sales.forEach(sale => {
     if (!selectedDates.has(dateKey(new Date(sale.createdAt)))) return;
     if (isServiceSale(sale)) return;
-    if (selectedItemId === ALL_CRATE_ANALYTICS_FILTER && !isCrateItem(sale.itemName || "")) return;
+    if (selectedItemId === ALL_CRATE_ANALYTICS_FILTER && !isCrateAnalyticsSale(sale)) return;
     if (selectedItemId === ALL_ALCOHOL_ANALYTICS_FILTER &&
         !isAlcoholAnalyticsSale(sale)) return;
 

@@ -2808,7 +2808,7 @@ form input, form button {
 .medicine-config-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  gap: 14px 16px;
 }
 
 .medicine-config-field {
@@ -2846,19 +2846,23 @@ form input, form button {
   margin: 14px 0 0;
 }
 
-@media (min-width: 1201px) {
-  .medicine-config-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 600px) {
+@media (min-width: 601px) and (max-width: 900px) {
   .medicine-config-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (min-width: 601px) and (max-width: 900px) {
+@media (min-width: 901px) {
+  html[data-pharmacy-only-inventory="true"] #inventorySection #itemForm {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  html[data-pharmacy-only-inventory="true"] #inventorySection #itemForm > #healthcareMedicineInventoryFeature {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
   .medicine-config-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4254,6 +4258,11 @@ table tr:hover {
     font-size: 12px;
   }
 
+  .medicine-config-intro {
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+
   #inventorySection #itemForm #saveItemBtn {
     min-height: 36px;
     padding: 6px 8px;
@@ -4301,6 +4310,23 @@ table tr:hover {
 
   #inventorySection .inventory-items-table td:last-child button:nth-of-type(3) {
     background: #dc2626;
+  }
+}
+
+@media (max-width: 420px) {
+  .medicine-config-panel {
+    padding: 12px;
+  }
+
+  .medicine-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .medicine-config-field input,
+  .medicine-config-field select {
+    min-height: 44px;
+    font-size: 16px;
   }
 }
 

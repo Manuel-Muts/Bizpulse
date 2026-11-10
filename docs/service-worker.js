@@ -1,4 +1,4 @@
-const CACHE_NAME = "bizpulse-shell-v19";
+const CACHE_NAME = "bizpulse-shell-v20";
 const SHELL_ASSETS = [
   "/offline.html",
   "/css/style.css",
